@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Tablero Kanban · Bitácora GRM{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+  <!-- Toolbar superior -->
+  <div class="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <h2 class="text-sm font-semibold text-slate-700">Tablero de Incidencias</h2>
+      <span class="text-xs text-slate-500">Arrastra las tarjetas entre columnas para cambiar el estado</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+        Filtros
+      </button>
+      <button class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white"
+              hx-get="/tickets/nuevo" hx-target="#modal-content" hx-swap="innerHTML">
+        + Nueva Incidencia
+      </button>
+    </div>
+  </div>
+
+  <!-- Contenedor scrollable horizontal -->
+  <div class="flex-1 overflow-x-auto overflow-y-hidden">
+    <div id="kanban-board" class="h-full flex gap-3 p-4 min-w-max">
+      {% for estado in estados %}
+        {% set tickets_col = tickets_por_estado.get(estado.id, []) %}
+        <div id="column-{{ estado.id }}"
+             class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col"
+             data-estado-id="{{ estado.id }}"
+             data-estado-nombre="{{ estado.nombre }}">
+          <div class="flex items-center justify-between mb-3 px-1 flex-shrink-0">
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: {{ estado.color }}"></span>
+              <h3 class="font-semibold text-sm text-slate-700 uppercase tracking-wide">{{ estado.nombre }}</h3>
+            </div>
+            <span class="text-xs font-mono text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200"
+                  id="count-{{ estado.id }}">{{ tickets_col|length }}</span>
+          </div>
+          <div class="kanban-list flex-1 overflow-y-auto min-h-[200px] pr-1 pb-2"
+               data-estado-id="{{ estado.id }}">
+            {% for ticket in tickets_col %}
+              {% include "kanban/partials/tarjeta.html" with context %}
+            {% else %}
+              <div class="empty-column text-center text-xs text-slate-400 py-8 italic">
+                Arrastra una tarjeta aquí
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Modal para crear tickets -->
+<div id="modal-content"></div>
+{% endblock %}

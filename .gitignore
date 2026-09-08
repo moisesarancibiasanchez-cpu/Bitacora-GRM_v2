@@ -908,3 +908,18 @@
 # This allows outer git to track inner repo files while preserving inner git history
 **/.git_backup_by_agent
 **/.git_backup_by_agent/
+
+# Bitácora GRM specific
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+celerybeat-schedule
+celerybeat-schedule.db

@@ -1,0 +1,55 @@
+"""
+Fragmento Jinja2: tarjeta individual del Kanban.
+Se devuelve al frontend cuando hay éxito (HTMX hace outerHTML swap).
+"""
+from jinja2 import Template
+
+CARD_TEMPLATE = Template("""
+<div id="ticket-{{ ticket.id }}"
+     class="kanban-card group cursor-move rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2 hover:shadow-md transition-all duration-150"
+     data-ticket-id="{{ ticket.id }}"
+     data-prioridad="{{ ticket.prioridad.value }}"
+     data-estado="{{ ticket.estado.nombre }}">
+  <div class="flex items-start justify-between gap-2 mb-1.5">
+    <span class="font-mono text-[10px] tracking-wide text-slate-500 uppercase">{{ ticket.codigo }}</span>
+    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold
+                 {% if ticket.prioridad.value == 'critica' %}bg-red-100 text-red-700
+                 {% elif ticket.prioridad.value == 'alta' %}bg-orange-100 text-orange-700
+                 {% elif ticket.prioridad.value == 'media' %}bg-yellow-100 text-yellow-700
+                 {% else %}bg-slate-100 text-slate-600{% endif %}">
+      {{ ticket.prioridad.value|upper }}
+    </span>
+  </div>
+  <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2">{{ ticket.titulo }}</h4>
+  <p class="text-xs text-slate-500 line-clamp-2 mb-2">{{ ticket.descripcion }}</p>
+  <div class="flex items-center justify-between text-[11px] text-slate-500">
+    <div class="flex items-center gap-1">
+      {% if ticket.asignado %}
+        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold">
+          {{ ticket.asignado.nombre_completo[:1]|upper }}
+        </span>
+        <span>{{ ticket.asignado.nombre_completo.split(' ')[0] }}</span>
+      {% else %}
+        <span class="italic opacity-60">sin asignar</span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-1">
+      {% if ticket.sla_cumplido == 0 %}
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500" title="SLA vencido"></span>
+        <span class="text-red-600">SLA</span>
+      {% elif ticket.sla_cumplido == -1 and ticket.fecha_vencimiento_sla %}
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" title="SLA próximo"></span>
+        <span class="text-amber-600">SLA</span>
+      {% elif ticket.sla_cumplido == 1 %}
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" title="SLA OK"></span>
+        <span class="text-emerald-600">SLA</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+""")
+
+
+def render_tarjeta(ticket) -> str:
+    """Renderiza la tarjeta de un ticket a HTML."""
+    return CARD_TEMPLATE.render(ticket=ticket)
