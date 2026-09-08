@@ -220,16 +220,25 @@ def info():
     }
 
 
-# === WhiteNoise wrap final (sirve /static con compresión y caché) ===
-# Solo si está instalado y NO estamos en modo debug, para no romper el
-# hot-reload de Jinja. En debug dejamos StaticFiles de FastAPI.
+# === Compresión estática en producción ===
+# WhiteNoise 6.x expone una clase WSGI (no ASGI middleware). Para integrarla
+# con FastAPI/ASGI necesitaríamos un adaptador (a2wsgi). Por simplicidad
+# y robustez usamos `StaticFiles` de FastAPI (que es nativo ASGI) y
+# dejamos WhiteNoise instalado solo como referencia para el entorno WSGI
+# (gunicorn lo podría usar si se importa vía `wsgi.py`).
+#
+# Activar WhiteNoise solo si el adaptador ASGI está disponible
+# (a2wsgi) Y no estamos en debug. De lo contrario, StaticFiles hace
+# el trabajo perfectamente.
 if HAS_WHITENOISE and not settings.DEBUG:
-    # WhiteNoise intercepta solo /static/* dejando pasar el resto a FastAPI.
-    # Lo añadimos como sub-app, no como wrap completo.
-    from whitenoise import WhiteNoise
-    wn = WhiteNoise(app, root=str(STATIC_DIR), prefix="/static/", max_age=31536000)
-    # WhiteNoise maneja /static; lo demás lo maneja FastAPI.
-    # Para que ambos coexistan correctamente, hacemos que WhiteNoise
-    # sea la app principal y forwardee a FastAPI.
-    app = wn
-    logger.info("WhiteNoise activado para servir /static/")
+    try:
+        from a2wsgi import ASGIMiddleware  # type: ignore
+        app = ASGIMiddleware(app)
+        logger.info("a2wsgi+WhiteNoise ASGIMiddleware activado")
+    except ImportError:
+        # Sin a2wsgi no podemos integrar WhiteNoise con ASGI; StaticFiles
+        # sigue siendo válido.
+        logger.info(
+            "WhiteNoise instalado pero a2wsgi no disponible; "
+            "sirviendo /static con StaticFiles de FastAPI"
+        )
