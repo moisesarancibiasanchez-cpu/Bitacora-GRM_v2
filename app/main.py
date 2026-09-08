@@ -2,18 +2,26 @@
 Aplicación principal FastAPI - Bitácora GRM.
 """
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.v1.router import api_router
 from app.core.config import settings
 
+# Importante: importar whitenoise SOLO si está disponible. Si falta el
+# paquete (modo dev minimalista) caemos al StaticFiles de FastAPI.
+try:
+    from whitenoise import WhiteNoise
+    HAS_WHITENOISE = True
+except ImportError:  # pragma: no cover
+    HAS_WHITENOISE = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +33,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicialización al arranque (crear tablas si no existen)."""
-    if settings.DEBUG:
+    if settings.DEBUG or os.getenv("AUTO_INIT_DB", "false").lower() == "true":
         try:
             from app.db.init_db import init_database
             init_database()
@@ -52,9 +60,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === Archivos estáticos ===
+# === Archivos estáticos (StaticFiles siempre; WhiteNoise opcional en prod) ===
 BASE_DIR = Path(__file__).resolve().parent
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+STATIC_DIR = BASE_DIR / "static"
+
+# En dev y prod servimos /static con StaticFiles. En producción, si
+# WhiteNoise está disponible, lo añadimos al final para aportar
+# compresión brotli/gzip y caché de cabeceras.
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # === Templates ===
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -143,7 +156,80 @@ async def catalogos_page(request: Request):
         db.close()
 
 
+# === Health check robusto (usado por Railway y por balanceadores) ===
 @app.get("/health")
 def health():
-    """Health-check del sistema."""
-    return {"status": "ok", "app": settings.APP_NAME, "version": settings.APP_VERSION}
+    """Verifica estado del servicio: app, BD y Redis."""
+    status = {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "database": "unknown",
+        "redis": "unknown",
+    }
+    http_code = 200
+
+    # 1) Verificar base de datos
+    try:
+        from sqlalchemy import text
+        from app.db.session import engine
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        status["database"] = "ok"
+    except Exception as e:
+        status["database"] = f"error: {e}"
+        status["status"] = "degraded"
+        http_code = 503
+
+    # 2) Verificar Redis (si está configurado y disponible)
+    try:
+        import redis
+        client = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+        if client.ping():
+            status["redis"] = "ok"
+        else:
+            status["redis"] = "error: ping returned false"
+            status["status"] = "degraded"
+            http_code = 503
+    except Exception as e:
+        # Redis puede no estar en modo demo; no marcamos como crítico
+        status["redis"] = f"unavailable: {e}"
+
+    return JSONResponse(status, status_code=http_code)
+
+
+@app.get("/ready")
+def ready():
+    """Readiness check: solo indica que el proceso arrancó (no valida deps)."""
+    return {"status": "ready", "app": settings.APP_NAME}
+
+
+@app.get("/info")
+def info():
+    """Información del entorno (útil para debugging)."""
+    return {
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "debug": settings.DEBUG,
+        "port": int(os.getenv("PORT", "8000")),
+        "database_url": (settings.get_database_url().split("@")[-1]
+                         if "@" in settings.get_database_url()
+                         else "sqlite"),
+        "redis_configured": bool(settings.REDIS_URL),
+        "celery_broker_configured": bool(settings.CELERY_BROKER_URL),
+    }
+
+
+# === WhiteNoise wrap final (sirve /static con compresión y caché) ===
+# Solo si está instalado y NO estamos en modo debug, para no romper el
+# hot-reload de Jinja. En debug dejamos StaticFiles de FastAPI.
+if HAS_WHITENOISE and not settings.DEBUG:
+    # WhiteNoise intercepta solo /static/* dejando pasar el resto a FastAPI.
+    # Lo añadimos como sub-app, no como wrap completo.
+    from whitenoise import WhiteNoise
+    wn = WhiteNoise(app, root=str(STATIC_DIR), prefix="/static/", max_age=31536000)
+    # WhiteNoise maneja /static; lo demás lo maneja FastAPI.
+    # Para que ambos coexistan correctamente, hacemos que WhiteNoise
+    # sea la app principal y forwardee a FastAPI.
+    app = wn
+    logger.info("WhiteNoise activado para servir /static/")

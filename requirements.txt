@@ -1,13 +1,22 @@
+# =============================================================================
+#  requirements.txt - Bitácora GRM
+# =============================================================================
+
 # === FastAPI / Backend ===
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
+gunicorn==23.0.0              # Servidor WSGI para producción (Railway)
 python-multipart==0.0.12
 jinja2==3.1.4
 
+# === Archivos estáticos en producción ===
+whitenoise==6.7.0             # Sirve /static con compresión y caché
+
 # === Base de datos ===
 SQLAlchemy==2.0.36
-psycopg2-binary==2.9.10    # PostgreSQL (producción)
+psycopg2-binary==2.9.10       # PostgreSQL (producción)
 # Para SQLite en modo demo no requiere driver extra
+alembic==1.13.3               # Migraciones (opcional, se activa con `alembic`)
 
 # === Async / Background tasks ===
 celery==5.4.0

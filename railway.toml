@@ -1,0 +1,30 @@
+# =============================================================================
+#  railway.toml - Bitácora GRM
+#  Configuración de despliegue para Railway (Railpack builder)
+# =============================================================================
+[build]
+builder = "NIXPACKS"
+buildCommand = "pip install --upgrade pip && pip install -r requirements.txt"
+
+[deploy]
+startCommand = "bash start.sh"
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+# === Variables de entorno por defecto ===
+# (las sensibles se setean en el panel de Railway, no en este archivo)
+[env]
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+APP_VERSION = "0.1.0"
+DEBUG = "false"
+USE_SQLITE = "false"
+
+# === Tres servicios sugeridos en Railway ===
+# 1) web  -> este mismo servicio (FastAPI)
+# 2) worker -> mismo repo, comando "celery ... worker"
+# 3) beat   -> mismo repo, comando "celery ... beat"
+# Crear los servicios adicionales desde el dashboard de Railway apuntando al
+# mismo repositorio y ajustar el startCommand según el Procfile.
