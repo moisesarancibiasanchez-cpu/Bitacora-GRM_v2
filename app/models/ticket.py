@@ -88,6 +88,54 @@ class Ticket(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="Auditoria.created_at.desc()",
     )
+    # === Relaciones de funcionalidades estilo Trello ===
+    etiquetas = relationship(
+        "Etiqueta",
+        secondary="ticket_etiquetas",
+        back_populates="tickets",
+    )
+    checklists = relationship(
+        "Checklist",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="Checklist.orden",
+    )
+    comentarios = relationship(
+        "Comentario",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="Comentario.created_at.desc()",
+    )
+    adjuntos = relationship(
+        "Adjunto",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="Adjunto.created_at.desc()",
+    )
+
+    @property
+    def total_comentarios(self) -> int:
+        return len(self.comentarios) if self.comentarios else 0
+
+    @property
+    def total_adjuntos(self) -> int:
+        return len(self.adjuntos) if self.adjuntos else 0
+
+    @property
+    def total_checklists(self) -> int:
+        return len(self.checklists) if self.checklists else 0
+
+    @property
+    def progreso_checklists(self) -> dict:
+        """Progreso agregado de todas las checklists del ticket."""
+        total = 0
+        completados = 0
+        for c in (self.checklists or []):
+            prog = c.progreso
+            total += prog["total"]
+            completados += prog["completados"]
+        porcentaje = (completados / total * 100) if total > 0 else 0
+        return {"total": total, "completados": completados, "porcentaje": round(porcentaje, 1)}
 
     __table_args__ = (
         Index("ix_ticket_estado_prioridad", "estado_id", "prioridad"),
