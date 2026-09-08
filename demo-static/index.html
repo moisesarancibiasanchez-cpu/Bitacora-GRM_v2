@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitácora GRM · Demo Interactivo (Funcionalidades Trello + ITSM)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: 'Inter', system-ui, sans-serif; }
+    body { overflow: hidden; }
+    .kanban-card { user-select: none; transition: all 0.15s ease; cursor: pointer; }
+    .kanban-card:hover { transform: translateY(-1px); border-color: #cbd5e1; box-shadow: 0 4px 12px -2px rgba(0,0,0,0.06); }
+    .kanban-ghost { opacity: 0.4; background: #e0e7ff !important; border: 2px dashed #6366f1 !important; }
+    .kanban-drag { cursor: grabbing !important; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15) !important; transform: rotate(2deg); }
+    .kanban-list.drag-over { background-color: rgba(99, 102, 241, 0.08); border-radius: 0.5rem; }
+    .toast { animation: slideIn 0.25s ease-out; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .kanban-list::-webkit-scrollbar { width: 6px; }
+    .kanban-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .demo-banner { background: linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899); color: white; }
+    .nav-link { transition: all 0.15s; }
+    .nav-link.active { background: #eef2ff; color: #4f46e5; }
+    .nav-link:not(.active):hover { background: #f8fafc; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .modal-backdrop { background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(2px); }
+    .label-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 500; color: white; }
+    .checklist-progress-bar { height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden; }
+    .checklist-progress-fill { height: 100%; background: #10b981; transition: width 0.3s ease; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 9999px; font-size: 10px; font-weight: 500; }
+    .mention { background: #dbeafe; color: #1d4ed8; padding: 1px 4px; border-radius: 3px; font-weight: 500; }
+    .comment-bubble { position: relative; }
+    .comment-bubble::before { content: ''; position: absolute; left: -8px; top: 12px; border: 8px solid transparent; border-right-color: white; }
+    .calendar-day { min-height: 90px; }
+    .calendar-day:hover { background: #f8fafc; }
+    .rule-card { transition: all 0.2s; }
+    .rule-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px -2px rgba(0,0,0,0.08); }
+    .pulse-dot { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800">
+
+  <!-- Banner -->
+  <div class="demo-banner px-4 py-2 text-xs flex items-center justify-between flex-shrink-0">
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-2 h-2 bg-white rounded-full pulse-dot"></span>
+      <strong>Demo Interactivo</strong> · Simulación de Bitácora GRM v2 con todas las funcionalidades de Trello + gobernanza ITSM. Backend FastAPI + PostgreSQL + Celery en GitHub.
+    </div>
+    <a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" class="underline hover:no-underline font-medium">
+      Ver código fuente →
+    </a>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 shadow-sm flex-shrink-0">
+    <div class="px-4 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">GRM</div>
+        <div>
+          <h1 class="text-base font-semibold text-slate-800">Bitácora GRM</h1>
+          <p class="text-[11px] text-slate-500 -mt-0.5">Módulo de Incidencias · ITSM + Kanban</p>
+        </div>
+      </div>
+
+      <nav class="flex items-center gap-1 text-sm flex-1 justify-center">
+        <a href="#" data-view="board" class="nav-link active px-3 py-1.5 rounded-md font-medium" onclick="switchView('board', event)">📋 Tablero</a>
+        <a href="#" data-view="table" class="nav-link px-3 py-1.5 rounded-md font-medium text-slate-700" onclick="switchView('table', event)">📊 Tabla</a>
+        <a href="#" data-view="calendar" class="nav-link px-3 py-1.5 rounded-md font-medium text-slate-700" onclick="switchView('calendar', event)">📅 Calendario</a>
+        <a href="#" data-view="butler" class="nav-link px-3 py-1.5 rounded-md font-medium text-slate-700" onclick="switchView('butler', event)">🤖 Butler</a>
+        <a href="#" data-view="search" class="nav-link px-3 py-1.5 rounded-md font-medium text-slate-700" onclick="switchView('search', event)">🔍 Búsqueda</a>
+      </nav>
+
+      <div class="flex items-center gap-2 text-xs flex-shrink-0">
+        <span class="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">● Online</span>
+        <span class="text-slate-600 hidden sm:inline">Carlos Ramírez</span>
+        <select id="rol-switcher" class="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-medium">
+          <option value="solicitante">solicitante</option>
+          <option value="agente">agente</option>
+          <option value="agente_senior" selected>agente_senior</option>
+          <option value="administrador">administrador</option>
+        </select>
+        <button class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white" onclick="openNewTicketModal()">+ Nueva</button>
+      </div>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="border-t border-slate-200 bg-slate-50 px-4 py-2 flex items-center justify-between text-xs flex-shrink-0">
+      <div class="flex items-center gap-5">
+        <div class="flex items-center gap-2">
+          <span class="text-slate-500">Total:</span>
+          <span class="font-bold text-slate-800" id="stat-total">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+          <span class="text-slate-500">Abiertos:</span>
+          <span class="font-bold text-slate-800" id="stat-abiertos">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-red-500"></span>
+          <span class="text-slate-500">SLA vencido:</span>
+          <span class="font-bold text-red-600" id="stat-sla">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span class="text-slate-500">Sin asignar:</span>
+          <span class="font-bold text-amber-600" id="stat-unassigned">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+          <span class="text-slate-500">Reglas activas:</span>
+          <span class="font-bold text-purple-600" id="stat-reglas">0</span>
+        </div>
+      </div>
+      <div class="text-slate-500 hidden md:block">
+        Click en cualquier tarjeta para ver detalles · Arrastra para cambiar estado
+      </div>
+    </div>
+  </header>
+
+  <!-- Toasts -->
+  <div id="toast-container" class="fixed top-24 right-4 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <!-- Main Content -->
+  <main class="overflow-hidden flex flex-col" style="height: calc(100vh - 110px);">
+
+    <!-- =================== BOARD VIEW =================== -->
+    <div id="view-board" class="tab-pane active">
+      <div class="flex-1 overflow-x-auto overflow-y-hidden">
+        <div id="kanban-board" class="h-full flex gap-3 p-4 min-w-max"></div>
+      </div>
+    </div>
+
+    <!-- =================== TABLE VIEW =================== -->
+    <div id="view-table" class="tab-pane">
+      <div class="flex-1 overflow-auto p-4">
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 text-xs uppercase text-slate-600">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold">Código</th>
+                <th class="px-4 py-3 text-left font-semibold">Título</th>
+                <th class="px-4 py-3 text-left font-semibold">Estado</th>
+                <th class="px-4 py-3 text-left font-semibold">Prioridad</th>
+                <th class="px-4 py-3 text-left font-semibold">Asignado</th>
+                <th class="px-4 py-3 text-left font-semibold">Etiquetas</th>
+                <th class="px-4 py-3 text-center font-semibold">Actividad</th>
+              </tr>
+            </thead>
+            <tbody id="table-body" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================== CALENDAR VIEW =================== -->
+    <div id="view-calendar" class="tab-pane">
+      <div class="flex-1 overflow-auto p-4">
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200">
+          <div class="p-4 flex items-center justify-between border-b border-slate-200">
+            <button class="px-2 py-1 text-slate-600 hover:bg-slate-100 rounded" onclick="changeMonth(-1)">←</button>
+            <h3 class="font-semibold text-slate-800" id="calendar-title">Septiembre 2026</h3>
+            <button class="px-2 py-1 text-slate-600 hover:bg-slate-100 rounded" onclick="changeMonth(1)">→</button>
+          </div>
+          <div class="grid grid-cols-7 text-xs font-semibold text-slate-500 border-b border-slate-200">
+            <div class="px-2 py-2 text-center">Lun</div>
+            <div class="px-2 py-2 text-center">Mar</div>
+            <div class="px-2 py-2 text-center">Mié</div>
+            <div class="px-2 py-2 text-center">Jue</div>
+            <div class="px-2 py-2 text-center">Vie</div>
+            <div class="px-2 py-2 text-center">Sáb</div>
+            <div class="px-2 py-2 text-center">Dom</div>
+          </div>
+          <div id="calendar-grid" class="grid grid-cols-7"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================== BUTLER VIEW =================== -->
+    <div id="view-butler" class="tab-pane">
+      <div class="flex-1 overflow-auto p-4">
+        <div class="max-w-4xl mx-auto">
+          <div class="mb-4 p-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg">
+            <div class="flex items-start gap-3">
+              <div class="text-2xl">🤖</div>
+              <div>
+                <h3 class="font-semibold text-slate-800">Motor Butler · Automatizaciones</h3>
+                <p class="text-xs text-slate-600 mt-1">
+                  Las reglas se disparan automáticamente al ocurrir eventos del ciclo de vida del ticket.
+                  Formato: <code class="bg-white px-1.5 py-0.5 rounded text-[11px] font-mono">CUANDO &lt;evento&gt; SI &lt;condición&gt; ENTONCES &lt;acción&gt;</code>
+                </p>
+              </div>
+            </div>
+          </div>
+          <div id="butler-rules" class="space-y-3"></div>
+          <div class="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+            <strong class="text-slate-800">Disparadores disponibles:</strong>
+            <code class="ml-1 bg-white px-1 rounded">ticket_creado</code>
+            <code class="ml-1 bg-white px-1 rounded">ticket_estado_cambiado</code>
+            <code class="ml-1 bg-white px-1 rounded">ticket_asignado</code>
+            <code class="ml-1 bg-white px-1 rounded">ticket_comentado</code>
+            <code class="ml-1 bg-white px-1 rounded">sla_por_vencer</code>
+            <code class="ml-1 bg-white px-1 rounded">sla_vencido</code>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================== SEARCH VIEW =================== -->
+    <div id="view-search" class="tab-pane">
+      <div class="flex-1 overflow-hidden flex flex-col p-4 gap-3">
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4 flex-shrink-0">
+          <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Búsqueda por texto</label>
+              <input id="search-text" type="text" placeholder="Título, descripción, código..." class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200" oninput="runSearch()">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Estado</label>
+              <select id="search-estado" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2" onchange="runSearch()">
+                <option value="">Todos</option>
+                <option value="1">Nuevo</option>
+                <option value="2">En curso</option>
+                <option value="3">En espera</option>
+                <option value="4">Resuelto</option>
+                <option value="5">Cerrado</option>
+                <option value="6">Cancelado</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Prioridad</label>
+              <select id="search-prioridad" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2" onchange="runSearch()">
+                <option value="">Todas</option>
+                <option value="critica">Crítica</option>
+                <option value="alta">Alta</option>
+                <option value="media">Media</option>
+                <option value="baja">Baja</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Asignado a</label>
+              <select id="search-asignado" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2" onchange="runSearch()">
+                <option value="">Todos</option>
+                <option value="none">Sin asignar</option>
+                <option value="Carlos R.">Carlos R.</option>
+                <option value="María G.">María G.</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center gap-4 flex-wrap text-xs">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" id="filter-sla" class="rounded" onchange="runSearch()">
+              <span class="text-slate-700">Solo SLA vencido</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" id="filter-comments" class="rounded" onchange="runSearch()">
+              <span class="text-slate-700">Con comentarios</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" id="filter-checklists" class="rounded" onchange="runSearch()">
+              <span class="text-slate-700">Con checklists</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" id="filter-attachments" class="rounded" onchange="runSearch()">
+              <span class="text-slate-700">Con adjuntos</span>
+            </label>
+            <button onclick="resetSearch()" class="ml-auto px-3 py-1 text-slate-600 hover:bg-slate-100 rounded">Limpiar</button>
+          </div>
+        </div>
+        <div id="search-results" class="flex-1 overflow-auto bg-white rounded-lg shadow-sm border border-slate-200 p-3"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- =================== TICKET DETAIL MODAL =================== -->
+  <div id="ticket-modal" class="fixed inset-0 z-40 hidden">
+    <div class="modal-backdrop absolute inset-0" onclick="closeTicketModal()"></div>
+    <div class="absolute inset-y-0 right-0 w-full max-w-2xl bg-white shadow-2xl flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
+        <div>
+          <div class="font-mono text-xs text-slate-500" id="modal-codigo">GRM-INC-2026-000001</div>
+          <h2 class="text-lg font-semibold text-slate-800 mt-0.5" id="modal-titulo">Cargando...</h2>
+        </div>
+        <button onclick="closeTicketModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+      </div>
+      <div class="flex items-center gap-1 px-4 border-b border-slate-200 flex-shrink-0">
+        <button data-detail-tab="detalles" class="detail-tab-btn active px-3 py-2 text-sm font-medium border-b-2 border-indigo-500 text-indigo-600" onclick="switchDetailTab('detalles')">Detalles</button>
+        <button data-detail-tab="checklists" class="detail-tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-800" onclick="switchDetailTab('checklists')">Checklists <span id="checklist-count" class="ml-1 badge bg-slate-100 text-slate-600">0</span></button>
+        <button data-detail-tab="comentarios" class="detail-tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-800" onclick="switchDetailTab('comentarios')">Comentarios <span id="comment-count" class="ml-1 badge bg-slate-100 text-slate-600">0</span></button>
+        <button data-detail-tab="adjuntos" class="detail-tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-800" onclick="switchDetailTab('adjuntos')">Adjuntos <span id="attachment-count" class="ml-1 badge bg-slate-100 text-slate-600">0</span></button>
+      </div>
+      <div class="flex-1 overflow-y-auto">
+        <div id="detail-tab-detalles" class="detail-tab-pane p-4 space-y-4"></div>
+        <div id="detail-tab-checklists" class="detail-tab-pane p-4 hidden"></div>
+        <div id="detail-tab-comentarios" class="detail-tab-pane p-4 hidden"></div>
+        <div id="detail-tab-adjuntos" class="detail-tab-pane p-4 hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================== NEW TICKET MODAL =================== -->
+  <div id="new-ticket-modal" class="fixed inset-0 z-40 hidden">
+    <div class="modal-backdrop absolute inset-0" onclick="closeNewTicketModal()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg flex flex-col">
+        <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-800">Nueva Incidencia</h2>
+          <button onclick="closeNewTicketModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+        </div>
+        <div class="p-4 space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Título *</label>
+            <input id="new-titulo" type="text" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="Describe brevemente el problema">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Descripción</label>
+            <textarea id="new-desc" rows="3" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="Detalles, pasos para reproducir, etc."></textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Prioridad</label>
+              <select id="new-prio" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2">
+                <option value="baja">Baja</option>
+                <option value="media" selected>Media</option>
+                <option value="alta">Alta</option>
+                <option value="critica">Crítica</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Tipo</label>
+              <select id="new-tipo" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2">
+                <option value="incidencia">Incidencia</option>
+                <option value="solicitud">Solicitud</option>
+                <option value="cambio">Cambio</option>
+                <option value="problema">Problema</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Etiquetas iniciales</label>
+            <div id="new-etiquetas" class="flex flex-wrap gap-1.5"></div>
+          </div>
+          <div class="bg-indigo-50 border border-indigo-200 rounded-md p-2 text-xs text-indigo-800">
+            💡 <strong>Butler:</strong> Al crear este ticket se evaluarán las reglas de automatización. Si la prioridad es "crítica", se asignará automáticamente a un agente senior.
+          </div>
+        </div>
+        <div class="p-4 border-t border-slate-200 flex items-center justify-end gap-2">
+          <button onclick="closeNewTicketModal()" class="px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 rounded-md">Cancelar</button>
+          <button onclick="createNewTicket()" class="px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Crear ticket</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ============================================================
+// DATOS DEMO (simulan la respuesta del backend FastAPI)
+// ============================================================
+const ESTADOS = [
+  { id: 1, nombre: "Nuevo",     color: "#64748b" },
+  { id: 2, nombre: "En curso",  color: "#3b82f6" },
+  { id: 3, nombre: "En espera", color: "#f59e0b" },
+  { id: 4, nombre: "Resuelto",  color: "#10b981" },
+  { id: 5, nombre: "Cerrado",   color: "#475569" },
+  { id: 6, nombre: "Cancelado", color: "#9ca3af" },
+];
+
+const PRIORIDADES = {
+  critica: { class: "bg-red-100 text-red-700", dot: "bg-red-500" },
+  alta:    { class: "bg-orange-100 text-orange-700", dot: "bg-orange-500" },
+  media:   { class: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
+  baja:    { class: "bg-slate-100 text-slate-600", dot: "bg-slate-400" },
+};
+
+// Matriz de transiciones válidas (reglas ITSM)
+const TRANSICIONES = {
+  "1->2": { rol: "agente",        comentario: false },
+  "1->6": { rol: "solicitante",   comentario: true  },
+  "2->3": { rol: "agente",        comentario: false },
+  "2->4": { rol: "agente",        comentario: true  },
+  "2->6": { rol: "agente_senior", comentario: true  },
+  "3->2": { rol: "agente",        comentario: false },
+  "3->4": { rol: "agente",        comentario: true  },
+  "3->6": { rol: "agente_senior", comentario: true  },
+  "4->5": { rol: "agente_senior", comentario: false },
+  "4->2": { rol: "agente",        comentario: true  },
+  "4->6": { rol: "administrador", comentario: true  },
+  "5->2": { rol: "administrador", comentario: true  },
+};
+
+let ROL_ACTUAL = "agente_senior";
+const JERARQUIA = { observador:1, solicitante:2, agente:3, agente_senior:4, administrador:5 };
+
+// ============================================================
+// ETIQUETAS (4 categorías)
+// ============================================================
+const ETIQUETAS = [
+  { id: 1,  nombre: "Hardware",      color: "#ef4444", categoria: "tipo" },
+  { id: 2,  nombre: "Software",      color: "#3b82f6", categoria: "tipo" },
+  { id: 3,  nombre: "Red",           color: "#8b5cf6", categoria: "tipo" },
+  { id: 4,  nombre: "Acceso",        color: "#10b981", categoria: "tipo" },
+  { id: 5,  nombre: "Contabilidad",  color: "#06b6d4", categoria: "area" },
+  { id: 6,  nombre: "Ventas",        color: "#f59e0b", categoria: "area" },
+  { id: 7,  nombre: "RRHH",          color: "#ec4899", categoria: "area" },
+  { id: 8,  nombre: "Operaciones",   color: "#6366f1", categoria: "area" },
+  { id: 9,  nombre: "Urgente",       color: "#dc2626", categoria: "urgencia" },
+  { id: 10, nombre: "Bloqueante",    color: "#991b1b", categoria: "urgencia" },
+  { id: 11, nombre: "Cliente VIP",   color: "#fbbf24", categoria: "impacto" },
+  { id: 12, nombre: "Recurrente",    color: "#64748b", categoria: "impacto" },
+];
+
+// ============================================================
+// REGLAS BUTLER (automatizaciones)
+// ============================================================
+const REGLAS_BUTLER = [
+  {
+    id: 1, nombre: "Escalar críticos a agente senior",
+    descripcion: "Tickets con prioridad crítica se asignan automáticamente",
+    disparador: "ticket_creado", prioridad: 10, activo: true,
+    condiciones: [{ campo: "prioridad", operador: "==", valor: "critica" }],
+    acciones: [{ tipo: "asignar_a", parametros: { usuario_id: 1, rol: "agente_senior" } },
+               { tipo: "agregar_etiqueta", parametros: { etiqueta_id: 9 } },
+               { tipo: "agregar_etiqueta", parametros: { etiqueta_id: 10 } }],
+    ejecuciones: 12, ultima: "hace 2h",
+  },
+  {
+    id: 2, nombre: "Auto-etiquetar por tipo",
+    descripcion: "Asigna etiqueta 'Hardware' si el título contiene hardware",
+    disparador: "ticket_creado", prioridad: 50, activo: true,
+    condiciones: [{ campo: "titulo", operador: "contains", valor: "impresora|equipo|monitor|teclado" }],
+    acciones: [{ tipo: "agregar_etiqueta", parametros: { etiqueta_id: 1 } }],
+    ejecuciones: 8, ultima: "hace 4h",
+  },
+  {
+    id: 3, nombre: "Alerta de SLA por vencer",
+    descripcion: "Notifica cuando restan menos de 2 horas al SLA",
+    disparador: "sla_por_vencer", prioridad: 20, activo: true,
+    condiciones: [{ campo: "minutos_restantes", operador: "lt", valor: 120 }],
+    acciones: [{ tipo: "enviar_notificacion", parametros: { canal: "email", plantilla: "sla_warning" } },
+               { tipo: "agregar_etiqueta", parametros: { etiqueta_id: 9 } }],
+    ejecuciones: 5, ultima: "hace 1d",
+  },
+  {
+    id: 4, nombre: "Comentario de cierre automático",
+    descripcion: "Al pasar a Resuelto añade comentario de seguimiento",
+    disparador: "ticket_estado_cambiado", prioridad: 80, activo: true,
+    condiciones: [{ campo: "estado_nuevo", operador: "==", valor: "4" }],
+    acciones: [{ tipo: "crear_comentario", parametros: { texto: "Ticket resuelto. Por favor confirma el cierre en 48h.", interno: false } }],
+    ejecuciones: 23, ultima: "hace 30min",
+  },
+  {
+    id: 5, nombre: "Asignar tickets de Acceso al equipo de Seguridad",
+    descripcion: "Los tickets con etiqueta Acceso van a Carlos R.",
+    disparador: "ticket_etiquetado", prioridad: 60, activo: false,
+    condiciones: [{ campo: "etiqueta_id", operador: "==", valor: 4 }],
+    acciones: [{ tipo: "asignar_a", parametros: { usuario_id: 1 } }],
+    ejecuciones: 0, ultima: "nunca",
+  },
+];
+
+// ============================================================
+// TICKETS DEMO
+// ============================================================
+let tickets = [
+  {
+    id: 1, codigo: "GRM-INC-2026-000001",
+    titulo: "Impresora de contabilidad no responde",
+    descripcion: "La impresora del piso 3 no está imprimiendo desde esta mañana. Ya verifiqué tóner y cable de red.",
+    prioridad: "media", estado_id: 1, asignado: null, sla_vencido: false,
+    created_at: "2026-09-01", due_date: "2026-09-12",
+    etiquetas: [1, 5],
+    checklists: [
+      { id: 1, titulo: "Diagnóstico", items: [
+        { id: 1, texto: "Verificar tóner", completado: true },
+        { id: 2, texto: "Revisar cable de red", completado: true },
+        { id: 3, texto: "Reiniciar equipo", completado: false },
+        { id: 4, texto: "Probar con otro equipo", completado: false },
+      ]},
+    ],
+    comentarios: [
+      { id: 1, autor: "Ana López", fecha: "hace 1d", texto: "Ya intenté apagarla y prenderla, sigue igual.", interno: false },
+      { id: 2, autor: "Carlos R.", fecha: "hace 5h", texto: "@Ana voy a ir a revisarla en persona.", interno: true },
+    ],
+    adjuntos: [
+      { id: 1, nombre: "foto_impresora.jpg", tamaño: 245678, autor: "Ana López", fecha: "hace 1d" },
+    ],
+  },
+  {
+    id: 2, codigo: "GRM-INC-2026-000002",
+    titulo: "No puedo acceder al portal",
+    descripcion: "Mi contraseña fue cambiada y no puedo entrar al portal. Necesito reset urgente.",
+    prioridad: "alta", estado_id: 2, asignado: "Carlos R.", sla_vencido: false,
+    created_at: "2026-09-05", due_date: "2026-09-09",
+    etiquetas: [4, 9],
+    checklists: [
+      { id: 2, titulo: "Proceso de recuperación", items: [
+        { id: 5, texto: "Verificar identidad del solicitante", completado: true },
+        { id: 6, texto: "Generar nueva contraseña temporal", completado: true },
+        { id: 7, texto: "Enviar por canal seguro", completado: false },
+        { id: 8, texto: "Confirmar acceso del usuario", completado: false },
+      ]},
+    ],
+    comentarios: [
+      { id: 3, autor: "Pedro M.", fecha: "hace 2d", texto: "Ya validé la identidad por teléfono.", interno: false },
+      { id: 4, autor: "Carlos R.", fecha: "hace 1d", texto: "Listo, envié credenciales temporales.", interno: false },
+    ],
+    adjuntos: [],
+  },
+  {
+    id: 3, codigo: "GRM-INC-2026-000003",
+    titulo: "Caída del CRM cada 5 min",
+    descripcion: "El sistema se cae intermitentemente, aparentemente problema de memoria en el servidor.",
+    prioridad: "critica", estado_id: 2, asignado: "Carlos R.", sla_vencido: true,
+    created_at: "2026-09-07", due_date: "2026-09-08",
+    etiquetas: [2, 9, 10, 8, 11],
+    checklists: [
+      { id: 3, titulo: "Diagnóstico de infraestructura", items: [
+        { id: 9, texto: "Revisar logs del servidor", completado: true },
+        { id: 10, texto: "Medir uso de memoria", completado: true },
+        { id: 11, texto: "Identificar proceso problemático", completado: true },
+        { id: 12, texto: "Reiniciar servicio de forma controlada", completado: false },
+        { id: 13, texto: "Monitorear 30 min post-restart", completado: false },
+        { id: 14, texto: "Documentar incidente", completado: false },
+      ]},
+    ],
+    comentarios: [
+      { id: 5, autor: "Carlos R.", fecha: "hace 3h", texto: "Memoria al 95% por un job de sincronización que se quedó en loop.", interno: true },
+      { id: 6, autor: "Carlos R.", fecha: "hace 2h", texto: "@MaríaG necesito autorización para reiniciar el servicio a las 14:00.", interno: true },
+      { id: 7, autor: "María G.", fecha: "hace 1h", texto: "Autorizado, procedan.", interno: true },
+    ],
+    adjuntos: [
+      { id: 2, nombre: "logs_servidor.log", tamaño: 1245678, autor: "Carlos R.", fecha: "hace 3h" },
+      { id: 3, nombre: "grafica_memoria.png", tamaño: 156789, autor: "Carlos R.", fecha: "hace 2h" },
+    ],
+  },
+  {
+    id: 4, codigo: "GRM-INC-2026-000004",
+    titulo: "Solicitud de acceso VPN",
+    descripcion: "Necesito acceso VPN para trabajo remoto los próximos 3 días.",
+    prioridad: "baja", estado_id: 1, asignado: null, sla_vencido: false,
+    created_at: "2026-09-08", due_date: "2026-09-15",
+    etiquetas: [4, 7],
+    checklists: [], comentarios: [], adjuntos: [],
+  },
+  {
+    id: 5, codigo: "GRM-INC-2026-000005",
+    titulo: "Pantalla azul en equipo de diseño",
+    descripcion: "BSOD al abrir Photoshop, ya reinicié 2 veces. Necesito el equipo hoy.",
+    prioridad: "alta", estado_id: 3, asignado: "María G.", sla_vencido: false,
+    created_at: "2026-09-06", due_date: "2026-09-10",
+    etiquetas: [1, 6, 12],
+    checklists: [
+      { id: 4, titulo: "Resolución", items: [
+        { id: 15, texto: "Revisar minidump", completado: true },
+        { id: 16, texto: "Identificar driver problemático", completado: true },
+        { id: 17, texto: "Actualizar drivers", completado: false },
+      ]},
+    ],
+    comentarios: [
+      { id: 8, autor: "Luis P.", fecha: "hace 2d", texto: "Es la tarjeta de video, drivers desactualizados.", interno: false },
+    ],
+    adjuntos: [
+      { id: 4, nombre: "minidump.dmp", tamaño: 2456789, autor: "María G.", fecha: "hace 2d" },
+    ],
+  },
+  {
+    id: 6, codigo: "GRM-INC-2026-000006",
+    titulo: "Migración completada",
+    descripcion: "La migración de base de datos terminó con éxito, todos los servicios restaurados.",
+    prioridad: "media", estado_id: 4, asignado: "Carlos R.", sla_vencido: false,
+    created_at: "2026-09-02", due_date: "2026-09-04",
+    etiquetas: [2, 8],
+    checklists: [
+      { id: 5, titulo: "Post-migración", items: [
+        { id: 18, texto: "Backup pre-migración", completado: true },
+        { id: 19, texto: "Ejecutar migración", completado: true },
+        { id: 20, texto: "Validar integridad", completado: true },
+        { id: 21, texto: "Smoke tests", completado: true },
+        { id: 22, texto: "Comunicar a usuarios", completado: true },
+      ]},
+    ],
+    comentarios: [
+      { id: 9, autor: "Carlos R.", fecha: "hace 3d", texto: "Sin incidencias durante la ventana de mantenimiento.", interno: false },
+    ],
+    adjuntos: [],
+  },
+  {
+    id: 7, codigo: "GRM-INC-2026-000007",
+    titulo: "Configuración de correo en móvil",
+    descripcion: "Configurar cuenta Exchange en iPhone corporativo.",
+    prioridad: "baja", estado_id: 5, asignado: "Carlos R.", sla_vencido: false,
+    created_at: "2026-08-25", due_date: "2026-08-30",
+    etiquetas: [2, 4, 7],
+    checklists: [], comentarios: [], adjuntos: [],
+  },
+  {
+    id: 8, codigo: "GRM-INC-2026-000008",
+    titulo: "Reasignación de licencia Office",
+    descripcion: "Liberar licencia del usuario saliente y asignar a nuevo.",
+    prioridad: "media", estado_id: 3, asignado: "María G.", sla_vencido: false,
+    created_at: "2026-09-04", due_date: "2026-09-11",
+    etiquetas: [2, 4, 7],
+    checklists: [
+      { id: 6, titulo: "Reasignación de licencia", items: [
+        { id: 23, texto: "Confirmar baja del usuario anterior", completado: true },
+        { id: 24, texto: "Revocar licencia", completado: true },
+        { id: 25, texto: "Asignar a nuevo usuario", completado: false },
+        { id: 26, texto: "Verificar activación", completado: false },
+      ]},
+    ],
+    comentarios: [], adjuntos: [],
+  },
+];
+
+let auditLog = [];
+let currentView = "board";
+
+// ============================================================
+// UTILIDADES
+// ============================================================
+function showToast(message, type = "info", duration = 3500) {
+  const container = document.getElementById("toast-container");
+  const colors = {
+    success: "bg-emerald-50 border-emerald-400 text-emerald-800",
+    error:   "bg-red-50 border-red-400 text-red-800",
+    warning: "bg-amber-50 border-amber-400 text-amber-800",
+    info:    "bg-blue-50 border-blue-400 text-blue-800",
+  };
+  const icons = { success: "✓", error: "✕", warning: "!", info: "i" };
+  const div = document.createElement("div");
+  div.className = `toast border-l-4 ${colors[type]} bg-white shadow-lg rounded-r-md px-4 py-3 text-sm flex items-start gap-2 min-w-[300px]`;
+  div.innerHTML = `<span class="font-bold w-4 inline-block text-center">${icons[type]}</span><span class="flex-1">${message}</span><button class="text-slate-400 hover:text-slate-600 ml-2" onclick="this.parentElement.remove()">×</button>`;
+  container.appendChild(div);
+  setTimeout(() => { if (div.parentElement) div.remove(); }, duration);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function formatMention(text) {
+  return text.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+}
+
+function getLabel(id) { return ETIQUETAS.find(e => e.id === id); }
+function getChecklistProgress(cl) {
+  const total = cl.items.length;
+  const done = cl.items.filter(i => i.completado).length;
+  return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
+}
+
+// ============================================================
+// VALIDACIÓN ITSM
+// ============================================================
+function validarTransicion(origen, destino) {
+  const key = `${origen}->${destino}`;
+  const trans = TRANSICIONES[key];
+  if (!trans) {
+    const o = ESTADOS.find(e => e.id === origen).nombre;
+    const d = ESTADOS.find(e => e.id === destino).nombre;
+    return { ok: false, error: `No existe una transición válida de '${o}' a '${d}'.` };
+  }
+  if (JERARQUIA[ROL_ACTUAL] < JERARQUIA[trans.rol]) {
+    return { ok: false, error: `El rol '${ROL_ACTUAL}' no puede realizar esta transición. Se requiere: ${trans.rol}.` };
+  }
+  if (trans.comentario) {
+    const comentario = prompt("Esta transición requiere un comentario de auditoría:");
+    if (!comentario || !comentario.trim()) {
+      return { ok: false, error: "La transición requiere un comentario." };
+    }
+    return { ok: true, comentario };
+  }
+  return { ok: true };
+}
+
+// ============================================================
+// VISTAS - SWITCH
+// ============================================================
+function switchView(view, event) {
+  if (event) event.preventDefault();
+  currentView = view;
+  document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+  document.getElementById(`view-${view}`).classList.add("active");
+  document.querySelectorAll(".nav-link").forEach(l => l.classList.remove("active"));
+  document.querySelector(`.nav-link[data-view="${view}"]`).classList.add("active");
+  // Re-render the active view
+  if (view === "board") renderBoard();
+  else if (view === "table") renderTable();
+  else if (view === "calendar") renderCalendar();
+  else if (view === "butler") renderButler();
+  else if (view === "search") runSearch();
+}
+
+// ============================================================
+// BOARD VIEW
+// ============================================================
+function renderBoard() {
+  const board = document.getElementById("kanban-board");
+  board.innerHTML = ESTADOS.map(renderColumn).join("");
+  initSortable();
+}
+
+function renderColumn(estado) {
+  const ticketsCol = tickets.filter(t => t.estado_id === estado.id);
+  const cards = ticketsCol.length === 0
+    ? `<div class="text-center text-xs text-slate-400 py-8 italic">Sin tickets</div>`
+    : ticketsCol.map(renderCard).join("");
+  return `
+    <div class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col">
+      <div class="flex items-center justify-between mb-3 px-1 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: ${estado.color}"></span>
+          <h3 class="font-semibold text-sm text-slate-700 uppercase tracking-wide">${estado.nombre}</h3>
+        </div>
+        <span class="text-xs font-mono text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">${ticketsCol.length}</span>
+      </div>
+      <div class="kanban-list flex-1 overflow-y-auto min-h-[200px] pr-1 pb-2" data-estado-id="${estado.id}">${cards}</div>
+    </div>`;
+}
+
+function renderCard(t) {
+  const prio = PRIORIDADES[t.prioridad];
+  const ini = t.asignado ? t.asignado[0] : "?";
+  const labels = (t.etiquetas || []).slice(0, 3).map(id => {
+    const l = getLabel(id);
+    return l ? `<span class="label-chip" style="background:${l.color}">${l.nombre}</span>` : "";
+  }).join("");
+  const labelsExtra = (t.etiquetas || []).length > 3 ? `<span class="label-chip" style="background:#64748b">+${(t.etiquetas || []).length - 3}</span>` : "";
+  const checklistInfo = (t.checklists || []).reduce((acc, cl) => {
+    const p = getChecklistProgress(cl);
+    return { total: acc.total + p.total, done: acc.done + p.done };
+  }, { total: 0, done: 0 });
+  const checklistBar = checklistInfo.total > 0
+    ? `<div class="mt-2"><div class="checklist-progress-bar"><div class="checklist-progress-fill" style="width:${(checklistInfo.done / checklistInfo.total) * 100}%"></div></div><div class="text-[10px] text-slate-500 mt-0.5">${checklistInfo.done}/${checklistInfo.total} tareas</div></div>`
+    : "";
+  const asignadoHTML = t.asignado
+    ? `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold">${ini}</span><span>${t.asignado.split(" ")[0]}</span>`
+    : `<span class="italic opacity-60">sin asignar</span>`;
+  const slaIndicator = t.sla_vencido
+    ? `<span class="inline-flex items-center gap-1 text-red-600 font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>SLA</span>`
+    : `<span class="inline-flex items-center gap-1 text-amber-600"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>SLA</span>`;
+
+  return `
+    <div class="kanban-card group rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2" data-ticket-id="${t.id}" data-estado-origen="${t.estado_id}" onclick="openTicketModal(${t.id})">
+      <div class="flex items-start justify-between gap-2 mb-1.5">
+        <span class="font-mono text-[10px] tracking-wide text-slate-500 uppercase">${t.codigo}</span>
+        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${prio.class}">${t.prioridad.toUpperCase()}</span>
+      </div>
+      <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2">${t.titulo}</h4>
+      ${labels || labelsExtra ? `<div class="flex flex-wrap gap-1 mb-2">${labels}${labelsExtra}</div>` : ""}
+      ${checklistBar}
+      <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
+        <div class="flex items-center gap-1">${asignadoHTML}</div>
+        <div class="flex items-center gap-2.5">
+          ${(t.comentarios || []).length > 0 ? `<span class="inline-flex items-center gap-0.5" title="${t.comentarios.length} comentarios">💬 ${t.comentarios.length}</span>` : ""}
+          ${(t.adjuntos || []).length > 0 ? `<span class="inline-flex items-center gap-0.5" title="${t.adjuntos.length} adjuntos">📎 ${t.adjuntos.length}</span>` : ""}
+          ${slaIndicator}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// SORTABLE (drag & drop)
+// ============================================================
+let sortableInstances = [];
+function initSortable() {
+  sortableInstances.forEach(s => s.destroy());
+  sortableInstances = [];
+  document.querySelectorAll(".kanban-list").forEach(col => {
+    const s = new Sortable(col, {
+      group: "kanban-tickets",
+      animation: 150,
+      ghostClass: "kanban-ghost",
+      dragClass: "kanban-drag",
+      onEnd: function (evt) {
+        const tarjeta = evt.item;
+        const ticketId = parseInt(tarjeta.dataset.ticketId);
+        const estadoOrigen = parseInt(tarjeta.dataset.estadoOrigen);
+        const estadoDestino = parseInt(evt.to.dataset.estadoId);
+        if (estadoOrigen === estadoDestino && evt.oldIndex === evt.newIndex) return;
+
+        const validacion = validarTransicion(estadoOrigen, estadoDestino);
+        if (!validacion.ok) {
+          evt.from.insertBefore(tarjeta, evt.from.children[evt.oldIndex] || null);
+          showToast(validacion.error, "error", 4000);
+          return;
+        }
+        const ticket = tickets.find(t => t.id === ticketId);
+        const estadoAnterior = ESTADOS.find(e => e.id === estadoOrigen).nombre;
+        const estadoNuevo = ESTADOS.find(e => e.id === estadoDestino).nombre;
+        ticket.estado_id = estadoDestino;
+        auditLog.unshift({
+          ticket: ticket.codigo, accion: "CAMBIO_ESTADO",
+          de: estadoAnterior, a: estadoNuevo, usuario: "Carlos R. (" + ROL_ACTUAL + ")",
+          fecha: new Date().toLocaleTimeString(), comentario: validacion.comentario || null,
+        });
+        tarjeta.dataset.estadoOrigen = estadoDestino;
+        showToast(`${ticket.codigo} → "${estadoNuevo}". Auditoría registrada.`, "success");
+        updateStats();
+        // Re-eval Butler rules
+        if (estadoNuevo === "Resuelto") simulateButlerExec(4, ticket);
+      },
+    });
+    sortableInstances.push(s);
+  });
+}
+
+// ============================================================
+// TABLE VIEW
+// ============================================================
+function renderTable() {
+  const tbody = document.getElementById("table-body");
+  tbody.innerHTML = tickets.map(t => {
+    const prio = PRIORIDADES[t.prioridad];
+    const estado = ESTADOS.find(e => e.id === t.estado_id);
+    const labels = (t.etiquetas || []).slice(0, 3).map(id => {
+      const l = getLabel(id);
+      return l ? `<span class="label-chip" style="background:${l.color}">${l.nombre}</span>` : "";
+    }).join(" ");
+    const cl = (t.comentarios || []).length;
+    const ad = (t.adjuntos || []).length;
+    return `
+      <tr class="hover:bg-slate-50 cursor-pointer" onclick="openTicketModal(${t.id})">
+        <td class="px-4 py-2 font-mono text-xs text-slate-500">${t.codigo}</td>
+        <td class="px-4 py-2 font-medium text-slate-800">${t.titulo}</td>
+        <td class="px-4 py-2">
+          <span class="inline-flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full" style="background:${estado.color}"></span>
+            <span class="text-xs">${estado.nombre}</span>
+          </span>
+        </td>
+        <td class="px-4 py-2"><span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full ${prio.dot}"></span><span class="text-xs">${t.prioridad}</span></span></td>
+        <td class="px-4 py-2 text-xs">${t.asignado || '<span class="text-slate-400 italic">sin asignar</span>'}</td>
+        <td class="px-4 py-2"><div class="flex flex-wrap gap-1">${labels}</div></td>
+        <td class="px-4 py-2 text-center text-xs text-slate-500">${cl > 0 ? `💬 ${cl}` : ""} ${ad > 0 ? `📎 ${ad}` : ""}</td>
+      </tr>`;
+  }).join("");
+}
+
+// ============================================================
+// CALENDAR VIEW
+// ============================================================
+let calYear = 2026, calMonth = 8; // Sept 2026 (0-indexed)
+
+function changeMonth(delta) {
+  calMonth += delta;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  renderCalendar();
+}
+
+const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+function renderCalendar() {
+  const title = document.getElementById("calendar-title");
+  title.textContent = `${MONTH_NAMES[calMonth]} ${calYear}`;
+  const grid = document.getElementById("calendar-grid");
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay = new Date(calYear, calMonth + 1, 0);
+  const startWeekday = (firstDay.getDay() + 6) % 7; // Mon=0
+  const daysInMonth = lastDay.getDate();
+
+  let html = "";
+  // Empty cells before first day
+  for (let i = 0; i < startWeekday; i++) html += `<div class="calendar-day border-b border-r border-slate-100 bg-slate-50/50"></div>`;
+  // Days
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const created = tickets.filter(t => t.created_at === dateStr);
+    const due = tickets.filter(t => t.due_date === dateStr);
+    const prioColors = { critica: "bg-red-100 text-red-700", alta: "bg-orange-100 text-orange-700", media: "bg-yellow-100 text-yellow-700", baja: "bg-slate-100 text-slate-600" };
+    html += `
+      <div class="calendar-day border-b border-r border-slate-100 p-1.5 cursor-pointer hover:bg-slate-50" onclick="showDayDetail('${dateStr}')">
+        <div class="text-xs font-semibold text-slate-700 mb-1">${d}</div>
+        ${created.map(t => `<div class="text-[10px] ${prioColors[t.prioridad]} rounded px-1 mb-0.5 truncate" title="Creado: ${t.titulo}">+ ${t.codigo.split("-").pop()}</div>`).join("")}
+        ${due.map(t => `<div class="text-[10px] ${prioColors[t.prioridad]} rounded px-1 mb-0.5 truncate font-semibold" title="Vence: ${t.titulo}">⏰ ${t.codigo.split("-").pop()}</div>`).join("")}
+      </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function showDayDetail(dateStr) {
+  const created = tickets.filter(t => t.created_at === dateStr);
+  const due = tickets.filter(t => t.due_date === dateStr);
+  if (created.length === 0 && due.length === 0) {
+    showToast(`${dateStr}: Sin tickets`, "info");
+    return;
+  }
+  const msg = `<strong>${dateStr}</strong><br>${created.length} creados, ${due.length} vencen`;
+  showToast(msg, "info", 5000);
+}
+
+// ============================================================
+// BUTLER VIEW
+// ============================================================
+function renderButler() {
+  const container = document.getElementById("butler-rules");
+  const triggerLabels = {
+    ticket_creado: "🎫 Al crear ticket",
+    ticket_estado_cambiado: "🔄 Al cambiar estado",
+    ticket_asignado: "👤 Al asignar",
+    ticket_comentado: "💬 Al comentar",
+    ticket_etiquetado: "🏷️ Al etiquetar",
+    sla_por_vencer: "⏰ SLA por vencer",
+    sla_vencido: "🚨 SLA vencido",
+  };
+  const actionLabels = {
+    asignar_a: "👤 Asignar a",
+    cambiar_estado: "🔄 Cambiar a",
+    agregar_etiqueta: "🏷️ Agregar etiqueta",
+    quitar_etiqueta: "🗑️ Quitar etiqueta",
+    crear_comentario: "💬 Comentar",
+    enviar_notificacion: "📧 Notificar",
+    agregar_checklist: "☑️ Agregar checklist",
+    marcar_prioridad: "⚡ Marcar prioridad",
+  };
+  const opLabels = { "==": "es igual a", "!=": "es distinto de", in: "está en", not_in: "no está en", contains: "contiene", gt: ">", lt: "<" };
+  container.innerHTML = REGLAS_BUTLER.map(r => {
+    const condText = r.condiciones.map(c => `${c.campo} ${opLabels[c.operador] || c.operador} <code>${c.valor}</code>`).join(" Y ");
+    const actText = r.acciones.map(a => {
+      let params = Object.entries(a.parametros).map(([k,v]) => `${k}: <code>${v}</code>`).join(", ");
+      return `${actionLabels[a.tipo] || a.tipo} (${params})`;
+    }).join(", ");
+    return `
+      <div class="rule-card bg-white rounded-lg border ${r.activo ? "border-purple-200" : "border-slate-200"} p-4">
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-1">
+              <h4 class="font-semibold text-slate-800">${r.nombre}</h4>
+              ${r.activo ? '<span class="badge bg-emerald-100 text-emerald-700">● Activa</span>' : '<span class="badge bg-slate-100 text-slate-600">○ Inactiva</span>'}
+            </div>
+            <p class="text-xs text-slate-600">${r.descripcion}</p>
+          </div>
+          <div class="text-right text-xs text-slate-500 flex-shrink-0">
+            <div>Ejecuciones: <strong>${r.ejecuciones}</strong></div>
+            <div>${r.ultima}</div>
+          </div>
+        </div>
+        <div class="bg-slate-50 rounded-md p-3 text-xs font-mono leading-relaxed">
+          <div><span class="text-purple-600 font-semibold">CUANDO</span> ${triggerLabels[r.disparador] || r.disparador}</div>
+          <div><span class="text-amber-600 font-semibold">SI</span> ${condText}</div>
+          <div><span class="text-emerald-600 font-semibold">ENTONCES</span> ${actText}</div>
+        </div>
+        <div class="mt-2 flex items-center gap-2 text-xs">
+          <button class="px-2 py-1 text-slate-600 hover:bg-slate-100 rounded" onclick="toggleRule(${r.id})">${r.activo ? "⏸ Desactivar" : "▶ Activar"}</button>
+          <button class="px-2 py-1 text-slate-600 hover:bg-slate-100 rounded" onclick="testRule(${r.id})">🧪 Probar</button>
+          <span class="ml-auto text-slate-400">Prioridad: ${r.prioridad}</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function toggleRule(id) {
+  const r = REGLAS_BUTLER.find(x => x.id === id);
+  r.activo = !r.activo;
+  renderButler();
+  showToast(`Regla "${r.nombre}" ${r.activo ? "activada" : "desactivada"}`, "info");
+}
+
+function testRule(id) {
+  const r = REGLAS_BUTLER.find(x => x.id === id);
+  simulateButlerExec(r.id, tickets[0]);
+}
+
+function simulateButlerExec(reglaId, ticket) {
+  const r = REGLAS_BUTLER.find(x => x.id === reglaId);
+  if (!r || !r.activo) return;
+  r.ejecuciones++;
+  r.ultima = "ahora";
+  showToast(`🤖 Butler ejecutó: "${r.nombre}" en ${ticket.codigo}`, "info", 4000);
+  renderButler();
+}
+
+// ============================================================
+// SEARCH VIEW
+// ============================================================
+function runSearch() {
+  const text = document.getElementById("search-text").value.toLowerCase();
+  const estado = document.getElementById("search-estado").value;
+  const prioridad = document.getElementById("search-prioridad").value;
+  const asignado = document.getElementById("search-asignado").value;
+  const onlySLA = document.getElementById("filter-sla").checked;
+  const onlyComments = document.getElementById("filter-comments").checked;
+  const onlyChecklists = document.getElementById("filter-checklists").checked;
+  const onlyAttachments = document.getElementById("filter-attachments").checked;
+
+  let filtered = tickets.filter(t => {
+    if (text && !(`${t.titulo} ${t.descripcion} ${t.codigo}`.toLowerCase().includes(text))) return false;
+    if (estado && t.estado_id !== parseInt(estado)) return false;
+    if (prioridad && t.prioridad !== prioridad) return false;
+    if (asignado === "none" && t.asignado) return false;
+    if (asignado && asignado !== "none" && t.asignado !== asignado) return false;
+    if (onlySLA && !t.sla_vencido) return false;
+    if (onlyComments && (!t.comentarios || t.comentarios.length === 0)) return false;
+    if (onlyChecklists && (!t.checklists || t.checklists.length === 0)) return false;
+    if (onlyAttachments && (!t.adjuntos || t.adjuntos.length === 0)) return false;
+    return true;
+  });
+
+  const container = document.getElementById("search-results");
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="text-center text-slate-400 py-12 italic">Sin resultados. Ajusta los filtros.</div>`;
+    return;
+  }
+  container.innerHTML = `<div class="text-xs text-slate-500 mb-2">${filtered.length} resultado(s)</div>` + filtered.map(t => {
+    const prio = PRIORIDADES[t.prioridad];
+    const estado = ESTADOS.find(e => e.id === t.estado_id);
+    return `
+      <div class="flex items-center gap-3 p-3 border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="openTicketModal(${t.id})">
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${prio.class} w-20 justify-center">${t.prioridad.toUpperCase()}</span>
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-sm text-slate-800 truncate">${t.titulo}</div>
+          <div class="font-mono text-[10px] text-slate-500">${t.codigo}</div>
+        </div>
+        <span class="inline-flex items-center gap-1 text-xs text-slate-600"><span class="w-2 h-2 rounded-full" style="background:${estado.color}"></span>${estado.nombre}</span>
+        <span class="text-xs text-slate-500 w-24 text-right">${t.asignado || '<em>sin asignar</em>'}</span>
+      </div>`;
+  }).join("");
+}
+
+function resetSearch() {
+  document.getElementById("search-text").value = "";
+  document.getElementById("search-estado").value = "";
+  document.getElementById("search-prioridad").value = "";
+  document.getElementById("search-asignado").value = "";
+  document.getElementById("filter-sla").checked = false;
+  document.getElementById("filter-comments").checked = false;
+  document.getElementById("filter-checklists").checked = false;
+  document.getElementById("filter-attachments").checked = false;
+  runSearch();
+}
+
+// ============================================================
+// TICKET DETAIL MODAL
+// ============================================================
+let currentTicket = null;
+
+function openTicketModal(id) {
+  currentTicket = tickets.find(t => t.id === id);
+  if (!currentTicket) return;
+  document.getElementById("modal-codigo").textContent = currentTicket.codigo;
+  document.getElementById("modal-titulo").textContent = currentTicket.titulo;
+  document.getElementById("ticket-modal").classList.remove("hidden");
+  switchDetailTab("detalles");
+  renderDetailContent();
+}
+
+function closeTicketModal() {
+  document.getElementById("ticket-modal").classList.add("hidden");
+  currentTicket = null;
+}
+
+function switchDetailTab(tab) {
+  document.querySelectorAll(".detail-tab-btn").forEach(btn => {
+    btn.classList.remove("active", "border-indigo-500", "text-indigo-600");
+    btn.classList.add("border-transparent", "text-slate-600");
+  });
+  document.querySelector(`.detail-tab-btn[data-detail-tab="${tab}"]`).classList.add("active", "border-indigo-500", "text-indigo-600");
+  document.querySelectorAll(".detail-tab-pane").forEach(p => p.classList.add("hidden"));
+  document.getElementById(`detail-tab-${tab}`).classList.remove("hidden");
+}
+
+function renderDetailContent() {
+  if (!currentTicket) return;
+  const t = currentTicket;
+  document.getElementById("checklist-count").textContent = (t.checklists || []).length;
+  document.getElementById("comment-count").textContent = (t.comentarios || []).length;
+  document.getElementById("attachment-count").textContent = (t.adjuntos || []).length;
+
+  // Detalles
+  const prio = PRIORIDADES[t.prioridad];
+  const estado = ESTADOS.find(e => e.id === t.estado_id);
+  const labelsHTML = ETIQUETAS.map(l => {
+    const selected = (t.etiquetas || []).includes(l.id);
+    return `<button class="label-chip cursor-pointer ${selected ? "" : "opacity-30"}" style="background:${l.color}" onclick="toggleLabel(${l.id})">${l.nombre}</button>`;
+  }).join("");
+  document.getElementById("detail-tab-detalles").innerHTML = `
+    <div class="grid grid-cols-2 gap-4 text-sm">
+      <div><span class="text-xs text-slate-500 block">Estado</span><span class="inline-flex items-center gap-1.5 font-medium"><span class="w-2 h-2 rounded-full" style="background:${estado.color}"></span>${estado.nombre}</span></div>
+      <div><span class="text-xs text-slate-500 block">Prioridad</span><span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${prio.class}">${t.prioridad.toUpperCase()}</span></div>
+      <div><span class="text-xs text-slate-500 block">Asignado</span><span class="font-medium">${t.asignado || '<em class="text-slate-400">sin asignar</em>'}</span></div>
+      <div><span class="text-xs text-slate-500 block">SLA</span>${t.sla_vencido ? '<span class="text-red-600 font-semibold">Vencido</span>' : '<span class="text-emerald-600">En tiempo</span>'}</div>
+      <div><span class="text-xs text-slate-500 block">Creado</span><span class="font-mono text-xs">${t.created_at}</span></div>
+      <div><span class="text-xs text-slate-500 block">Vence</span><span class="font-mono text-xs">${t.due_date}</span></div>
+    </div>
+    <div>
+      <h4 class="text-xs font-semibold text-slate-600 mb-2">Descripción</h4>
+      <p class="text-sm text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-md">${t.descripcion}</p>
+    </div>
+    <div>
+      <h4 class="text-xs font-semibold text-slate-600 mb-2">Etiquetas (click para alternar)</h4>
+      <div class="flex flex-wrap gap-1.5">${labelsHTML}</div>
+    </div>`;
+
+  // Checklists
+  document.getElementById("detail-tab-checklists").innerHTML = renderChecklists(t);
+
+  // Comentarios
+  document.getElementById("detail-tab-comentarios").innerHTML = renderComments(t);
+
+  // Adjuntos
+  document.getElementById("detail-tab-adjuntos").innerHTML = renderAttachments(t);
+}
+
+function renderChecklists(t) {
+  if (!t.checklists || t.checklists.length === 0) {
+    return `<div class="text-center text-slate-400 py-6 italic text-sm">Sin checklists. <button class="text-indigo-600 hover:underline" onclick="addChecklist()">+ Agregar</button></div>`;
+  }
+  let html = `<div class="space-y-3">`;
+  t.checklists.forEach(cl => {
+    const p = getChecklistProgress(cl);
+    html += `
+      <div class="border border-slate-200 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-2">
+          <h5 class="font-semibold text-sm text-slate-800">${cl.titulo}</h5>
+          <span class="text-xs text-slate-500">${p.done}/${p.total}</span>
+        </div>
+        <div class="checklist-progress-bar mb-3"><div class="checklist-progress-fill" style="width:${p.pct}%"></div></div>
+        <div class="space-y-1">
+          ${cl.items.map(item => `
+            <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded">
+              <input type="checkbox" ${item.completado ? "checked" : ""} onchange="toggleChecklistItem(${cl.id}, ${item.id})" class="rounded">
+              <span class="${item.completado ? "line-through text-slate-400" : "text-slate-700"}">${item.texto}</span>
+            </label>`).join("")}
+        </div>
+        <div class="mt-2 flex gap-2">
+          <input type="text" placeholder="+ Agregar ítem" class="flex-1 text-xs border border-slate-200 rounded px-2 py-1" onkeypress="if(event.key==='Enter')addChecklistItem(${cl.id}, this)">
+          <button class="text-xs text-indigo-600 hover:underline" onclick="addChecklist()">+ Nueva lista</button>
+        </div>
+      </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function renderComments(t) {
+  if (!t.comentarios || t.comentarios.length === 0) {
+    return `<div class="text-center text-slate-400 py-6 italic text-sm">Sin comentarios aún.</div>`;
+  }
+  let html = `<div class="space-y-3">`;
+  t.comentarios.forEach(c => {
+    html += `
+      <div class="comment-bubble bg-slate-50 border ${c.interno ? "border-amber-200 bg-amber-50" : "border-slate-200"} rounded-lg p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-white text-xs font-semibold flex items-center justify-center">${c.autor[0]}</span>
+            <div>
+              <div class="text-sm font-semibold text-slate-800">${c.autor}</div>
+              <div class="text-[10px] text-slate-500">${c.fecha}</div>
+            </div>
+          </div>
+          ${c.interno ? '<span class="badge bg-amber-200 text-amber-800">🔒 Interno</span>' : ""}
+        </div>
+        <p class="text-sm text-slate-700 ml-9">${formatMention(c.texto)}</p>
+      </div>`;
+  });
+  html += `</div>
+    <div class="mt-4 border-t border-slate-200 pt-3">
+      <textarea id="new-comment" rows="2" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2" placeholder="Escribe un comentario... usa @usuario para mencionar"></textarea>
+      <div class="flex items-center justify-between mt-2">
+        <label class="flex items-center gap-1.5 text-xs text-slate-600">
+          <input type="checkbox" id="comment-internal" class="rounded"> Comentario interno
+        </label>
+        <button class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700" onclick="addComment()">Comentar</button>
+      </div>
+    </div>`;
+  return html;
+}
+
+function renderAttachments(t) {
+  if (!t.adjuntos || t.adjuntos.length === 0) {
+    return `<div class="text-center text-slate-400 py-6 italic text-sm">Sin adjuntos.</div>`;
+  }
+  let html = `<div class="space-y-2">`;
+  t.adjuntos.forEach(a => {
+    const ext = a.nombre.split(".").pop().toUpperCase();
+    html += `
+      <div class="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50">
+        <div class="w-10 h-10 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${ext}</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-slate-800 truncate">${a.nombre}</div>
+          <div class="text-xs text-slate-500">${formatSize(a.tamaño)} · ${a.autor} · ${a.fecha}</div>
+        </div>
+        <button class="text-xs text-indigo-600 hover:underline" onclick="showToast('Descargando ${a.nombre}...', 'info')">Descargar</button>
+      </div>`;
+  });
+  html += `</div>
+    <div class="mt-4 border-t border-slate-200 pt-3">
+      <div class="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center text-sm text-slate-500 hover:border-indigo-400 cursor-pointer" onclick="fakeUpload()">
+        📎 Click para subir archivo (máx 25 MB)
+      </div>
+    </div>`;
+  return html;
+}
+
+// Acciones del modal
+function toggleLabel(labelId) {
+  if (!currentTicket.etiquetas) currentTicket.etiquetas = [];
+  const idx = currentTicket.etiquetas.indexOf(labelId);
+  if (idx >= 0) currentTicket.etiquetas.splice(idx, 1);
+  else currentTicket.etiquetas.push(labelId);
+  // Trigger Butler rule "ticket_etiquetado"
+  if (idx < 0) {
+    const regla = REGLAS_BUTLER.find(r => r.activo && r.disparador === "ticket_etiquetado");
+    if (regla) simulateButlerExec(regla.id, currentTicket);
+  }
+  renderDetailContent();
+  showToast("Etiqueta actualizada", "success", 1500);
+}
+
+function toggleChecklistItem(clId, itemId) {
+  const cl = currentTicket.checklists.find(c => c.id === clId);
+  const item = cl.items.find(i => i.id === itemId);
+  item.completado = !item.completado;
+  renderDetailContent();
+  renderBoard();
+  showToast(item.completado ? "✓ Tarea completada" : "Tarea reabierta", "success", 1500);
+}
+
+function addChecklistItem(clId, input) {
+  if (!input.value.trim()) return;
+  const cl = currentTicket.checklists.find(c => c.id === clId);
+  const newId = Math.max(...cl.items.map(i => i.id), 0) + 1;
+  cl.items.push({ id: newId, texto: input.value.trim(), completado: false });
+  renderDetailContent();
+  renderBoard();
+  showToast("Tarea agregada", "success", 1500);
+}
+
+function addChecklist() {
+  const titulo = prompt("Nombre de la nueva checklist:");
+  if (!titulo) return;
+  if (!currentTicket.checklists) currentTicket.checklists = [];
+  const newId = Math.max(...tickets.flatMap(t => t.checklists.map(c => c.id)), 0) + 1;
+  currentTicket.checklists.push({ id: newId, titulo, items: [] });
+  renderDetailContent();
+  showToast("Checklist creada", "success");
+}
+
+function addComment() {
+  const text = document.getElementById("new-comment").value.trim();
+  if (!text) return;
+  const interno = document.getElementById("comment-internal").checked;
+  if (!currentTicket.comentarios) currentTicket.comentarios = [];
+  const newId = Math.max(...tickets.flatMap(t => t.comentarios.map(c => c.id)), 0) + 1;
+  currentTicket.comentarios.push({ id: newId, autor: "Carlos R.", fecha: "ahora", texto: text, interno });
+  renderDetailContent();
+  showToast(interno ? "🔒 Comentario interno publicado" : "Comentario publicado", "success");
+}
+
+function fakeUpload() {
+  const nombre = `archivo_${Date.now()}.pdf`;
+  if (!currentTicket.adjuntos) currentTicket.adjuntos = [];
+  const newId = Math.max(...tickets.flatMap(t => t.adjuntos.map(a => a.id)), 0) + 1;
+  currentTicket.adjuntos.push({ id: newId, nombre, tamaño: Math.floor(Math.random() * 1000000) + 100000, autor: "Carlos R.", fecha: "ahora" });
+  renderDetailContent();
+  showToast(`📎 ${nombre} subido`, "success");
+}
+
+// ============================================================
+// NEW TICKET MODAL
+// ============================================================
+let newTicketLabels = new Set();
+
+function openNewTicketModal() {
+  document.getElementById("new-ticket-modal").classList.remove("hidden");
+  const container = document.getElementById("new-etiquetas");
+  container.innerHTML = ETIQUETAS.map(l => `
+    <button type="button" class="label-chip cursor-pointer opacity-30 hover:opacity-100" style="background:${l.color}" data-label-id="${l.id}" onclick="toggleNewLabel(${l.id})">${l.nombre}</button>
+  `).join("");
+}
+
+function closeNewTicketModal() {
+  document.getElementById("new-ticket-modal").classList.add("hidden");
+  document.getElementById("new-titulo").value = "";
+  document.getElementById("new-desc").value = "";
+  newTicketLabels.clear();
+}
+
+function toggleNewLabel(id) {
+  if (newTicketLabels.has(id)) newTicketLabels.delete(id);
+  else newTicketLabels.add(id);
+  document.querySelectorAll(`#new-etiquetas [data-label-id]`).forEach(b => {
+    b.classList.toggle("opacity-30", !newTicketLabels.has(parseInt(b.dataset.labelId)));
+  });
+}
+
+function createNewTicket() {
+  const titulo = document.getElementById("new-titulo").value.trim();
+  if (!titulo) { showToast("El título es obligatorio", "error"); return; }
+  const desc = document.getElementById("new-desc").value.trim();
+  const prio = document.getElementById("new-prio").value;
+  const newId = Math.max(...tickets.map(t => t.id)) + 1;
+  const t = {
+    id: newId,
+    codigo: `GRM-INC-2026-${String(newId).padStart(6, "0")}`,
+    titulo, descripcion: desc || "(sin descripción)",
+    prioridad: prio, estado_id: 1, asignado: null, sla_vencido: false,
+    created_at: new Date().toISOString().split("T")[0],
+    due_date: new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0],
+    etiquetas: Array.from(newTicketLabels),
+    checklists: [], comentarios: [], adjuntos: [],
+  };
+  tickets.unshift(t);
+  closeNewTicketModal();
+  renderBoard();
+  updateStats();
+  showToast(`✓ ${t.codigo} creado`, "success");
+  // Trigger Butler
+  if (prio === "critica") {
+    const r1 = REGLAS_BUTLER.find(r => r.id === 1);
+    if (r1) { t.etiquetas.push(9, 10); simulateButlerExec(1, t); }
+  }
+  const r2 = REGLAS_BUTLER.find(r => r.id === 2);
+  if (r2 && /impresora|equipo|monitor|teclado/i.test(titulo)) {
+    if (!t.etiquetas.includes(1)) t.etiquetas.push(1);
+    simulateButlerExec(2, t);
+  }
+  renderBoard();
+  updateStats();
+}
+
+// ============================================================
+// STATS
+// ============================================================
+function updateStats() {
+  const abiertos = tickets.filter(t => ![4,5,6].includes(t.estado_id)).length;
+  const sla = tickets.filter(t => t.sla_vencido).length;
+  const unassigned = tickets.filter(t => !t.asignado).length;
+  const reglas = REGLAS_BUTLER.filter(r => r.activo).length;
+  document.getElementById("stat-total").textContent = tickets.length;
+  document.getElementById("stat-abiertos").textContent = abiertos;
+  document.getElementById("stat-sla").textContent = sla;
+  document.getElementById("stat-unassigned").textContent = unassigned;
+  document.getElementById("stat-reglas").textContent = reglas;
+}
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener("DOMContentLoaded", () => {
+  renderBoard();
+  updateStats();
+
+  // Role switcher
+  document.getElementById("rol-switcher").addEventListener("change", e => {
+    ROL_ACTUAL = e.target.value;
+    showToast(`Rol cambiado a: ${ROL_ACTUAL}`, "info", 2000);
+  });
+
+  // ESC to close modals
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      closeTicketModal();
+      closeNewTicketModal();
+    }
+  });
+});
+</script>
+
+<script>
+/**
+ * Iframe 元素高亮注入脚本
+ * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
+ *
+ * 使用方法：
+ * 1. 将此脚本添加到目标网站的 HTML 中
+ * 2. 或通过浏览器扩展、用户脚本等方式注入
+ */
+
+(function () {
+  "use strict";
+
+  // 检查是否在 iframe 中
+  if (window.self === window.top) {
+    return; // 不在 iframe 中，不执行
+  }
+
+  // 检查是否已经初始化过
+  if (window.__iframeHighlightInitialized) {
+    return;
+  }
+  window.__iframeHighlightInitialized = true;
+  console.log("Iframe 高亮脚本已加载");
+
+  // 创建高亮覆盖层
+  var overlay = document.createElement("div");
+  overlay.id = "iframe-highlight-overlay";
+  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
+
+  // 创建悬停高亮框（虚线边框）
+  var highlightBox = document.createElement("div");
+  highlightBox.id = "iframe-highlight-box";
+  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
+
+  // 创建选中节点的常驻高亮框（实线边框）
+  var selectedBox = document.createElement("div");
+  selectedBox.id = "iframe-selected-box";
+  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
+
+  // 创建悬停标签显示
+  var tagLabel = document.createElement("div");
+  tagLabel.id = "iframe-tag-label";
+  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
+
+  // 创建选中节点标签
+  var selectedLabel = document.createElement("div");
+  selectedLabel.id = "iframe-selected-label";
+  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
+  overlay.appendChild(highlightBox);
+  overlay.appendChild(selectedBox);
+  overlay.appendChild(tagLabel);
+  overlay.appendChild(selectedLabel);
+  document.body.appendChild(overlay);
+
+  // 存储当前选中的元素
+  var selectedElement = null;
+  var highlightEnabled = false;
+
+  // 更新选中元素的高亮显示
+  function updateSelectedHighlight(element) {
+    console.log("updateSelectedHighlight called with:", element);
+    if (!element) {
+      selectedBox.style.display = "none";
+      selectedLabel.style.display = "none";
+      selectedElement = null;
+      console.log("Cleared selected highlight");
+      return;
+    }
+    selectedElement = element;
+    var rect = element.getBoundingClientRect();
+    console.log("Selected element rect:", rect);
+
+    // 更新选中高亮框位置
+    selectedBox.style.display = "block";
+    selectedBox.style.left = "".concat(rect.left - 2, "px");
+    selectedBox.style.top = "".concat(rect.top - 2, "px");
+    selectedBox.style.width = "".concat(rect.width + 4, "px");
+    selectedBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新选中标签位置和内容
+    selectedLabel.style.display = "block";
+    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 28;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 5) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
+    if (labelLeft + labelWidth > window.innerWidth - 10) {
+      labelLeft = window.innerWidth - labelWidth - 10;
+    }
+    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
+    selectedLabel.style.top = "".concat(labelTop, "px");
+    console.log("Selected highlight positioned at:", {
+      left: selectedBox.style.left,
+      top: selectedBox.style.top,
+      width: selectedBox.style.width,
+      height: selectedBox.style.height
+    });
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
+    var segments = [];
+    var current = element;
+    while (current !== document.documentElement) {
+      var selector = '';
+      // 优先检查唯一ID
+      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
+        segments.unshift("#".concat(current.id));
+        break; // ID唯一，无需继续向上
+      }
+
+      // 生成类名选择器（取第一个有效类名）
+      var classes = Array.from(current.classList).filter(function (c) {
+        return !c.startsWith('js-');
+      });
+      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
+
+      // 生成位置索引（nth-child）
+      var tag = current.tagName.toLowerCase();
+      if (!className) {
+        var siblings = Array.from(current.parentNode.children);
+        var index = siblings.findIndex(function (el) {
+          return el === current;
+        }) + 1;
+        selector = "".concat(tag, ":nth-child(").concat(index, ")");
+      } else {
+        selector = className;
+      }
+      segments.unshift(selector);
+      current = current.parentElement;
+    }
+
+    // 处理根元素
+    if (current === document.documentElement) {
+      segments.unshift('html');
+    }
+    return segments.join(' > ');
+  }
+
+  // 获取元素文本内容
+  function getElementText(element) {
+    var _element$textContent;
+    if (element.tagName === "INPUT") {
+      return element.value || element.placeholder || "";
+    }
+    if (element.tagName === "TEXTAREA") {
+      return element.value || element.placeholder || "";
+    }
+    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
+    return text.length > 50 ? text.substring(0, 50) + "..." : text;
+  }
+
+  // 获取元素属性信息
+  function getElementAttributes(element) {
+    var attrs = {};
+    for (var i = 0; i < element.attributes.length; i++) {
+      var attr = element.attributes[i];
+      attrs[attr.name] = attr.value;
+    }
+    return attrs;
+  }
+
+  // 鼠标悬停事件处理
+  function handleMouseOver(e) {
+    if (!highlightEnabled) return;
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免高亮 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 如果是已选中的元素，不显示悬停高亮
+    if (target === selectedElement) {
+      highlightBox.style.display = "none";
+      tagLabel.style.display = "none";
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+
+    // 更新悬停高亮框位置
+    highlightBox.style.display = "block";
+    highlightBox.style.left = "".concat(rect.left - 2, "px");
+    highlightBox.style.top = "".concat(rect.top - 2, "px");
+    highlightBox.style.width = "".concat(rect.width + 4, "px");
+    highlightBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新标签位置和内容
+    tagLabel.style.display = "block";
+    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 22;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 0) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
+      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
+    }
+    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
+    tagLabel.style.top = "".concat(labelTop, "px");
+
+    // 发送消息到父窗口
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 鼠标离开事件处理
+  function handleMouseOut(e) {
+    if (!highlightEnabled) return;
+    var relatedTarget = e.relatedTarget;
+
+    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
+    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
+      return;
+    }
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: null,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 点击事件处理
+  function handleClick(e) {
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免处理 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 检查是否是交互元素，这些元素需要保留默认行为
+    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
+
+    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
+    if (highlightEnabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+    console.log("Element clicked:", {
+      tagName: target.tagName,
+      selector: selector,
+      rect: rect
+    });
+
+    // 立即更新选中高亮
+    updateSelectedHighlight(target);
+
+    // 隐藏悬停高亮，因为现在是选中状态
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-click",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 监听来自父窗口的消息
+  function handleParentMessage(event) {
+    console.log("Received message from parent:", event.data);
+    if (event.data.type === "iframe-highlight-toggle") {
+      var enabled = event.data.enabled;
+      console.log("Highlight toggle:", enabled);
+      if (enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "enable-iframe-highlight") {
+      console.log("Enable iframe highlight");
+      enableHighlight();
+    } else if (event.data.type === "disable-iframe-highlight") {
+      console.log("Disable iframe highlight");
+      disableHighlight();
+    } else if (event.data.type === "toggle-iframe-highlight") {
+      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
+      console.log("Toggle iframe highlight to:", _enabled);
+      if (_enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "update-selected-element") {
+      var selector = event.data.selector;
+      console.log("Update selected element with selector:", selector);
+      if (selector) {
+        try {
+          var element = document.querySelector(selector);
+          console.log("Found element by selector:", element);
+          updateSelectedHighlight(element);
+        } catch (error) {
+          console.warn("Failed to select element:", error);
+          updateSelectedHighlight(null);
+        }
+      } else {
+        updateSelectedHighlight(null);
+      }
+    } else if (event.data.type === "clear-selected-element") {
+      console.log("Clear selected element");
+      updateSelectedHighlight(null);
+    }
+  }
+
+  // 启用高亮功能
+  function enableHighlight() {
+    console.log("Enabling highlight");
+    document.addEventListener("mouseover", handleMouseOver, true);
+    document.addEventListener("mouseout", handleMouseOut, true);
+    document.addEventListener("click", handleClick, true);
+    highlightEnabled = true;
+    overlay.style.display = "block";
+  }
+
+  // 禁用高亮功能
+  function disableHighlight() {
+    console.log("Disabling highlight");
+    highlightEnabled = false;
+    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
+    // 这样可以保留选中状态的显示
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
+  }
+
+  // 完全禁用高亮功能（移除所有监听器）
+  function fullyDisableHighlight() {
+    console.log("Fully disabling highlight");
+    highlightEnabled = false;
+    document.removeEventListener("mouseover", handleMouseOver, true);
+    document.removeEventListener("mouseout", handleMouseOut, true);
+    document.removeEventListener("click", handleClick, true);
+    overlay.style.display = "none";
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    selectedBox.style.display = "none";
+    selectedLabel.style.display = "none";
+  }
+
+  // 添加事件监听
+  enableHighlight();
+  window.addEventListener("message", handleParentMessage);
+
+  // 暴露全局函数供外部调用
+  window.__iframeHighlightControl = {
+    enable: enableHighlight,
+    disable: disableHighlight,
+    fullyDisable: fullyDisableHighlight,
+    isEnabled: function isEnabled() {
+      return highlightEnabled;
+    },
+    getSelectedElement: function getSelectedElement() {
+      return selectedElement;
+    },
+    updateSelected: updateSelectedHighlight,
+    // 通过消息发送开关控制
+    sendToggleMessage: function sendToggleMessage(enabled) {
+      window.parent.postMessage({
+        type: 'iframe-highlight-status',
+        enabled: enabled || highlightEnabled,
+        source: 'iframe-highlight-injector'
+      }, '*');
+    }
+  };
+
+  // 通知父窗口脚本已加载
+  try {
+    window.parent.postMessage({
+      type: "iframe-highlight-ready",
+      data: {
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now()
+      },
+      source: "iframe-highlight-injector"
+    }, "*");
+  } catch (error) {
+    console.warn("无法发送就绪消息到父窗口:", error);
+  }
+
+  // 清理函数
+  window.__iframeHighlightCleanup = function () {
+    fullyDisableHighlight();
+    window.removeEventListener("message", handleParentMessage);
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    delete window.__iframeHighlightInitialized;
+    delete window.__iframeHighlightCleanup;
+  };
+})();
+
+</script>
+</body>
+</html>
