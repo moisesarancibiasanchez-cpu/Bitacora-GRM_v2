@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Tickets · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="p-6 overflow-y-auto h-full">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">Listado de Tickets</h2>
+        <p class="text-sm text-slate-500">{{ tickets|length }} incidencias registradas</p>
+      </div>
+      <a href="/kanban" class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+        Ir al Tablero Kanban
+      </a>
+    </div>
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs text-slate-600 uppercase">
+          <tr>
+            <th class="px-4 py-3 text-left">Código</th>
+            <th class="px-4 py-3 text-left">Título</th>
+            <th class="px-4 py-3 text-left">Estado</th>
+            <th class="px-4 py-3 text-left">Prioridad</th>
+            <th class="px-4 py-3 text-left">Asignado</th>
+            <th class="px-4 py-3 text-left">SLA</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for t in tickets %}
+          <tr class="hover:bg-slate-50">
+            <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ t.codigo }}</td>
+            <td class="px-4 py-3 font-medium text-slate-800">{{ t.titulo }}</td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full" style="background-color: {{ t.estado.color }}"></span>
+                <span class="text-xs">{{ t.estado.nombre }}</span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 text-xs rounded-full
+                {% if t.prioridad.value == 'critica' %}bg-red-100 text-red-700
+                {% elif t.prioridad.value == 'alta' %}bg-orange-100 text-orange-700
+                {% elif t.prioridad.value == 'media' %}bg-yellow-100 text-yellow-700
+                {% else %}bg-slate-100 text-slate-600{% endif %}">
+                {{ t.prioridad.value|upper }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-xs text-slate-600">{{ t.asignado.nombre_completo if t.asignado else '—' }}</td>
+            <td class="px-4 py-3 text-xs">
+              {% if t.sla_cumplido == 0 %}
+                <span class="text-red-600">● Vencido</span>
+              {% elif t.sla_cumplido == -1 %}
+                <span class="text-amber-600">● Pendiente</span>
+              {% else %}
+                <span class="text-emerald-600">● OK</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

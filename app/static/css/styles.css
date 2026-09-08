@@ -1,0 +1,79 @@
+/* Bitácora GRM - Estilos personalizados */
+
+:root {
+  --color-kanban-bg: #f1f5f9;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* === Kanban Cards === */
+.kanban-card {
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.kanban-card:hover {
+  transform: translateY(-1px);
+  border-color: #cbd5e1;
+}
+.kanban-ghost {
+  opacity: 0.4;
+  background: #e0e7ff !important;
+  border: 2px dashed #6366f1 !important;
+}
+.kanban-drag {
+  cursor: grabbing;
+  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15) !important;
+  transform: rotate(2deg);
+}
+.kanban-chosen {
+  cursor: grabbing;
+}
+
+/* === Columnas === */
+.kanban-column {
+  max-height: 100%;
+  transition: background-color 0.2s ease;
+}
+.kanban-list {
+  transition: background-color 0.15s ease;
+}
+.kanban-list.drag-over {
+  background-color: rgba(99, 102, 241, 0.08);
+  border-radius: 0.5rem;
+}
+
+/* === Toasts === */
+.toast {
+  animation: fadeInRight 0.25s ease-out;
+  pointer-events: auto;
+}
+@keyframes fadeInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-fade-in { animation: fadeIn 0.2s ease-out; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* === Utilidades === */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Scrollbar personalizada */
+.kanban-list::-webkit-scrollbar { width: 6px; }
+.kanban-list::-webkit-scrollbar-track { background: transparent; }
+.kanban-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.kanban-list::-webkit-scrollbar-thumb:hover { background: #94a3b8; }

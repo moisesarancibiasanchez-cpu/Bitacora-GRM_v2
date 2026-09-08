@@ -1,0 +1,27 @@
+# === FastAPI / Backend ===
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+jinja2==3.1.4
+
+# === Base de datos ===
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.10    # PostgreSQL (producción)
+# Para SQLite en modo demo no requiere driver extra
+
+# === Async / Background tasks ===
+celery==5.4.0
+redis==5.2.0
+
+# === Seguridad ===
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+
+# === Configuración ===
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+
+# === Utilidades ===
+httpx==0.27.2
