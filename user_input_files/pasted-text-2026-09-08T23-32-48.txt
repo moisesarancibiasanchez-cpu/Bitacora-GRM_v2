@@ -1,0 +1,170 @@
+
+
+BitacoraGRMv2
+
+production
+
+
+
+Agent
+
+
+
+
+
+
+
+
+
+
+
+
+Postgres
+Deployments
+Database
+Backups
+Variables
+Metrics
+Console
+Settings
+Unexposed service
+EU West
+1 Replica
+
+
+
+
+Postgres
+/
+e7e5578c
+Active
+
+2026-09-08 20:25 GMT-3
+Details
+Build Logs
+Deploy Logs
+Network Logs
+Filter and search logs
+
+
+
+
+
+
+
+2026-09-08 20:32:02
+Error
+Attributes
+Raw Data
+2026-09-08 23:31:52.594 UTC [200] STATEMENT:  /* railway:dataui */ /* railway:dataui */ SELECT encode(convert_to(row_to_json(data)::text, 'UTF-8'), 'hex') as json FROM (SELECT (SELECT json_agg(t) FROM (SELECT REPLACE(REPLACE(query, E'\n', ' '), E'\r', ' ') as query, calls, ROUND(total_exec_time::numeric, 2) as total_time, ROUND(mean_exec_time::numeric, 2) as mean_time, ROUND(max_exec_time::numeric, 2) as max_time, rows FROM pg_stat_statements s JOIN pg_database d ON s.dbid = d.oid WHERE d.datname = current_database() AND left(query, 21) != '/* railway:dataui */' AND query != 'SELECT pg_is_in_recovery()' ORDER BY total_exec_time DESC LIMIT 20) t) as queries, (SELECT stats_reset::text FROM pg_stat_statements_info LIMIT 1) as stats_reset) data
+Name
+Value
+level
+error
+
+Railway metadata
++....+.....+...+....+...
++...+..+.......
++.....+......+...+....
+..+.........+.....
+..............+..+.
++..............
+...+...+....+...+......+
+..+...+.+.....+....+...
+..+.+.....+...+.
++.........+...+......
+..+.+...+......
++.........+........
+.......+........
++.............+......
+...+...+...+........
+...+.+..+.+..
++...+.+..................+
+...........+....+...
+...............
+...+.....+.......
+..+...+....+......
+..............
++....+..+...+.+...
+..+......+....
+......+...+..+
+.......+..+...+.+...
+...+.....+....+
+.....+.......+..+.+
+.........+..+.+..
++...............+.....
+..........+.....
+.....+...+.....+...
+.......+...+..
+....+...........
++...+.+......+...
+......+.....+...
+......+......
+.............
+..+.+........+..
+....+...........
+.............
+....+......+.......
+..+........+...+...
+.++++++
+-----
+..+..........+.....+.+...+++++++++++++++++++++++++++++++++++++++*..+..+++++++++++++++++++++++++++++++++++++++*....+..+...............+.+........+.........+...+....+......+...+.....+....+.....+.+...........+...
+...+....+...+..
+...+......+.+...
+.....+..........
+.....+..........+...
+........+.......
++...............+
+............+..+
+....+..+....+......+...
++..+.........+.+
++++++
+.......+.......+.....+....+...+.....+..........+.....+...+...+.+++
++++++++++++++++
+++++++++++
+++++++++++
++*..+..+...+...++++
+++++++++++
+++++++++++
+++++++++++
++++++*.+.....
+...+.+.....+...
+......+....
+...+...........
++.......+..+....
+..+...+....+....
+..+..+......
+.+..+....+..+
+..........+.....
+.........+.+..+.
++.....+......
+.+..++++++
+-----
+Certificate request self-signature ok
+subject=CN=localhost
+waiting for server to shut down....2026-09-08 23:25:37.738 UTC [75] LOG:  received fast shutdown request
+2026-09-08 23:25:37.740 UTC [75] LOG:  aborting any active transactions
+2026-09-08 23:25:37.741 UTC [75] LOG:  background worker "logical replication launcher" (PID 84) exited with exit code 1
+2026-09-08 23:25:37.742 UTC [79] LOG:  shutting down
+2026-09-08 23:25:37.743 UTC [79] LOG:  checkpoint starting: shutdown immediate
+2026-09-08 23:25:37.958 UTC [23] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-09-08 23:25:37.958 UTC [23] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-08 23:25:37.958 UTC [23] LOG:  listening on IPv6 address "::", port 5432
+2026-09-08 23:25:37.961 UTC [23] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-09-08 23:25:37.967 UTC [118] LOG:  database system was shut down at 2026-09-08 23:25:37 UTC
+2026-09-08 23:25:37.970 UTC [23] LOG:  database system is ready to accept connections
+2026-09-08 23:25:37.846 UTC [79] LOG:  checkpoint complete: wrote 943 buffers (5.8%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.011 s, sync=0.086 s, total=0.105 s; sync files=303, longest=0.067 s, average=0.001 s; distance=4352 kB, estimate=4352 kB; lsn=0/1BA1BE0, redo lsn=0/1BA1BE0
+2026-09-08 23:25:37.857 UTC [75] LOG:  database system is shut down
+ done
+server stopped
+PostgreSQL init process complete; ready for start up.
+collation-refresh: psql:/tmp/collation-refresh.z7PMqx.sql:16: NOTICE:  version has not changed
+collation-refresh: psql:/tmp/collation-refresh.z7PMqx.sql:16: NOTICE:  version has not changed
+collation-refresh: psql:/tmp/collation-refresh.z7PMqx.sql:16: NOTICE:  version has not changed
+2026-09-08 23:30:38.065 UTC [116] LOG:  checkpoint starting: time
+2026-09-08 23:30:42.398 UTC [116] LOG:  checkpoint complete: wrote 43 buffers (0.3%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.315 s, sync=0.011 s, total=4.334 s; sync files=12, longest=0.005 s, average=0.001 s; distance=326 kB, estimate=326 kB; lsn=0/1BF37E0, redo lsn=0/1BF3788
+2026-09-08 23:31:52.594 UTC [200] ERROR:  relation "pg_stat_statements" does not exist at character 383
+2026-09-08 23:31:52.594 UTC [200] STATEMENT:  /* railway:dataui */ /* railway:dataui */ SELECT encode(convert_to(row_to_json(data)::text, 'UTF-8'), 'hex') as json FROM (SELECT (SELECT json_agg(t) FROM (SELECT REPLACE(REPLACE(query, E'\n', ' '), E'\r', ' ') as query, calls, ROUND(total_exec_time::numeric, 2) as total_time, ROUND(mean_exec_time::numeric, 2) as mean_time, ROUND(max_exec_time::numeric, 2) as max_time, rows FROM pg_stat_statements s JOIN pg_database d ON s.dbid = d.oid WHERE d.datname = current_database() AND left(query, 21) != '/* railway:dataui */' AND query != 'SELECT pg_is_in_recovery()' ORDER BY total_exec_time DESC LIMIT 20) t) as queries, (SELECT stats_reset::text FROM pg_stat_statements_info LIMIT 1) as stats_reset) data
+
+
+500MB
