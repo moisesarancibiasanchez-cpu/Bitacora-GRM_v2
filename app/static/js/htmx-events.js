@@ -64,9 +64,16 @@
   // Eventos de creación de recursos en modal de detalle
   const _evtMsgs = {
     'comentario-creado':   { msg: 'Comentario agregado correctamente',         type: 'success' },
+    'comentario-eliminado':{ msg: 'Comentario eliminado',                      type: 'info' },
     'checklist-creada':    { msg: 'Checklist creado correctamente',            type: 'success' },
+    'checklist-eliminada': { msg: 'Checklist eliminado',                       type: 'info' },
     'checklist-item-agregado': { msg: 'Tarea agregada al checklist',           type: 'success' },
+    'checklist-item-eliminado': { msg: 'Tarea eliminada del checklist',        type: 'info' },
+    'checklist-item-toggle': { msg: 'Tarea actualizada',                       type: 'info' },
     'adjunto-subido':      { msg: 'Archivo(s) subido(s) correctamente',       type: 'success' },
+    'adjunto-eliminado':   { msg: 'Adjunto eliminado',                         type: 'info' },
+    'etiqueta-asignada':   { msg: 'Etiqueta agregada al ticket',               type: 'success' },
+    'etiqueta-removida':   { msg: 'Etiqueta quitada del ticket',               type: 'info' },
   };
   Object.keys(_evtMsgs).forEach((evt) => {
     document.body.addEventListener(evt, (e) => {

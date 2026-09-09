@@ -52,6 +52,87 @@ router = APIRouter(tags=["features"])
 
 
 # ==========================================
+# Helper: re-renderiza el modal de detalle del ticket.
+# Se usa después de cualquier acción (crear comentario, agregar etiqueta,
+# eliminar checklist, etc.) para que HTMX reciba HTML y pueda hacer
+# hx-swap="innerHTML" correctamente. Sin esto, los endpoints devolvían
+# JSON/204 y el modal no se actualizaba en pantalla.
+# ==========================================
+def _render_detalle_modal_response(
+    db, ticket, user, active_tab: str = "detalles",
+):
+    """Re-renderiza el modal de detalle del ticket y devuelve un HTMLResponse.
+
+    ``active_tab`` define qué pestaña quedará visible al volver a pintar
+    el modal (detalles, comentarios, adjuntos, checklist, trazabilidad).
+    """
+    from app.models.estado import Estado
+    from app.models.comentario import Comentario
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist
+    from app.models.auditoria import Auditoria
+    from app.models.usuario import Usuario
+    from app.models.etiqueta import Etiqueta
+    from app.api.v1.tickets import _formatear_ultima_modificacion
+    from app.services.trello_service import CampoPersonalizadoService
+    from app.templates.tickets.detalle_modal import render_detalle_modal
+
+    ticket_id = ticket.id
+    db.refresh(ticket)
+    estados = db.query(Estado).order_by(Estado.orden).all()
+    comentarios = (
+        db.query(Comentario)
+        .filter(Comentario.ticket_id == ticket_id)
+        .order_by(Comentario.created_at.asc())
+        .all()
+    )
+    adjuntos = (
+        db.query(Adjunto)
+        .filter(Adjunto.ticket_id == ticket_id)
+        .order_by(Adjunto.created_at.desc())
+        .all()
+    )
+    checklists = (
+        db.query(Checklist)
+        .filter(Checklist.ticket_id == ticket_id)
+        .order_by(Checklist.orden.asc())
+        .all()
+    )
+    auditorias = (
+        db.query(Auditoria)
+        .filter(Auditoria.ticket_id == ticket_id)
+        .order_by(Auditoria.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    usuarios = (
+        db.query(Usuario)
+        .filter(Usuario.is_active == True)  # noqa: E712
+        .order_by(Usuario.nombre_completo.asc())
+        .all()
+    )
+    etiquetas_disponibles = (
+        db.query(Etiqueta)
+        .filter(Etiqueta.activo == True)  # noqa: E712
+        .order_by(Etiqueta.nombre.asc())
+        .all()
+    )
+    campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
+    ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+    html = render_detalle_modal(
+        ticket=ticket, estados=estados, comentarios=comentarios,
+        adjuntos=adjuntos, checklists=checklists,
+        auditorias=auditorias, usuario=user,
+        ultima_modificacion=ultima_mod,
+        active_tab=active_tab or "detalles",
+        usuarios=usuarios,
+        etiquetas_disponibles=etiquetas_disponibles,
+        campos_personalizados=campos_personalizados,
+    )
+    return html
+
+
+# ==========================================
 # ETIQUETAS
 # ==========================================
 @router.get("/etiquetas", response_model=List[EtiquetaRead])
@@ -100,35 +181,93 @@ def eliminar_etiqueta(
     return Response(status_code=204)
 
 
-@router.post("/tickets/{ticket_id}/etiquetas/{etiqueta_id}", response_model=List[EtiquetaRead])
-def asignar_etiqueta(
+@router.post("/tickets/{ticket_id}/etiquetas/{etiqueta_id}")
+async def asignar_etiqueta(
     ticket_id: int,
     etiqueta_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Asigna una etiqueta al ticket. Si viene de HTMX devuelve el modal
+    re-renderizado; si no, devuelve la lista de etiquetas en JSON.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "detalles"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "detalles").strip() or "detalles"
+        except Exception:
+            pass
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Ticket no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
-    EtiquetaService(db).asignar_a_ticket(ticket, etiqueta_id)
+    ok = EtiquetaService(db).asignar_a_ticket(ticket, etiqueta_id)
+    if not ok:
+        # Etiqueta inexistente o ya asignada; igualmente refrescamos modal
+        if is_htmx:
+            html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+            return HTMLResponse(
+                content=html,
+                status_code=200,
+                headers={"HX-Trigger": json.dumps({"ticket-error": {"message": "Etiqueta no disponible o ya asignada"}})},
+            )
+        return ticket.etiquetas
     registrar_auditoria(db, ticket.id, user.id, "etiqueta_asignada", valor_nuevo={"etiqueta_id": etiqueta_id})
     # Disparar regla butler
     MotorAutomatizacion(db).disparar("ticket_etiquetado", ticket, {"etiqueta_id": etiqueta_id})
+    if is_htmx:
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "etiqueta-asignada"},
+        )
     return ticket.etiquetas
 
 
-@router.delete("/tickets/{ticket_id}/etiquetas/{etiqueta_id}", response_model=List[EtiquetaRead])
-def quitar_etiqueta(
+@router.delete("/tickets/{ticket_id}/etiquetas/{etiqueta_id}")
+async def quitar_etiqueta(
     ticket_id: int,
     etiqueta_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Quita una etiqueta del ticket. Si viene de HTMX devuelve el modal
+    re-renderizado; si no, devuelve la lista de etiquetas en JSON.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "detalles"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "detalles").strip() or "detalles"
+        except Exception:
+            pass
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Ticket no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     EtiquetaService(db).quitar_de_ticket(ticket, etiqueta_id)
     registrar_auditoria(db, ticket.id, user.id, "etiqueta_removida", valor_nuevo={"etiqueta_id": etiqueta_id})
+    if is_htmx:
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "etiqueta-removida"},
+        )
     return ticket.etiquetas
 
 
@@ -194,66 +333,7 @@ async def crear_checklist(
     db.refresh(cl)
 
     if is_htmx:
-        from app.models.estado import Estado
-        from app.models.comentario import Comentario
-        from app.models.adjunto import Adjunto
-        from app.models.usuario import Usuario
-        from app.models.etiqueta import Etiqueta
-        estados = db.query(Estado).order_by(Estado.orden).all()
-        comentarios = (
-            db.query(Comentario)
-            .filter(Comentario.ticket_id == ticket_id)
-            .order_by(Comentario.created_at.asc())
-            .all()
-        )
-        adjuntos = (
-            db.query(Adjunto)
-            .filter(Adjunto.ticket_id == ticket_id)
-            .order_by(Adjunto.created_at.desc())
-            .all()
-        )
-        checklists = (
-            db.query(Checklist)
-            .filter(Checklist.ticket_id == ticket_id)
-            .order_by(Checklist.orden.asc())
-            .all()
-        )
-        from app.templates.tickets.detalle_modal import render_detalle_modal
-        # Cargar auditoría para la pestaña de trazabilidad
-        from app.models.auditoria import Auditoria
-        from app.api.v1.tickets import _formatear_ultima_modificacion
-        auditorias = (
-            db.query(Auditoria)
-            .filter(Auditoria.ticket_id == ticket_id)
-            .order_by(Auditoria.created_at.desc())
-            .limit(200)
-            .all()
-        )
-        usuarios = (
-            db.query(Usuario)
-            .filter(Usuario.is_active == True)  # noqa: E712
-            .order_by(Usuario.nombre_completo.asc())
-            .all()
-        )
-        etiquetas_disponibles = (
-            db.query(Etiqueta)
-            .filter(Etiqueta.activo == True)  # noqa: E712
-            .order_by(Etiqueta.nombre.asc())
-            .all()
-        )
-        from app.services.trello_service import CampoPersonalizadoService
-        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
-        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
-        html = render_detalle_modal(
-            ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists,
-            auditorias=auditorias, usuario=user,
-            ultima_modificacion=ultima_mod,
-            active_tab=active_tab or "checklist",
-            usuarios=usuarios,
-            etiquetas_disponibles=etiquetas_disponibles,
-            campos_personalizados=campos_personalizados,
-        )
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab or "checklist")
         return HTMLResponse(
             content=html,
             status_code=200,
@@ -262,18 +342,45 @@ async def crear_checklist(
     return cl
 
 
-@router.delete("/checklists/{checklist_id}", status_code=204)
-def eliminar_checklist(
+@router.delete("/checklists/{checklist_id}")
+async def eliminar_checklist(
     checklist_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Elimina un checklist. Si viene de HTMX devuelve el modal re-renderizado;
+    si no, devuelve 204.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "checklist"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "checklist").strip() or "checklist"
+        except Exception:
+            pass
     cl = db.query(Checklist).filter(Checklist.id == checklist_id).first()
     if not cl:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Checklist no encontrada.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Checklist no encontrada")
     ticket_id = cl.ticket_id
     ChecklistService(db).eliminar(checklist_id)
     registrar_auditoria(db, ticket_id, user.id, "checklist_eliminada", valor_anterior={"checklist_id": checklist_id})
+    if is_htmx:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "checklist-eliminada"},
+        )
     return Response(status_code=204)
 
 
@@ -344,65 +451,7 @@ async def agregar_item(
         ticket = db.query(Ticket).filter(Ticket.id == cl.ticket_id).first() if cl else None
         if not ticket:
             return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
-        from app.models.estado import Estado
-        from app.models.comentario import Comentario
-        from app.models.adjunto import Adjunto
-        from app.models.usuario import Usuario as UsuarioModel
-        from app.models.etiqueta import Etiqueta
-        from app.models.auditoria import Auditoria
-        from app.api.v1.tickets import _formatear_ultima_modificacion
-        from app.services.trello_service import CampoPersonalizadoService
-        estados = db.query(Estado).order_by(Estado.orden).all()
-        comentarios = (
-            db.query(Comentario)
-            .filter(Comentario.ticket_id == ticket.id)
-            .order_by(Comentario.created_at.asc())
-            .all()
-        )
-        adjuntos = (
-            db.query(Adjunto)
-            .filter(Adjunto.ticket_id == ticket.id)
-            .order_by(Adjunto.created_at.desc())
-            .all()
-        )
-        checklists = (
-            db.query(Checklist)
-            .filter(Checklist.ticket_id == ticket.id)
-            .order_by(Checklist.orden.asc())
-            .all()
-        )
-        auditorias = (
-            db.query(Auditoria)
-            .filter(Auditoria.ticket_id == ticket.id)
-            .order_by(Auditoria.created_at.desc())
-            .limit(200)
-            .all()
-        )
-        usuarios = (
-            db.query(UsuarioModel)
-            .filter(UsuarioModel.is_active == True)  # noqa: E712
-            .order_by(UsuarioModel.nombre_completo.asc())
-            .all()
-        )
-        etiquetas_disponibles = (
-            db.query(Etiqueta)
-            .filter(Etiqueta.activo == True)  # noqa: E712
-            .order_by(Etiqueta.nombre.asc())
-            .all()
-        )
-        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket.id)
-        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
-        from app.templates.tickets.detalle_modal import render_detalle_modal
-        html = render_detalle_modal(
-            ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists,
-            auditorias=auditorias, usuario=user,
-            ultima_modificacion=ultima_mod,
-            active_tab=active_tab or "checklist",
-            usuarios=usuarios,
-            etiquetas_disponibles=etiquetas_disponibles,
-            campos_personalizados=campos_personalizados,
-        )
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab or "checklist")
         return HTMLResponse(
             content=html,
             status_code=200,
@@ -428,26 +477,91 @@ def toggle_item(
     return item
 
 
-@router.post("/checklist-items/{item_id}/toggle", response_model=ChecklistItemRead)
-def toggle_item_simple(
+@router.post("/checklist-items/{item_id}/toggle")
+async def toggle_item_simple(
     item_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Marca/desmarca un item de checklist. Si viene de HTMX devuelve el modal
+    re-renderizado; si no, devuelve el item en JSON.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "checklist"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "checklist").strip() or "checklist"
+        except Exception:
+            pass
     item = ChecklistService(db).toggle_item(item_id)
     if not item:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Item no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Item no encontrado")
+    if is_htmx:
+        cl = db.query(Checklist).filter(Checklist.id == item.checklist_id).first()
+        if not cl:
+            return HTMLResponse("<div>Checklist no encontrada</div>", status_code=404)
+        ticket = db.query(Ticket).filter(Ticket.id == cl.ticket_id).first()
+        if not ticket:
+            return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
+        registrar_auditoria(db, ticket.id, user.id, "checklist_item_toggle", valor_nuevo={
+            "checklist_id": cl.id, "item_id": item.id, "completado": item.completado
+        })
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "checklist-item-toggle"},
+        )
     return item
 
 
-@router.delete("/checklist-items/{item_id}", status_code=204)
-def eliminar_item(
+@router.delete("/checklist-items/{item_id}")
+async def eliminar_item(
     item_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: Usuario = Depends(get_current_user),
+    user: Usuario = Depends(get_current_user),
 ):
-    if not ChecklistService(db).eliminar_item(item_id):
+    """Elimina un item de checklist. Si viene de HTMX devuelve el modal
+    re-renderizado; si no, devuelve 204.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "checklist"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "checklist").strip() or "checklist"
+        except Exception:
+            pass
+    item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+    if not item:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Item no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Item no encontrado")
+    cl = db.query(Checklist).filter(Checklist.id == item.checklist_id).first()
+    ticket_id = cl.ticket_id if cl else None
+    ChecklistService(db).eliminar_item(item_id)
+    if ticket_id:
+        registrar_auditoria(db, ticket_id, user.id, "checklist_item_eliminado", valor_anterior={"item_id": item_id})
+    if is_htmx and ticket_id:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if ticket:
+            html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+            return HTMLResponse(
+                content=html,
+                status_code=200,
+                headers={"HX-Trigger": "checklist-item-eliminado"},
+            )
     return Response(status_code=204)
 
 
@@ -534,67 +648,8 @@ async def crear_comentario(
     MotorAutomatizacion(db).disparar("ticket_comentado", ticket, {"comentario_id": com.id})
 
     if is_htmx:
-        from app.models.estado import Estado
-        from app.models.adjunto import Adjunto
-        from app.models.checklist import Checklist
-        from app.models.usuario import Usuario
-        from app.models.etiqueta import Etiqueta
         db.refresh(com)
-        estados = db.query(Estado).order_by(Estado.orden).all()
-        comentarios = (
-            db.query(Comentario)
-            .filter(Comentario.ticket_id == ticket_id)
-            .order_by(Comentario.created_at.asc())
-            .all()
-        )
-        adjuntos = (
-            db.query(Adjunto)
-            .filter(Adjunto.ticket_id == ticket_id)
-            .order_by(Adjunto.created_at.desc())
-            .all()
-        )
-        checklists = (
-            db.query(Checklist)
-            .filter(Checklist.ticket_id == ticket_id)
-            .order_by(Checklist.orden.asc())
-            .all()
-        )
-        from app.templates.tickets.detalle_modal import render_detalle_modal
-        # Cargar auditoría para la pestaña de trazabilidad
-        from app.models.auditoria import Auditoria
-        from app.api.v1.tickets import _formatear_ultima_modificacion
-        auditorias = (
-            db.query(Auditoria)
-            .filter(Auditoria.ticket_id == ticket_id)
-            .order_by(Auditoria.created_at.desc())
-            .limit(200)
-            .all()
-        )
-        usuarios = (
-            db.query(Usuario)
-            .filter(Usuario.is_active == True)  # noqa: E712
-            .order_by(Usuario.nombre_completo.asc())
-            .all()
-        )
-        etiquetas_disponibles = (
-            db.query(Etiqueta)
-            .filter(Etiqueta.activo == True)  # noqa: E712
-            .order_by(Etiqueta.nombre.asc())
-            .all()
-        )
-        from app.services.trello_service import CampoPersonalizadoService
-        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
-        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
-        html = render_detalle_modal(
-            ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists,
-            auditorias=auditorias, usuario=user,
-            ultima_modificacion=ultima_mod,
-            active_tab=active_tab or "comentarios",
-            usuarios=usuarios,
-            etiquetas_disponibles=etiquetas_disponibles,
-            campos_personalizados=campos_personalizados,
-        )
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab or "comentarios")
         return HTMLResponse(
             content=html,
             status_code=200,
@@ -619,18 +674,51 @@ def editar_comentario(
     return com
 
 
-@router.delete("/comentarios/{comentario_id}", status_code=204)
-def eliminar_comentario(
+@router.delete("/comentarios/{comentario_id}")
+async def eliminar_comentario(
     comentario_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Elimina un comentario. Si viene de HTMX devuelve el modal
+    re-renderizado; si no, devuelve 204.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "comentarios"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "comentarios").strip() or "comentarios"
+        except Exception:
+            pass
     com = db.query(Comentario).filter(Comentario.id == comentario_id).first()
     if not com:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Comentario no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Comentario no encontrado")
     if com.usuario_id != user.id and user.rol not in (RolUsuario.ADMINISTRADOR,):
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">No autorizado para eliminar.</div>',
+                status_code=403,
+            )
         raise HTTPException(status_code=403, detail="No autorizado para eliminar")
+    ticket_id = com.ticket_id
     ComentarioService(db).eliminar(comentario_id)
+    registrar_auditoria(db, ticket_id, user.id, "comentario_eliminado", valor_anterior={"comentario_id": comentario_id})
+    if is_htmx:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if ticket:
+            html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+            return HTMLResponse(
+                content=html,
+                status_code=200,
+                headers={"HX-Trigger": "comentario-eliminado"},
+            )
     return Response(status_code=204)
 
 
@@ -731,67 +819,7 @@ async def subir_adjunto(
         raise HTTPException(status_code=400, detail=msg)
 
     if is_htmx:
-        # Re-renderizar el modal completo
-        from app.models.estado import Estado
-        from app.models.comentario import Comentario
-        from app.models.checklist import Checklist
-        from app.models.usuario import Usuario
-        from app.models.etiqueta import Etiqueta
-        estados = db.query(Estado).order_by(Estado.orden).all()
-        comentarios = (
-            db.query(Comentario)
-            .filter(Comentario.ticket_id == ticket_id)
-            .order_by(Comentario.created_at.asc())
-            .all()
-        )
-        adjuntos = (
-            db.query(Adjunto)
-            .filter(Adjunto.ticket_id == ticket_id)
-            .order_by(Adjunto.created_at.desc())
-            .all()
-        )
-        checklists = (
-            db.query(Checklist)
-            .filter(Checklist.ticket_id == ticket_id)
-            .order_by(Checklist.orden.asc())
-            .all()
-        )
-        from app.templates.tickets.detalle_modal import render_detalle_modal
-        # Cargar auditoría para la pestaña de trazabilidad
-        from app.models.auditoria import Auditoria
-        from app.api.v1.tickets import _formatear_ultima_modificacion
-        auditorias = (
-            db.query(Auditoria)
-            .filter(Auditoria.ticket_id == ticket_id)
-            .order_by(Auditoria.created_at.desc())
-            .limit(200)
-            .all()
-        )
-        usuarios = (
-            db.query(Usuario)
-            .filter(Usuario.is_active == True)  # noqa: E712
-            .order_by(Usuario.nombre_completo.asc())
-            .all()
-        )
-        etiquetas_disponibles = (
-            db.query(Etiqueta)
-            .filter(Etiqueta.activo == True)  # noqa: E712
-            .order_by(Etiqueta.nombre.asc())
-            .all()
-        )
-        from app.services.trello_service import CampoPersonalizadoService
-        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
-        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
-        html = render_detalle_modal(
-            ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists,
-            auditorias=auditorias, usuario=user,
-            ultima_modificacion=ultima_mod,
-            active_tab=active_tab or "adjuntos",
-            usuarios=usuarios,
-            etiquetas_disponibles=etiquetas_disponibles,
-            campos_personalizados=campos_personalizados,
-        )
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab or "adjuntos")
         trigger_payload = {"adjunto-subido": {"count": len(subidos)}}
         if errores:
             trigger_payload["adjunto-error"] = {"errores": errores}
@@ -821,18 +849,51 @@ def descargar_adjunto(
     )
 
 
-@router.delete("/adjuntos/{adjunto_id}", status_code=204)
-def eliminar_adjunto(
+@router.delete("/adjuntos/{adjunto_id}")
+async def eliminar_adjunto(
     adjunto_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Elimina un adjunto. Si viene de HTMX devuelve el modal re-renderizado;
+    si no, devuelve 204.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "adjuntos"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "adjuntos").strip() or "adjuntos"
+        except Exception:
+            pass
     adj = AdjuntoService(db).obtener(adjunto_id)
     if not adj:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Adjunto no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Adjunto no encontrado")
     if adj.usuario_id != user.id and user.rol not in (RolUsuario.ADMINISTRADOR,):
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">No autorizado para eliminar.</div>',
+                status_code=403,
+            )
         raise HTTPException(status_code=403, detail="No autorizado para eliminar")
+    ticket_id = adj.ticket_id
     AdjuntoService(db).eliminar(adjunto_id)
+    registrar_auditoria(db, ticket_id, user.id, "adjunto_eliminado", valor_anterior={"adjunto_id": adjunto_id})
+    if is_htmx:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if ticket:
+            html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+            return HTMLResponse(
+                content=html,
+                status_code=200,
+                headers={"HX-Trigger": "adjunto-eliminado"},
+            )
     return Response(status_code=204)
 
 

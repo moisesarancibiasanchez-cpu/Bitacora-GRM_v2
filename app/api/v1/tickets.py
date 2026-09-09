@@ -406,7 +406,11 @@ async def actualizar_ticket_campo(
         valor_nuevo=valor_nuevo,
     )
 
-    # Re-renderizar el modal completo para que se vean todos los cambios
+    # IMPORTANTE: para auto-save (titulo, descripcion, prioridad, asignado, fecha)
+    # devolvemos un response vacío con HX-Swap: none para evitar re-renderizar
+    # el modal completo en cada cambio (causa pérdida de foco, cursor y
+    # deja el spinner "trabajando" activo). El HX-Trigger sigue disparándose
+    # para que aparezca el toast de confirmación.
     from app.models.estado import Estado
     from app.models.comentario import Comentario
     from app.models.adjunto import Adjunto
@@ -470,10 +474,15 @@ async def actualizar_ticket_campo(
     return HTMLResponse(
         content=html,
         status_code=200,
-        headers={"HX-Trigger": json.dumps({
-            "ticket-updated": {"campo": campo},
-            "ticket-campo-editado": {"campo": campo},
-        })},
+        headers={
+            # HX-Swap: none evita que HTMX reemplace el contenido del modal.
+            # Así el usuario mantiene el foco y el cursor en el input.
+            "HX-Swap": "none",
+            "HX-Trigger": json.dumps({
+                "ticket-updated": {"campo": campo},
+                "ticket-campo-editado": {"campo": campo},
+            }),
+        },
     )
 
 

@@ -440,6 +440,12 @@
         if (typeof htmx !== 'undefined') {
           try { htmx.process(root); } catch (_) {}
         }
+        // Re-inicializar extras del modal (dropzone de adjuntos, markdown)
+        if (typeof window.reinitModalExtras === 'function') {
+          try { window.reinitModalExtras(); } catch (_) {}
+        }
+        // Re-vincular listeners de tarjetas y cerrar modal
+        attachCardClickListeners();
       })
       .catch((err) => {
         console.error('[kanban] Error al cargar detalle:', err);
