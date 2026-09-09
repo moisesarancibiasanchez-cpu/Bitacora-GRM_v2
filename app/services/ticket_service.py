@@ -9,7 +9,7 @@ Reglas de validación (cumplen con ITIL/ITSM):
 5. Todo cambio se registra en historial_estados y auditoria (obligatorio).
 """
 from datetime import datetime, timedelta
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Any, Dict
 
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -311,3 +311,89 @@ class TicketService:
 
     def obtener_ticket(self, ticket_id: int) -> Optional[Ticket]:
         return self.db.query(Ticket).filter(Ticket.id == ticket_id).first()
+
+    # ----------------------------------------------------------------------
+    #  Actualización de campos editables (modal de detalle)
+    # ----------------------------------------------------------------------
+    CAMPOS_EDITABLES = {
+        "titulo", "descripcion", "prioridad", "asignado_id",
+        "fecha_vencimiento", "catalogo_tipo_id", "datos_catalogo",
+    }
+
+    def actualizar_campo(
+        self,
+        ticket_id: int,
+        campo: str,
+        valor: Any,
+        usuario: Usuario,
+    ) -> Tuple[Optional[Ticket], Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[str]]:
+        """Actualiza un único campo del ticket.
+
+        Devuelve ``(ticket, valor_anterior, valor_nuevo, error)``.
+        Solo se permiten campos en :pyattr:`CAMPOS_EDITABLES`.
+        """
+        if campo not in self.CAMPOS_EDITABLES:
+            return None, None, None, f"Campo '{campo}' no editable"
+        ticket = self.obtener_ticket(ticket_id)
+        if not ticket:
+            return None, None, None, "Ticket no encontrado"
+
+        # Calcular valor anterior legible
+        if campo == "prioridad":
+            anterior_raw = ticket.prioridad.value if hasattr(ticket.prioridad, "value") else ticket.prioridad
+        elif campo == "fecha_vencimiento":
+            anterior_raw = ticket.fecha_vencimiento_sla.isoformat() if ticket.fecha_vencimiento_sla else None
+        elif campo == "asignado_id":
+            anterior_raw = ticket.asignado_id
+        else:
+            anterior_raw = getattr(ticket, campo, None)
+        valor_anterior = {campo: anterior_raw} if anterior_raw is not None else None
+
+        try:
+            if campo == "prioridad":
+                from app.models.ticket import Prioridad
+                nuevo_valor_enum = Prioridad(valor)
+                ticket.prioridad = nuevo_valor_enum
+                nuevo_legible = nuevo_valor_enum.value
+            elif campo == "fecha_vencimiento":
+                if valor in (None, "", "null"):
+                    ticket.fecha_vencimiento_sla = None
+                    nuevo_legible = None
+                else:
+                    try:
+                        # Aceptar 'YYYY-MM-DD' o ISO con hora
+                        v = str(valor).strip()
+                        if "T" in v or " " in v and ":" in v:
+                            nuevo_dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                        else:
+                            nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
+                            nuevo_dt = nuevo_dt.replace(hour=23, minute=59)
+                        # Convertir a naive UTC si tiene tzinfo
+                        if nuevo_dt.tzinfo is not None:
+                            nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                        ticket.fecha_vencimiento_sla = nuevo_dt
+                        nuevo_legible = nuevo_dt.isoformat()
+                    except (ValueError, TypeError) as exc:
+                        return ticket, None, None, f"Fecha inválida: {valor}"
+            elif campo == "asignado_id":
+                if valor in (None, "", "null", 0, "0"):
+                    ticket.asignado_id = None
+                    nuevo_legible = None
+                else:
+                    try:
+                        ticket.asignado_id = int(valor)
+                    except (ValueError, TypeError):
+                        return ticket, None, None, f"asignado_id inválido: {valor}"
+                    nuevo_legible = ticket.asignado_id
+            else:
+                # Campos simples (titulo, descripcion)
+                setattr(ticket, campo, valor)
+                nuevo_legible = valor
+        except Exception as exc:
+            return ticket, None, None, f"Error al actualizar: {exc}"
+
+        ticket.updated_at = datetime.utcnow()
+        self.db.flush()
+        self.db.refresh(ticket)
+        valor_nuevo = {campo: nuevo_legible} if nuevo_legible is not None else {campo: None}
+        return ticket, valor_anterior, valor_nuevo, None

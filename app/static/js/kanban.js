@@ -519,6 +519,15 @@
       const target = tabBtn.dataset.tab;
       if (!target) return;
 
+      // Marcar el tab activo en el propio modal (data-active-tab)
+      modal.dataset.activeTab = target;
+
+      // Actualizar todos los inputs hidden name="active_tab" en formularios
+      // del modal para que, al hacer POST, el backend sepa qué tab mostrar.
+      modal.querySelectorAll('input[name="active_tab"]').forEach((inp) => {
+        inp.value = target;
+      });
+
       // Alternar el estilo de los botones
       modal.querySelectorAll('.tab-btn').forEach((b) => {
         if (b === tabBtn) {

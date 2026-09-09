@@ -158,6 +158,7 @@ async def crear_checklist(
     is_htmx = request.headers.get("HX-Request") == "true"
     content_type = request.headers.get("content-type", "")
     titulo = ""
+    active_tab = ""
     if content_type.startswith("application/json"):
         import json as _json
         try:
@@ -166,9 +167,11 @@ async def crear_checklist(
         except Exception:
             body = {}
         titulo = (body.get("titulo") or "").strip()
+        active_tab = (body.get("active_tab") or "").strip()
     else:
         form = await request.form()
         titulo = (form.get("titulo") or "").strip()
+        active_tab = (form.get("active_tab") or "").strip()
     titulo = (titulo or "").strip()
     if not titulo:
         if is_htmx:
@@ -193,6 +196,8 @@ async def crear_checklist(
         from app.models.estado import Estado
         from app.models.comentario import Comentario
         from app.models.adjunto import Adjunto
+        from app.models.usuario import Usuario
+        from app.models.etiqueta import Etiqueta
         estados = db.query(Estado).order_by(Estado.orden).all()
         comentarios = (
             db.query(Comentario)
@@ -223,12 +228,30 @@ async def crear_checklist(
             .limit(200)
             .all()
         )
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
+        etiquetas_disponibles = (
+            db.query(Etiqueta)
+            .filter(Etiqueta.activo == True)  # noqa: E712
+            .order_by(Etiqueta.nombre.asc())
+            .all()
+        )
+        from app.services.trello_service import CampoPersonalizadoService
+        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
         ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
         html = render_detalle_modal(
             ticket=ticket, estados=estados, comentarios=comentarios,
             adjuntos=adjuntos, checklists=checklists,
             auditorias=auditorias, usuario=user,
             ultima_modificacion=ultima_mod,
+            active_tab=active_tab or "checklist",
+            usuarios=usuarios,
+            etiquetas_disponibles=etiquetas_disponibles,
+            campos_personalizados=campos_personalizados,
         )
         return HTMLResponse(
             content=html,
@@ -340,6 +363,7 @@ async def crear_comentario(
     content_type = request.headers.get("content-type", "")
     texto = ""
     es_interno = "false"
+    active_tab = ""
 
     if content_type.startswith("application/json"):
         import json as _json
@@ -350,11 +374,13 @@ async def crear_comentario(
             body = {}
         texto = (body.get("texto") or "").strip()
         es_interno = body.get("es_interno", False)
+        active_tab = (body.get("active_tab") or "").strip()
     else:
         # form-data (HTMX)
         form = await request.form()
         texto = (form.get("texto") or "").strip()
         es_interno = form.get("es_interno", "false")
+        active_tab = (form.get("active_tab") or "").strip()
 
     if not texto:
         if is_htmx:
@@ -389,6 +415,8 @@ async def crear_comentario(
         from app.models.estado import Estado
         from app.models.adjunto import Adjunto
         from app.models.checklist import Checklist
+        from app.models.usuario import Usuario
+        from app.models.etiqueta import Etiqueta
         db.refresh(com)
         estados = db.query(Estado).order_by(Estado.orden).all()
         comentarios = (
@@ -420,12 +448,30 @@ async def crear_comentario(
             .limit(200)
             .all()
         )
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
+        etiquetas_disponibles = (
+            db.query(Etiqueta)
+            .filter(Etiqueta.activo == True)  # noqa: E712
+            .order_by(Etiqueta.nombre.asc())
+            .all()
+        )
+        from app.services.trello_service import CampoPersonalizadoService
+        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
         ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
         html = render_detalle_modal(
             ticket=ticket, estados=estados, comentarios=comentarios,
             adjuntos=adjuntos, checklists=checklists,
             auditorias=auditorias, usuario=user,
             ultima_modificacion=ultima_mod,
+            active_tab=active_tab or "comentarios",
+            usuarios=usuarios,
+            etiquetas_disponibles=etiquetas_disponibles,
+            campos_personalizados=campos_personalizados,
         )
         return HTMLResponse(
             content=html,
@@ -484,6 +530,7 @@ async def subir_adjunto(
     request: Request,
     archivo: UploadFile = File(...),
     descripcion: Optional[str] = Form(None),
+    active_tab: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
@@ -494,6 +541,7 @@ async def subir_adjunto(
     en la pestaña correspondiente.
     """
     is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = (active_tab or "").strip()
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         if is_htmx:
@@ -541,6 +589,8 @@ async def subir_adjunto(
         from app.models.estado import Estado
         from app.models.comentario import Comentario
         from app.models.checklist import Checklist
+        from app.models.usuario import Usuario
+        from app.models.etiqueta import Etiqueta
         db.refresh(adj)
         estados = db.query(Estado).order_by(Estado.orden).all()
         comentarios = (
@@ -572,12 +622,30 @@ async def subir_adjunto(
             .limit(200)
             .all()
         )
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
+        etiquetas_disponibles = (
+            db.query(Etiqueta)
+            .filter(Etiqueta.activo == True)  # noqa: E712
+            .order_by(Etiqueta.nombre.asc())
+            .all()
+        )
+        from app.services.trello_service import CampoPersonalizadoService
+        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
         ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
         html = render_detalle_modal(
             ticket=ticket, estados=estados, comentarios=comentarios,
             adjuntos=adjuntos, checklists=checklists,
             auditorias=auditorias, usuario=user,
             ultima_modificacion=ultima_mod,
+            active_tab=active_tab or "adjuntos",
+            usuarios=usuarios,
+            etiquetas_disponibles=etiquetas_disponibles,
+            campos_personalizados=campos_personalizados,
         )
         return HTMLResponse(
             content=html,

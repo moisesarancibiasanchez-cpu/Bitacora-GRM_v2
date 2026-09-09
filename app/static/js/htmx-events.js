@@ -43,4 +43,18 @@
       window.showToast(evt.detail.message || 'Operación no permitida', 'error');
     }
   });
+
+  // Eventos de creación de recursos en modal de detalle
+  const _evtMsgs = {
+    'comentario-creado':   { msg: 'Comentario agregado correctamente',         type: 'success' },
+    'checklist-creada':    { msg: 'Checklist creado correctamente',            type: 'success' },
+    'adjunto-subido':      { msg: 'Archivo adjunto subido correctamente',      type: 'success' },
+  };
+  Object.keys(_evtMsgs).forEach((evt) => {
+    document.body.addEventListener(evt, () => {
+      if (window.showToast) {
+        window.showToast(_evtMsgs[evt].msg, _evtMsgs[evt].type);
+      }
+    });
+  });
 })();

@@ -4,8 +4,10 @@ El más importante: PATCH /tickets/{id}/estado - recibe la señal de HTMX.
 """
 import csv
 import io
+import json
 import logging
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import or_, and_, func
@@ -23,6 +25,7 @@ from app.schemas.ticket import (
 from app.services.ticket_service import (
     TicketService, TransicionInvalidaError, PermisoInsuficienteError,
 )
+from app.services.auditoria_service import registrar_auditoria
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +233,7 @@ def transicion_info(
 def detalle_html(
     ticket_id: int,
     request: Request,
+    tab: Optional[str] = None,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
@@ -240,6 +244,11 @@ def detalle_html(
     from app.models.adjunto import Adjunto
     from app.models.checklist import Checklist
     from app.models.auditoria import Auditoria
+    from app.models.usuario import Usuario
+    from app.models.etiqueta import Etiqueta
+
+    # Normalizar tab: aceptar ?tab=comentarios (HTMX header HX-Current-URL etc.)
+    active_tab = (tab or "").strip() or "detalles"
 
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
@@ -272,6 +281,23 @@ def detalle_html(
         .limit(200)
         .all()
     )
+    # Usuarios activos (para select de "Asignado" en el modal)
+    usuarios = (
+        db.query(Usuario)
+        .filter(Usuario.is_active == True)  # noqa: E712
+        .order_by(Usuario.nombre_completo.asc())
+        .all()
+    )
+    # Etiquetas disponibles (para gestor de etiquetas)
+    etiquetas_disponibles = (
+        db.query(Etiqueta)
+        .filter(Etiqueta.activo == True)  # noqa: E712
+        .order_by(Etiqueta.nombre.asc())
+        .all()
+    )
+    # Campos personalizados con sus valores actuales
+    from app.services.trello_service import CampoPersonalizadoService
+    campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
 
     # Construir resumen "Última modificación por X" para el footer
     ultima_modificacion = _formatear_ultima_modificacion(auditorias, ticket)
@@ -287,8 +313,324 @@ def detalle_html(
         auditorias=auditorias,
         usuario=usuario,
         ultima_modificacion=ultima_modificacion,
+        active_tab=active_tab,
+        usuarios=usuarios,
+        etiquetas_disponibles=etiquetas_disponibles,
+        campos_personalizados=campos_personalizados,
     )
     return HTMLResponse(content=html)
+
+
+# ===========================================================================
+#  PATCH /tickets/{id}  Actualización de campos editables desde el modal
+# ===========================================================================
+@router.patch("/{ticket_id}", response_class=HTMLResponse)
+async def actualizar_ticket_campo(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Actualiza un único campo editable del ticket y devuelve el modal
+    re-renderizado (para HTMX).
+
+    Acepta ``application/x-www-form-urlencoded`` con los campos:
+      - ``campo``: nombre del campo (titulo, descripcion, prioridad,
+        asignado_id, fecha_vencimiento)
+      - ``valor``: nuevo valor
+      - ``active_tab``: pestaña a mantener activa tras el swap
+    """
+    form = await request.form()
+    campo = (form.get("campo") or "").strip()
+    valor = form.get("valor")
+    active_tab = (form.get("active_tab") or "detalles").strip() or "detalles"
+
+    if not campo:
+        return HTMLResponse(
+            '<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Falta el parámetro "campo".</div>',
+            status_code=400,
+        )
+
+    service = TicketService(db)
+    ticket, valor_anterior, valor_nuevo, error = service.actualizar_campo(
+        ticket_id=ticket_id, campo=campo, valor=valor, usuario=usuario,
+    )
+    if error:
+        if ticket is None:
+            return HTMLResponse(
+                f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>',
+                status_code=404 if "no encontrado" in error.lower() else 400,
+            )
+        # Para errores de validación, no recargamos el modal: emitimos un toast
+        return HTMLResponse(
+            f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>',
+            status_code=400,
+            headers={"HX-Trigger": json.dumps({"ticket-error": {"message": error}})},
+        )
+
+    # Mapear campo a accion de auditoria legible
+    ACCIONES_CAMPO = {
+        "titulo": "titulo_editado",
+        "descripcion": "descripcion_editada",
+        "prioridad": "prioridad_cambiada",
+        "asignado_id": "asignacion",
+        "fecha_vencimiento": "vencimiento_cambiado",
+    }
+    registrar_auditoria(
+        db,
+        ticket.id,
+        usuario.id,
+        ACCIONES_CAMPO.get(campo, f"campo_editado:{campo}"),
+        valor_anterior=valor_anterior,
+        valor_nuevo=valor_nuevo,
+    )
+
+    # Re-renderizar el modal completo para que se vean todos los cambios
+    from app.models.estado import Estado
+    from app.models.comentario import Comentario
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist
+    from app.models.auditoria import Auditoria
+    from app.models.usuario import Usuario
+    from app.models.etiqueta import Etiqueta
+    db.refresh(ticket)
+    estados = db.query(Estado).order_by(Estado.orden).all()
+    comentarios = (
+        db.query(Comentario)
+        .filter(Comentario.ticket_id == ticket_id)
+        .order_by(Comentario.created_at.asc())
+        .all()
+    )
+    adjuntos = (
+        db.query(Adjunto)
+        .filter(Adjunto.ticket_id == ticket_id)
+        .order_by(Adjunto.created_at.desc())
+        .all()
+    )
+    checklists = (
+        db.query(Checklist)
+        .filter(Checklist.ticket_id == ticket_id)
+        .order_by(Checklist.orden.asc())
+        .all()
+    )
+    auditorias = (
+        db.query(Auditoria)
+        .filter(Auditoria.ticket_id == ticket_id)
+        .order_by(Auditoria.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    usuarios = (
+        db.query(Usuario)
+        .filter(Usuario.is_active == True)  # noqa: E712
+        .order_by(Usuario.nombre_completo.asc())
+        .all()
+    )
+    etiquetas_disponibles = (
+        db.query(Etiqueta)
+        .filter(Etiqueta.activo == True)  # noqa: E712
+        .order_by(Etiqueta.nombre.asc())
+        .all()
+    )
+    from app.services.trello_service import CampoPersonalizadoService
+    campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
+    ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+    from app.templates.tickets.detalle_modal import render_detalle_modal
+    html = render_detalle_modal(
+        ticket=ticket, estados=estados, comentarios=comentarios,
+        adjuntos=adjuntos, checklists=checklists,
+        auditorias=auditorias, usuario=usuario,
+        ultima_modificacion=ultima_mod,
+        active_tab=active_tab,
+        usuarios=usuarios,
+        etiquetas_disponibles=etiquetas_disponibles,
+        campos_personalizados=campos_personalizados,
+    )
+    return HTMLResponse(
+        content=html,
+        status_code=200,
+        headers={"HX-Trigger": json.dumps({
+            "ticket-updated": {"campo": campo},
+            "ticket-campo-editado": {"campo": campo},
+        })},
+    )
+
+
+# ===========================================================================
+#  PATCH /tickets/{id}/campos/{campo_id}  Actualizar valor de campo personalizado
+# ===========================================================================
+@router.patch("/{ticket_id}/campos/{campo_id}", response_class=HTMLResponse)
+async def actualizar_campo_personalizado(
+    ticket_id: int,
+    campo_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Actualiza el valor de un campo personalizado para un ticket (HTMX)."""
+    from app.models.campo_personalizado import CampoPersonalizado, ValorCampo
+    from app.services.trello_service import CampoPersonalizadoService
+    from datetime import datetime
+
+    form = await request.form()
+    valor_raw = form.get("valor_campo")
+    active_tab = (form.get("active_tab") or "detalles").strip() or "detalles"
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
+
+    campo = (
+        db.query(CampoPersonalizado)
+        .filter(CampoPersonalizado.id == campo_id, CampoPersonalizado.activo == True)  # noqa
+        .first()
+    )
+    if not campo:
+        return HTMLResponse("<div>Campo no encontrado</div>", status_code=404)
+
+    svc = CampoPersonalizadoService(db)
+    # Capturar valor anterior para auditoría
+    valor_anterior_obj = (
+        db.query(ValorCampo)
+        .filter(ValorCampo.campo_id == campo_id, ValorCampo.ticket_id == ticket_id)
+        .first()
+    )
+    valor_anterior = (
+        {
+            "valor_texto": valor_anterior_obj.valor_texto,
+            "valor_numero": valor_anterior_obj.valor_numero,
+            "valor_booleano": valor_anterior_obj.valor_booleano,
+            "valor_fecha": valor_anterior_obj.valor_fecha.isoformat() if valor_anterior_obj.valor_fecha else None,
+        }
+        if valor_anterior_obj else None
+    )
+
+    # Mapear según tipo
+    if campo.tipo in ("texto", "url", "dropdown"):
+        valor_texto = (valor_raw or "").strip() if valor_raw is not None else None
+        if campo.tipo == "dropdown":
+            opciones = (campo.configuracion or {}).get("opciones", [])
+            if valor_texto and opciones and valor_texto not in opciones:
+                valor_texto = None
+        valor_numero = None
+        valor_booleano = None
+        valor_fecha = None
+    elif campo.tipo == "numero":
+        valor_texto = None
+        try:
+            valor_numero = float(valor_raw) if valor_raw not in (None, "") else None
+        except (ValueError, TypeError):
+            valor_numero = None
+        valor_booleano = None
+        valor_fecha = None
+    elif campo.tipo == "checkbox":
+        valor_texto = None
+        valor_numero = None
+        # Si el checkbox no se envía (no aparece en form), está desmarcado
+        valor_booleano = valor_raw in ("true", "on", "1", "yes", "si", "sí")
+        valor_fecha = None
+    elif campo.tipo == "fecha":
+        valor_texto = None
+        valor_numero = None
+        valor_booleano = None
+        try:
+            valor_fecha = (
+                datetime.fromisoformat(valor_raw) if valor_raw else None
+            )
+        except (ValueError, TypeError):
+            valor_fecha = None
+    else:
+        valor_texto = str(valor_raw) if valor_raw is not None else None
+        valor_numero = None
+        valor_booleano = None
+        valor_fecha = None
+
+    nuevo_valor = svc.asignar_valor(
+        campo_id=campo_id, ticket_id=ticket_id,
+        valor_texto=valor_texto, valor_numero=valor_numero,
+        valor_booleano=valor_booleano, valor_fecha=valor_fecha,
+    )
+
+    valor_nuevo = {
+        "valor_texto": nuevo_valor.valor_texto,
+        "valor_numero": nuevo_valor.valor_numero,
+        "valor_booleano": nuevo_valor.valor_booleano,
+        "valor_fecha": nuevo_valor.valor_fecha.isoformat() if nuevo_valor.valor_fecha else None,
+    }
+    registrar_auditoria(
+        db, ticket_id, usuario.id, "campo_personalizado_editado",
+        valor_anterior=valor_anterior,
+        valor_nuevo={**valor_nuevo, "campo_id": campo_id, "campo_nombre": campo.nombre, "campo_tipo": campo.tipo},
+    )
+
+    # Re-renderizar el modal
+    from app.models.estado import Estado
+    from app.models.comentario import Comentario
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist
+    from app.models.auditoria import Auditoria
+    from app.models.usuario import Usuario as UsuarioModel
+    from app.models.etiqueta import Etiqueta
+    db.refresh(ticket)
+    estados = db.query(Estado).order_by(Estado.orden).all()
+    comentarios = (
+        db.query(Comentario)
+        .filter(Comentario.ticket_id == ticket_id)
+        .order_by(Comentario.created_at.asc())
+        .all()
+    )
+    adjuntos = (
+        db.query(Adjunto)
+        .filter(Adjunto.ticket_id == ticket_id)
+        .order_by(Adjunto.created_at.desc())
+        .all()
+    )
+    checklists = (
+        db.query(Checklist)
+        .filter(Checklist.ticket_id == ticket_id)
+        .order_by(Checklist.orden.asc())
+        .all()
+    )
+    auditorias = (
+        db.query(Auditoria)
+        .filter(Auditoria.ticket_id == ticket_id)
+        .order_by(Auditoria.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    usuarios = (
+        db.query(UsuarioModel)
+        .filter(UsuarioModel.is_active == True)  # noqa: E712
+        .order_by(UsuarioModel.nombre_completo.asc())
+        .all()
+    )
+    etiquetas_disponibles = (
+        db.query(Etiqueta)
+        .filter(Etiqueta.activo == True)  # noqa: E712
+        .order_by(Etiqueta.nombre.asc())
+        .all()
+    )
+    campos_personalizados = svc.obtener_campos_con_valores(ticket_id)
+    ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+    from app.templates.tickets.detalle_modal import render_detalle_modal
+    html = render_detalle_modal(
+        ticket=ticket, estados=estados, comentarios=comentarios,
+        adjuntos=adjuntos, checklists=checklists,
+        auditorias=auditorias, usuario=usuario,
+        ultima_modificacion=ultima_mod,
+        active_tab=active_tab,
+        usuarios=usuarios,
+        etiquetas_disponibles=etiquetas_disponibles,
+        campos_personalizados=campos_personalizados,
+    )
+    return HTMLResponse(
+        content=html,
+        status_code=200,
+        headers={"HX-Trigger": json.dumps({
+            "ticket-updated": {"campo": f"custom_{campo_id}"},
+            "campo-personalizado-editado": {"campo_id": campo_id, "campo_nombre": campo.nombre},
+        })},
+    )
 
 
 def _formatear_ultima_modificacion(auditorias, ticket) -> str:
