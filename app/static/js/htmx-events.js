@@ -40,6 +40,21 @@
     // El ticket se actualizó correctamente (el toast ya se muestra desde kanban.js)
   });
 
+  // Toast de confirmación al editar un campo desde el modal de detalle
+  document.body.addEventListener('ticket-campo-editado', (evt) => {
+    if (!window.showToast) return;
+    const campo = (evt.detail && evt.detail.campo) || 'campo';
+    const labels = {
+      'titulo': 'Título',
+      'descripcion': 'Descripción',
+      'prioridad': 'Prioridad',
+      'asignado_id': 'Asignado',
+      'fecha_vencimiento': 'Fecha de vencimiento',
+    };
+    const nombre = labels[campo] || campo;
+    window.showToast(nombre + ' guardado correctamente', 'success');
+  });
+
   document.body.addEventListener('ticket-error', (evt) => {
     if (window.showToast) {
       window.showToast(evt.detail.message || 'Operación no permitida', 'error');

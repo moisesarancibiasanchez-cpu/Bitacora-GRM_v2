@@ -147,16 +147,26 @@ DETALLE_TEMPLATE = Template(r"""
             <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Prioridad</span>
             <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
                   hx-target="#modal-root" hx-swap="innerHTML"
-                  hx-trigger="change from:select[name='valor_prioridad']"
+                  hx-trigger="change from:select[name='valor_prioridad'], submit"
+                  hx-indicator="#spinner-prioridad-{{ ticket.id }}"
                   class="m-0 p-0">
               <input type="hidden" name="campo" value="prioridad">
               <input type="hidden" name="active_tab" value="{{ _active }}">
-              <select name="valor_prioridad"
-                      class="text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 w-full">
-                {% for p in ['baja','media','alta','critica'] %}
-                <option value="{{ p }}" {% if ticket.prioridad.value == p %}selected{% endif %}>{{ p|capitalize }}</option>
-                {% endfor %}
-              </select>
+              <div class="flex items-center gap-1">
+                <select name="valor_prioridad"
+                        class="flex-1 min-w-0 text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  {% for p in ['baja','media','alta','critica'] %}
+                  <option value="{{ p }}" {% if ticket.prioridad.value == p %}selected{% endif %}>{{ p|capitalize }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" title="Guardar prioridad"
+                        class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </button>
+                <span id="spinner-prioridad-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
+              </div>
             </form>
           </div>
 
@@ -170,17 +180,27 @@ DETALLE_TEMPLATE = Template(r"""
             <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Asignado</span>
             <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
                   hx-target="#modal-root" hx-swap="innerHTML"
-                  hx-trigger="change from:select[name='valor_asignado_id']"
+                  hx-trigger="change from:select[name='valor_asignado_id'], submit"
+                  hx-indicator="#spinner-asignado-{{ ticket.id }}"
                   class="m-0 p-0">
               <input type="hidden" name="campo" value="asignado_id">
               <input type="hidden" name="active_tab" value="{{ _active }}">
-              <select name="valor_asignado_id"
-                      class="text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 w-full">
-                <option value="0">— sin asignar —</option>
-                {% for u in usuarios %}
-                <option value="{{ u.id }}" {% if ticket.asignado_id == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
-                {% endfor %}
-              </select>
+              <div class="flex items-center gap-1">
+                <select name="valor_asignado_id"
+                        class="flex-1 min-w-0 text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="0">— sin asignar —</option>
+                  {% for u in usuarios %}
+                  <option value="{{ u.id }}" {% if ticket.asignado_id == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" title="Guardar asignación"
+                        class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </button>
+                <span id="spinner-asignado-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
+              </div>
             </form>
           </div>
 
@@ -189,13 +209,23 @@ DETALLE_TEMPLATE = Template(r"""
             <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Fecha de vencimiento</span>
             <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
                   hx-target="#modal-root" hx-swap="innerHTML"
-                  hx-trigger="change from:input[name='valor_fecha_vencimiento']"
+                  hx-trigger="change from:input[name='valor_fecha_vencimiento'], submit"
+                  hx-indicator="#spinner-fecha-{{ ticket.id }}"
                   class="m-0 p-0">
               <input type="hidden" name="campo" value="fecha_vencimiento">
               <input type="hidden" name="active_tab" value="{{ _active }}">
-              <input type="date" name="valor_fecha_vencimiento"
-                     value="{{ ticket.fecha_vencimiento_sla.strftime('%Y-%m-%d') if ticket.fecha_vencimiento_sla else '' }}"
-                     class="text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 w-full" />
+              <div class="flex items-center gap-1">
+                <input type="date" name="valor_fecha_vencimiento"
+                       value="{{ ticket.fecha_vencimiento_sla.strftime('%Y-%m-%d') if ticket.fecha_vencimiento_sla else '' }}"
+                       class="flex-1 min-w-0 text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+                <button type="submit" title="Guardar fecha"
+                        class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </button>
+                <span id="spinner-fecha-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
+              </div>
             </form>
           </div>
 
