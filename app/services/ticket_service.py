@@ -149,8 +149,12 @@ class TicketService:
         valor_anterior = {"estado_id": estado_origen.id, "estado": estado_origen.nombre}
         ticket.estado_id = estado_destino.id
         if orden is not None:
+            # Asegurar que datos_catalogo sea un dict (puede ser None o string antiguo)
+            datos_actuales = ticket.datos_catalogo
+            if not isinstance(datos_actuales, dict):
+                datos_actuales = {}
             ticket.datos_catalogo = {
-                **(ticket.datos_catalogo or {}),
+                **datos_actuales,
                 "orden_columna": orden,
             }
 

@@ -2,7 +2,7 @@
 Modelo Ticket (Incidencia) y su historial de cambios de estado.
 """
 from sqlalchemy import (
-    Column, Integer, String, Text, ForeignKey, Enum, Index, DateTime, Table, Boolean
+    Column, Integer, String, Text, ForeignKey, Enum, Index, DateTime, Table, Boolean, JSON
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -74,8 +74,8 @@ class Ticket(Base, TimestampMixin):
         nullable=True, index=True
     )
 
-    # Datos dinámicos del catálogo (almacenados como JSON serializado)
-    datos_catalogo = Column(Text, nullable=True)
+    # Datos dinámicos del catálogo (almacenados como JSON nativo)
+    datos_catalogo = Column(JSON, nullable=True, default=dict)
 
     # SLA
     fecha_vencimiento_sla = Column(DateTime, nullable=True, index=True)

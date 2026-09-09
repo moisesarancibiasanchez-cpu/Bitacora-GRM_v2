@@ -2,8 +2,10 @@
 Endpoints del módulo de Incidencias.
 El más importante: PATCH /tickets/{id}/estado - recibe la señal de HTMX.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
@@ -16,6 +18,8 @@ from app.schemas.ticket import (
 from app.services.ticket_service import (
     TicketService, TransicionInvalidaError, PermisoInsuficienteError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/tickets", tags=["Incidencias"])
@@ -121,6 +125,37 @@ def cambiar_estado(
                 "HX-Trigger": "ticket-error",
                 "HX-Reswap": "outerHTML",
             },
+        )
+    except SQLAlchemyError as e:
+        # 500: error de base de datos no contemplado. Rollback y mensaje claro.
+        logger.exception("Error de BD al cambiar estado del ticket %s", ticket_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        error_msg = str(e.orig) if hasattr(e, 'orig') and e.orig else str(e)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Error al persistir el cambio de estado: {error_msg}",
+                "code": "DB_ERROR",
+            },
+            headers={"HX-Trigger": "ticket-error"},
+        )
+    except Exception as e:
+        # 500: cualquier otro error inesperado. Rollback y mensaje claro.
+        logger.exception("Error inesperado al cambiar estado del ticket %s", ticket_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Error inesperado al cambiar el estado: {str(e)}",
+                "code": "INTERNAL_ERROR",
+            },
+            headers={"HX-Trigger": "ticket-error"},
         )
 
     # Éxito: devolver el fragmento HTML de la tarjeta actualizada

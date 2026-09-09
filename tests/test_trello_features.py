@@ -510,6 +510,58 @@ def t42():
     assert r.status_code in (200, 201, 204), f"status={r.status_code} body={r.text[:200]}"
 
 # ============================================================
+# REGRESIÓN: drag & drop Kanban (datos_catalogo debe ser JSON, no Text)
+# Bug: "No se pudo cambiar el estado" porque el UPDATE fallaba con
+# sqlite3.ProgrammingError: type 'dict' is not supported
+# ============================================================
+print("\n[REGRESIÓN - DRAG & DROP KANBAN]")
+
+@test("PATCH /api/v1/tickets/{id}/estado - Drag&drop básico (regresión)")
+def t42b():
+    """Verifica que el endpoint PATCH de cambio de estado funciona correctamente
+    cuando se hace drag&drop (es decir, con orden != None). Este caso activaba
+    el bug 'datos_catalogo' al asignar un dict a una columna Text."""
+    # 1) Obtener un ticket
+    r = get("/api/v1/tickets")
+    assert r.status_code == 200, f"listar tickets: {r.status_code}"
+    tickets = r.json()
+    assert len(tickets) > 0, "no hay tickets para probar"
+    t = tickets[0]
+    ticket_id = t["id"]
+    estado_actual = t["estado_id"]
+
+    # 2) Encontrar una transición válida
+    r = get("/api/v1/estados")
+    estados = r.json()
+    nuevo_estado = None
+    for e in estados:
+        if e["id"] != estado_actual:
+            # Verificar si la transición es válida
+            ri = get(f"/api/v1/tickets/{ticket_id}/transicion-info/{e['id']}")
+            if ri.status_code == 200 and ri.json().get("valida"):
+                nuevo_estado = e["id"]
+                break
+    if nuevo_estado is None:
+        # No hay transición válida, saltar
+        return
+
+    # 3) Hacer PATCH simulando drag&drop (con orden)
+    r = patch(
+        f"/api/v1/tickets/{ticket_id}/estado",
+        json={"estado_id": nuevo_estado, "orden": 0, "comentario": None},
+    )
+    # 200 = OK, 422 = transición no permitida (válido), 500 = BUG
+    assert r.status_code in (200, 422), (
+        f"BUG REGRESIÓN: PATCH estado devolvió {r.status_code} "
+        f"(debe ser 200/422, no 500). Body: {r.text[:300]}"
+    )
+    # Si es 200, debe devolver HTML de la tarjeta
+    if r.status_code == 200:
+        assert "kanban-card" in r.text or "ticket-" in r.text, (
+            f"Respuesta 200 debe contener HTML de la tarjeta. Body: {r.text[:300]}"
+        )
+
+# ============================================================
 # API: MARKDOWN
 # ============================================================
 print("\n[API - MARKDOWN]")
