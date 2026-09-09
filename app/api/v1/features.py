@@ -213,9 +213,22 @@ async def crear_checklist(
             .all()
         )
         from app.templates.tickets.detalle_modal import render_detalle_modal
+        # Cargar auditoría para la pestaña de trazabilidad
+        from app.models.auditoria import Auditoria
+        from app.api.v1.tickets import _formatear_ultima_modificacion
+        auditorias = (
+            db.query(Auditoria)
+            .filter(Auditoria.ticket_id == ticket_id)
+            .order_by(Auditoria.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
         html = render_detalle_modal(
             ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists, usuario=user,
+            adjuntos=adjuntos, checklists=checklists,
+            auditorias=auditorias, usuario=user,
+            ultima_modificacion=ultima_mod,
         )
         return HTMLResponse(
             content=html,
@@ -397,9 +410,22 @@ async def crear_comentario(
             .all()
         )
         from app.templates.tickets.detalle_modal import render_detalle_modal
+        # Cargar auditoría para la pestaña de trazabilidad
+        from app.models.auditoria import Auditoria
+        from app.api.v1.tickets import _formatear_ultima_modificacion
+        auditorias = (
+            db.query(Auditoria)
+            .filter(Auditoria.ticket_id == ticket_id)
+            .order_by(Auditoria.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
         html = render_detalle_modal(
             ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists, usuario=user,
+            adjuntos=adjuntos, checklists=checklists,
+            auditorias=auditorias, usuario=user,
+            ultima_modificacion=ultima_mod,
         )
         return HTMLResponse(
             content=html,
@@ -536,9 +562,22 @@ async def subir_adjunto(
             .all()
         )
         from app.templates.tickets.detalle_modal import render_detalle_modal
+        # Cargar auditoría para la pestaña de trazabilidad
+        from app.models.auditoria import Auditoria
+        from app.api.v1.tickets import _formatear_ultima_modificacion
+        auditorias = (
+            db.query(Auditoria)
+            .filter(Auditoria.ticket_id == ticket_id)
+            .order_by(Auditoria.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
         html = render_detalle_modal(
             ticket=ticket, estados=estados, comentarios=comentarios,
-            adjuntos=adjuntos, checklists=checklists, usuario=user,
+            adjuntos=adjuntos, checklists=checklists,
+            auditorias=auditorias, usuario=user,
+            ultima_modificacion=ultima_mod,
         )
         return HTMLResponse(
             content=html,

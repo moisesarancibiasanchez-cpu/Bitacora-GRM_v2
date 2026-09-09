@@ -476,6 +476,7 @@
     initKeyboardActivation();
     initDblClick();
     initModalClose();
+    initDetailModal();   // <-- Inicializar listeners de tabs/duplicar/cambio
     initFilters();
     initNuevoTicketButton();
   });
@@ -497,6 +498,92 @@
         }
       }, 250);
     });
+  }
+
+  // ====================================================================
+  // MODAL DE DETALLE (con tabs, duplicar, cambio rápido)
+  // ====================================================================
+  // Implementado con DELEGACIÓN DE EVENTOS en document.body porque:
+  //   1. El modal se inserta vía innerHTML (los <script> inline NO se ejecutan)
+  //   2. El modal se reemplaza completamente tras cada hx-post (hijos nuevos)
+  //   3. La delegación es robusta y funciona para cualquier modal presente
+  // ====================================================================
+  function initDetailModal() {
+    // === TABS (click en .tab-btn) ===
+    document.body.addEventListener('click', (e) => {
+      const tabBtn = e.target.closest('.tab-btn');
+      if (!tabBtn) return;
+      // Buscar el modal raíz más cercano
+      const modal = tabBtn.closest('[data-modal]');
+      if (!modal) return;
+      const target = tabBtn.dataset.tab;
+      if (!target) return;
+
+      // Alternar el estilo de los botones
+      modal.querySelectorAll('.tab-btn').forEach((b) => {
+        if (b === tabBtn) {
+          b.classList.add('border-indigo-600', 'text-indigo-700');
+          b.classList.remove('border-transparent', 'text-slate-500');
+        } else {
+          b.classList.remove('border-indigo-600', 'text-indigo-700');
+          b.classList.add('border-transparent', 'text-slate-500');
+        }
+      });
+      // Mostrar/ocultar paneles
+      modal.querySelectorAll('.tab-panel').forEach((p) => {
+        if (p.dataset.panel === target) {
+          p.classList.remove('hidden');
+        } else {
+          p.classList.add('hidden');
+        }
+      });
+    });
+
+    // === DUPLICAR TICKET (click en [data-action="duplicar-ticket"]) ===
+    document.body.addEventListener('click', async (e) => {
+      const dupBtn = e.target.closest('[data-action="duplicar-ticket"]');
+      if (!dupBtn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const ticketId = dupBtn.dataset.ticketId;
+      if (!ticketId) return;
+      if (!confirm('¿Duplicar este ticket? Se creará una copia en estado inicial.')) return;
+      try {
+        const r = await fetch('/api/v1/tickets/' + ticketId + '/duplicar', {
+          method: 'POST',
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.detail || 'Error al duplicar');
+        }
+        const data = await r.json();
+        // Cerrar este modal y abrir el nuevo
+        const root = document.getElementById('modal-root');
+        if (root) root.innerHTML = '';
+        if (window.showToast) window.showToast('Ticket duplicado: ' + (data.codigo || ''), 'success');
+        // Reabrir el modal con el nuevo ticket
+        if (typeof htmx !== 'undefined' && htmx.ajax) {
+          htmx.ajax('GET', '/api/v1/tickets/' + data.id + '/detalle-html', {
+            target: '#modal-root', swap: 'innerHTML',
+          });
+        } else {
+          abrirDetalle(data.id);
+        }
+      } catch (err) {
+        alert('Error: ' + (err.message || err));
+      }
+    });
+
+    // === CAMBIO DE ESTADO RÁPIDO (botones dentro de tab Detalles) ===
+    // Se detecta el onclick que ya tienen los botones (compatibilidad)
+    // y se hace fallback si la función no existe.
+    window.cambiarEstadoRapido = function (ticketId, estadoId) {
+      const evt = new CustomEvent('quick-state-change', {
+        detail: { ticketId: parseInt(ticketId, 10), estadoId: parseInt(estadoId, 10) }
+      });
+      document.dispatchEvent(evt);
+    };
   }
 
   // Re-inicializar si HTMX inyecta nuevas tarjetas

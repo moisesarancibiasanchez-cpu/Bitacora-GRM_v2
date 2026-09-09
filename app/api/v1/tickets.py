@@ -239,6 +239,7 @@ def detalle_html(
     from app.models.comentario import Comentario
     from app.models.adjunto import Adjunto
     from app.models.checklist import Checklist
+    from app.models.auditoria import Auditoria
 
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
@@ -263,6 +264,17 @@ def detalle_html(
         .order_by(Checklist.orden.asc())
         .all()
     )
+    # Trazabilidad: bitácora de auditoría (más reciente primero)
+    auditorias = (
+        db.query(Auditoria)
+        .filter(Auditoria.ticket_id == ticket_id)
+        .order_by(Auditoria.created_at.desc())
+        .limit(200)
+        .all()
+    )
+
+    # Construir resumen "Última modificación por X" para el footer
+    ultima_modificacion = _formatear_ultima_modificacion(auditorias, ticket)
 
     # Renderizar la plantilla del modal
     from app.templates.tickets.detalle_modal import render_detalle_modal
@@ -272,9 +284,66 @@ def detalle_html(
         comentarios=comentarios,
         adjuntos=adjuntos,
         checklists=checklists,
+        auditorias=auditorias,
         usuario=usuario,
+        ultima_modificacion=ultima_modificacion,
     )
     return HTMLResponse(content=html)
+
+
+def _formatear_ultima_modificacion(auditorias, ticket) -> str:
+    """Genera una cadena legible describiendo el último cambio."""
+    from datetime import datetime
+    if not auditorias:
+        if ticket.updated_at:
+            return f"Actualizado {ticket.updated_at.strftime('%Y-%m-%d %H:%M')}"
+        return "—"
+    ultimo = auditorias[0]
+    usuario_nombre = (ultimo.usuario.nombre_completo if ultimo.usuario else "Sistema")
+    # Mapa de acciones a verbos legibles
+    ACCIONES = {
+        "CAMBIO_ESTADO": "cambió el estado",
+        "TICKET_CREADO": "creó el ticket",
+        "ASIGNACION": "reasignó el ticket",
+        "COMENTARIO_CREADO": "agregó un comentario",
+        "COMENTARIO_ELIMINADO": "eliminó un comentario",
+        "CHECKLIST_CREADA": "creó un checklist",
+        "CHECKLIST_ELIMINADA": "eliminó un checklist",
+        "CHECKLIST_ITEM_TOGGLE": "actualizó una tarea",
+        "ADJUNTO_SUBIDO": "subió un adjunto",
+        "ADJUNTO_ELIMINADO": "eliminó un adjunto",
+        "ETIQUETA_ASIGNADA": "asignó una etiqueta",
+        "ETIQUETA_REMOVIDA": "removió una etiqueta",
+        "TICKET_DUPLICADO": "duplicó el ticket",
+    }
+    accion_legible = ACCIONES.get(ultimo.accion.upper(), ultimo.accion)
+
+    # Detalle del cambio (si hay valor_nuevo con info relevante)
+    detalle = ""
+    if ultimo.accion.upper() == "CAMBIO_ESTADO" and isinstance(ultimo.valor_nuevo, dict):
+        estado_nuevo = ultimo.valor_nuevo.get("estado") or ultimo.valor_nuevo.get("estado_nombre")
+        if estado_nuevo:
+            detalle = f" → {estado_nuevo}"
+    elif ultimo.accion.upper() == "TICKET_CREADO":
+        detalle = ""
+
+    # Tiempo relativo
+    if ultimo.created_at:
+        diff = datetime.utcnow() - ultimo.created_at
+        if diff.days > 0:
+            tiempo = f"hace {diff.days}d"
+        elif diff.seconds >= 3600:
+            tiempo = f"hace {diff.seconds // 3600}h"
+        elif diff.seconds >= 60:
+            tiempo = f"hace {diff.seconds // 60}m"
+        else:
+            tiempo = "hace un momento"
+    else:
+        tiempo = ""
+
+    if tiempo:
+        return f"{usuario_nombre} {accion_legible}{detalle}, {tiempo}"
+    return f"{usuario_nombre} {accion_legible}{detalle}"
 
 
 # ===========================================================================

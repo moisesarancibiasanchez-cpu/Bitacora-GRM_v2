@@ -76,6 +76,11 @@ DETALLE_TEMPLATE = Template(r"""
         Checklist
         <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ checklists|length }}</span>
       </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700"
+              data-tab="trazabilidad">
+        Trazabilidad
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ auditorias|length }}</span>
+      </button>
     </div>
 
     <!-- ============== BODY ============== -->
@@ -303,16 +308,98 @@ DETALLE_TEMPLATE = Template(r"""
         </form>
       </div>
 
+      <!-- Tab: Trazabilidad -->
+      <div class="tab-panel hidden p-5 space-y-3" data-panel="trazabilidad">
+        <div class="flex items-center justify-between mb-1">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Historial de cambios</h4>
+          <span class="text-[10px] text-slate-400">Total: {{ auditorias|length }} evento(s)</span>
+        </div>
+        <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          {% if auditorias %}
+            <ol class="relative border-l-2 border-slate-200 ml-1 space-y-3">
+              {% for a in auditorias %}
+                {% set nc = (a.usuario.nombre_completo if a.usuario else 'Sistema') %}
+                {% set ini = (nc.split(' ')[:2]|map('first')|join|upper) if nc and nc != 'Sistema' else 'SY' %}
+                {% set accion_legible = {
+                    'CAMBIO_ESTADO': 'Cambió el estado',
+                    'TICKET_CREADO': 'Creó el ticket',
+                    'ASIGNACION': 'Reasignó el ticket',
+                    'COMENTARIO_CREADO': 'Comentario creado',
+                    'COMENTARIO_ELIMINADO': 'Comentario eliminado',
+                    'CHECKLIST_CREADA': 'Checklist creado',
+                    'CHECKLIST_ELIMINADA': 'Checklist eliminado',
+                    'CHECKLIST_ITEM_TOGGLE': 'Actualizó checklist',
+                    'ADJUNTO_SUBIDO': 'Subió adjunto',
+                    'ADJUNTO_ELIMINADO': 'Eliminó adjunto',
+                    'ETIQUETA_ASIGNADA': 'Etiqueta asignada',
+                    'ETIQUETA_REMOVIDA': 'Etiqueta removida',
+                    'TICKET_DUPLICADO': 'Ticket duplicado',
+                  }.get(a.accion|upper, a.accion) %}
+                <li class="ml-4 relative">
+                  <span class="absolute -left-[1.45rem] top-0.5 w-5 h-5 rounded-full flex items-center justify-center
+                               {% if a.accion|upper == 'CAMBIO_ESTADO' %}bg-indigo-100 text-indigo-700
+                               {% elif a.accion|upper == 'TICKET_CREADO' %}bg-emerald-100 text-emerald-700
+                               {% elif a.accion|upper == 'COMENTARIO_CREADO' %}bg-sky-100 text-sky-700
+                               {% elif a.accion|upper == 'ADJUNTO_SUBIDO' %}bg-amber-100 text-amber-700
+                               {% elif a.accion|upper == 'CHECKLIST_CREADA' or a.accion|upper == 'CHECKLIST_ITEM_TOGGLE' %}bg-violet-100 text-violet-700
+                               {% else %}bg-slate-100 text-slate-600{% endif %}">
+                    <span class="text-[8px] font-bold">{{ ini[:2] }}</span>
+                  </span>
+                  <div class="rounded-lg border border-slate-200 bg-white p-2.5">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="text-xs font-semibold text-slate-700 truncate">{{ nc }}</span>
+                        <span class="text-xs text-slate-500">·</span>
+                        <span class="text-xs text-slate-600">{{ accion_legible }}</span>
+                      </div>
+                      <span class="text-[10px] text-slate-400 whitespace-nowrap"
+                            title="{{ a.created_at.isoformat() if a.created_at else '' }}">
+                        {{ a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '—' }}
+                      </span>
+                    </div>
+                    {% if a.valor_anterior or a.valor_nuevo %}
+                      <div class="text-[11px] text-slate-600 mt-1 space-y-0.5">
+                        {% if a.valor_anterior %}
+                          <div class="flex items-start gap-1.5">
+                            <span class="text-red-600 font-mono flex-shrink-0">−</span>
+                            <span class="font-mono break-all">{{ a.valor_anterior | tojson if a.valor_anterior is mapping else a.valor_anterior }}</span>
+                          </div>
+                        {% endif %}
+                        {% if a.valor_nuevo %}
+                          <div class="flex items-start gap-1.5">
+                            <span class="text-emerald-600 font-mono flex-shrink-0">+</span>
+                            <span class="font-mono break-all">{{ a.valor_nuevo | tojson if a.valor_nuevo is mapping else a.valor_nuevo }}</span>
+                          </div>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                    {% if a.comentario %}
+                      <div class="mt-1.5 pt-1.5 border-t border-slate-100">
+                        <p class="text-[11px] italic text-slate-500">"{{ a.comentario }}"</p>
+                      </div>
+                    {% endif %}
+                  </div>
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-6">No hay cambios registrados para este ticket.</div>
+          {% endif %}
+        </div>
+      </div>
+
     </div>
 
     <!-- ============== FOOTER ============== -->
     <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0">
-      <span class="text-[11px] text-slate-500">
-        Ticket #{{ ticket.id }} · Actualizado {{ ticket.updated_at.strftime('%Y-%m-%d %H:%M') if ticket.updated_at else '—' }}
-      </span>
+      <div class="text-[11px] text-slate-500 flex items-center gap-1.5 min-w-0">
+        <span class="font-mono">#{{ ticket.id }}</span>
+        <span>·</span>
+        <span class="truncate" title="Última modificación">{{ ultima_modificacion|default('Actualizado ' + (ticket.updated_at.strftime('%Y-%m-%d %H:%M') if ticket.updated_at else '—')) }}</span>
+      </div>
       <div class="flex items-center gap-2">
         <button type="button"
-                onclick="duplicarTicket({{ ticket.id }})"
+                data-action="duplicar-ticket" data-ticket-id="{{ ticket.id }}"
                 class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
           Duplicar
@@ -325,65 +412,6 @@ DETALLE_TEMPLATE = Template(r"""
     </div>
   </div>
 </div>
-
-<script>
-  // === Tabs ===
-  (function () {
-    const root = document.querySelector('[data-modal="detalle-ticket"]');
-    if (!root) return;
-    const btns = root.querySelectorAll('.tab-btn');
-    const panels = root.querySelectorAll('.tab-panel');
-    btns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const target = btn.dataset.tab;
-        btns.forEach((b) => {
-          if (b === btn) {
-            b.classList.add('border-indigo-600', 'text-indigo-700');
-            b.classList.remove('border-transparent', 'text-slate-500');
-          } else {
-            b.classList.remove('border-indigo-600', 'text-indigo-700');
-            b.classList.add('border-transparent', 'text-slate-500');
-          }
-        });
-        panels.forEach((p) => {
-          if (p.dataset.panel === target) p.classList.remove('hidden');
-          else p.classList.add('hidden');
-        });
-      });
-    });
-
-    // Cambio de estado rápido: reutiliza el handler de kanban.js si existe
-    window.cambiarEstadoRapido = function (ticketId, estadoId) {
-      const evt = new CustomEvent('quick-state-change', { detail: { ticketId, estadoId } });
-      document.dispatchEvent(evt);
-    };
-
-    // Duplicar ticket: POST al endpoint, recarga modal con el nuevo
-    window.duplicarTicket = async function (ticketId) {
-      if (!confirm('¿Duplicar este ticket? Se creará una copia en estado inicial.')) return;
-      try {
-        const r = await fetch('/api/v1/tickets/' + ticketId + '/duplicar', {
-          method: 'POST',
-          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
-        });
-        if (!r.ok) {
-          const data = await r.json().catch(() => ({}));
-          throw new Error(data.detail || 'Error al duplicar');
-        }
-        const data = await r.json();
-        // Cerrar este modal y abrir el nuevo
-        document.getElementById('modal-root').innerHTML = '';
-        if (window.showToast) window.showToast('Ticket duplicado: ' + (data.codigo || ''), 'success');
-        // Reabrir el modal con el nuevo ticket
-        htmx.ajax('GET', '/api/v1/tickets/' + data.id + '/detalle-html', {
-          target: '#modal-root', swap: 'innerHTML',
-        });
-      } catch (e) {
-        alert('Error: ' + e.message);
-      }
-    };
-  })();
-</script>
 """)
 
 
@@ -397,7 +425,9 @@ def render_detalle_modal(
     comentarios: Iterable,
     adjuntos: Iterable,
     checklists: Iterable,
+    auditorias: Iterable = (),
     usuario=None,
+    ultima_modificacion: str = "",
 ) -> str:
     """Renderiza el modal completo de detalle de un ticket.
 
@@ -415,19 +445,33 @@ def render_detalle_modal(
         Archivos adjuntos del ticket.
     checklists : Iterable[Checklist]
         Checklists con sus respectivos ``items``.
+    auditorias : Iterable[Auditoria]
+        Bitácora de auditoría del ticket (orden descendente por fecha).
     usuario : Usuario | None
         Usuario actual (para mostrarlo en el header si se requiere).
+    ultima_modificacion : str
+        Cadena amigable describiendo el último cambio (ej: "Juan cambió
+        el estado a Cerrado, hace 5 min"). Si está vacía, se calcula
+        automáticamente a partir de ``ticket.updated_at``.
 
     Returns
     -------
     str
         HTML listo para inyectar vía HTMX.
     """
+    if not ultima_modificacion:
+        # Fallback: usar updated_at del ticket
+        if ticket.updated_at:
+            ultima_modificacion = f"Actualizado {ticket.updated_at.strftime('%Y-%m-%d %H:%M')}"
+        else:
+            ultima_modificacion = "—"
     return DETALLE_TEMPLATE.render(
         ticket=ticket,
         estados=list(estados),
         comentarios=list(comentarios),
         adjuntos=list(adjuntos),
         checklists=list(checklists),
+        auditorias=list(auditorias),
         usuario=usuario,
+        ultima_modificacion=ultima_modificacion,
     )
