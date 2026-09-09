@@ -3,6 +3,12 @@
      data-ticket-id="{{ ticket.id }}"
      data-prioridad="{{ ticket.prioridad.value }}"
      data-estado="{{ ticket.estado.nombre }}"
+     data-codigo="{{ ticket.codigo|lower }}"
+     data-titulo="{{ ticket.titulo|lower }}"
+     data-descripcion="{{ (ticket.descripcion or '')|lower }}"
+     data-asignado-id="{{ ticket.asignado_id or '' }}"
+     data-asignado-nombre="{{ (ticket.asignado.nombre_completo if ticket.asignado else '')|lower }}"
+     data-etiquetas="{% for e in ticket.etiquetas %}{{ e.id }}{% if not loop.last %},{% endif %}{% endfor %}"
      title="Doble clic o click para ver detalle · Arrastrar para mover">
   <div class="flex items-start justify-between gap-2 mb-1.5">
     <span class="font-mono text-[10px] tracking-wide text-slate-500 uppercase">{{ ticket.codigo }}</span>
@@ -31,17 +37,26 @@
   <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2">{{ ticket.titulo }}</h4>
   <p class="text-xs text-slate-500 line-clamp-2 mb-2">{{ ticket.descripcion }}</p>
   <div class="flex items-center justify-between text-[11px] text-slate-500">
-    <div class="flex items-center gap-1">
+    <div class="flex items-center gap-1.5">
       {% if ticket.asignado %}
-        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold">
-          {{ ticket.asignado.nombre_completo[:1]|upper }}
+        {% set ini = ticket.asignado.nombre_completo.split(' ')[:2]|map('first')|join|upper %}
+        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold" title="{{ ticket.asignado.nombre_completo }}">
+          {{ ini }}
         </span>
         <span>{{ ticket.asignado.nombre_completo.split(' ')[0] }}</span>
       {% else %}
         <span class="italic opacity-60">sin asignar</span>
       {% endif %}
     </div>
-    <div class="flex items-center gap-1">
+    <div class="flex items-center gap-1.5">
+      {% if ticket.etiquetas %}
+        {% for e in ticket.etiquetas[:3] %}
+          <span class="inline-block w-2 h-2 rounded-full" style="background-color: {{ e.color }}" title="{{ e.nombre }}"></span>
+        {% endfor %}
+        {% if ticket.etiquetas|length > 3 %}
+          <span class="text-[10px] text-slate-400">+{{ ticket.etiquetas|length - 3 }}</span>
+        {% endif %}
+      {% endif %}
       {% if ticket.sla_cumplido == 0 %}
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500" title="SLA vencido"></span>
         <span class="text-red-600">SLA</span>

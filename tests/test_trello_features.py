@@ -738,6 +738,207 @@ def t51():
         f"El adjunto no aparece en el HTML devuelto: {r.text[:300]}"
     )
 
+
+# ============================================================
+# SPRINT 1 - FEATURES TRELLO-LIKE AVANZADAS
+# ============================================================
+print("\n[SPRINT 1 - TRELLO AVANZADO]")
+
+@test("GET /dashboard - Renderiza pagina de dashboard con KPIs")
+def t52():
+    r = client.get("/dashboard")
+    assert r.status_code == 200, f"status={r.status_code}"
+    assert "Dashboard" in r.text or "dashboard" in r.text
+    assert "kpi" in r.text.lower() or "Cargando" in r.text or "Tickets" in r.text
+
+@test("GET /api/v1/metricas/resumen - Devuelve KPIs y agregaciones")
+def t53():
+    r = get("/api/v1/metricas/resumen?dias=30")
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
+    data = r.json()
+    assert "totales" in data, f"Falta clave 'totales': {list(data.keys())}"
+    assert "total" in data["totales"]
+    assert "sla" in data
+    assert "porcentaje_cumplimiento" in data["sla"]
+    assert "distribucion_estado" in data
+    assert "distribucion_prioridad" in data
+    assert "actividad_por_dia" in data
+    assert isinstance(data["distribucion_estado"], list)
+    assert isinstance(data["actividad_por_dia"], list)
+
+@test("GET /api/v1/metricas/resumen con diferentes dias (7, 30, 90)")
+def t54():
+    for d in (7, 30, 90):
+        r = get(f"/api/v1/metricas/resumen?dias={d}")
+        assert r.status_code == 200, f"dias={d} status={r.status_code}"
+        data = r.json()
+        assert data["totales"]["total"] >= 0
+
+@test("GET /api/v1/buscar?q=incidencia - Busqueda global multi-entidad")
+def t55():
+    r = get("/api/v1/buscar?q=incidencia&limite=5")
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
+    data = r.json()
+    assert "tickets" in data, f"Falta clave 'tickets': {list(data.keys())}"
+    assert isinstance(data["tickets"], list)
+    if data["tickets"]:
+        first = data["tickets"][0]
+        assert "titulo" in first
+        assert "url" in first
+
+@test("GET /api/v1/buscar?q=admin - Encuentra usuarios")
+def t56():
+    r = get("/api/v1/buscar?q=admin&limite=5")
+    assert r.status_code == 200, f"status={r.status_code}"
+    data = r.json()
+    assert "usuarios" in data
+    if data["usuarios"]:
+        for u in data["usuarios"]:
+            assert "titulo" in u
+            assert "url" in u
+
+@test("GET /api/v1/buscar?q=xyz_no_existe - Devuelve resultados vacios")
+def t57():
+    r = get("/api/v1/buscar?q=xyz_no_existe_abc&limite=5")
+    assert r.status_code == 200, f"status={r.status_code}"
+    data = r.json()
+    assert isinstance(data["tickets"], list)
+
+@test("POST /api/v1/tickets/{id}/duplicar - Duplica ticket con (Copia)")
+def t58():
+    r = post(f"/api/v1/tickets/{TICKET_ID}/duplicar")
+    assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:300]}"
+    data = r.json()
+    assert "id" in data, f"Respuesta sin id: {data}"
+    assert "codigo" in data
+    assert data["id"] != TICKET_ID
+
+@test("GET /api/v1/tickets/exportar/csv - Devuelve CSV descargable")
+def t59():
+    r = get("/api/v1/tickets/exportar/csv")
+    assert r.status_code == 200, f"status={r.status_code}"
+    ct = r.headers.get("content-type", "")
+    assert "text/csv" in ct or "csv" in ct, f"Content-Type inesperado: {ct}"
+    cd = r.headers.get("content-disposition", "")
+    assert "attachment" in cd, f"Content-Disposition inesperado: {cd}"
+    content = r.text
+    assert "codigo" in content.lower() or "GRM" in content
+    lines = content.strip().split("\n")
+    assert len(lines) >= 2, f"CSV sin filas de datos: {len(lines)} lineas"
+
+@test("GET /api/v1/catalogos/usuarios - Lista usuarios para filtros")
+def t60():
+    r = get("/api/v1/catalogos/usuarios")
+    assert r.status_code == 200, f"status={r.status_code}"
+    data = r.json()
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    assert "id" in data[0]
+    assert "nombre_completo" in data[0]
+
+@test("GET /api/v1/catalogos/etiquetas - Lista etiquetas para filtros")
+def t61():
+    r = get("/api/v1/catalogos/etiquetas")
+    assert r.status_code == 200, f"status={r.status_code}"
+    data = r.json()
+    assert isinstance(data, list)
+    if data:
+        assert "id" in data[0]
+        assert "nombre" in data[0]
+        assert "color" in data[0]
+
+@test("GET /api/v1/tickets/buscar/query?q=... - Endpoint dedicado de tickets")
+def t62():
+    r = get("/api/v1/tickets/buscar/query?q=test&limit=10")
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
+    data = r.json()
+    assert isinstance(data, list)
+    if data:
+        assert "id" in data[0]
+        assert "codigo" in data[0]
+
+@test("GET /api/v1/tickets/buscar/query con filtros (prioridad, archivado)")
+def t63():
+    r = get("/api/v1/tickets/buscar/query?prioridad=critica&archivado=false&limit=5")
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
+    data = r.json()
+    assert isinstance(data, list)
+
+@test("GET /api/v1/butler/reglas - Lista reglas Butler")
+def t64():
+    r = get("/api/v1/butler/reglas")
+    assert r.status_code == 200, f"status={r.status_code}"
+    data = r.json()
+    assert isinstance(data, list)
+
+@test("POST /api/v1/butler/reglas - Crea regla Butler")
+def t65():
+    r = post("/api/v1/butler/reglas", json={
+        "nombre": "Test regla Trello",
+        "disparador": "ticket_creado",
+        "descripcion": "Regla de prueba creada por test",
+        "acciones": [{"tipo": "set_estado", "parametros": {"estado_id": 2}}],
+        "activo": True,
+    })
+    assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:300]}"
+    data = r.json()
+    assert "id" in data
+    assert data["nombre"] == "Test regla Trello"
+    assert data["disparador"] == "ticket_creado"
+    assert data["activo"] is True
+
+@test("POST /api/v1/butler/reglas con disparador invalido - Devuelve 422")
+def t66():
+    r = post("/api/v1/butler/reglas", json={
+        "nombre": "Regla invalida",
+        "disparador": "disparador_inexistente",
+        "acciones": [{"tipo": "set_estado", "parametros": {}}],
+    })
+    assert r.status_code in (400, 422), f"Esperaba 400/422, obtuvo {r.status_code}"
+
+@test("PATCH /api/v1/butler/reglas/{id} - Actualiza regla (toggle activo)")
+def t67():
+    r1 = post("/api/v1/butler/reglas", json={
+        "nombre": "Regla toggle test",
+        "disparador": "ticket_etiquetado",
+        "acciones": [{"tipo": "add_etiqueta", "parametros": {"etiqueta_id": 1}}],
+    })
+    assert r1.status_code in (200, 201), f"status={r1.status_code}"
+    rid = r1.json()["id"]
+    r2 = patch(f"/api/v1/butler/reglas/{rid}", json={"activo": False})
+    assert r2.status_code == 200, f"status={r2.status_code} body={r2.text[:300]}"
+    assert r2.json()["activo"] is False
+
+@test("DELETE /api/v1/butler/reglas/{id} - Elimina regla")
+def t68():
+    r1 = post("/api/v1/butler/reglas", json={
+        "nombre": "Regla a eliminar",
+        "disparador": "cada_dia",
+        "acciones": [{"tipo": "notify", "parametros": {"mensaje": "test"}}],
+    })
+    assert r1.status_code in (200, 201)
+    rid = r1.json()["id"]
+    r2 = delete(f"/api/v1/butler/reglas/{rid}")
+    assert r2.status_code in (200, 204), f"status={r2.status_code} body={r2.text[:300]}"
+
+@test("GET /kanban incluye el panel de filtros")
+def t69():
+    r = client.get("/kanban")
+    assert r.status_code == 200
+    assert 'id="toggle-filtros"' in r.text, "Falta el boton de filtros"
+    assert 'id="panel-filtros"' in r.text, "Falta el panel de filtros"
+    assert 'filtro-q' in r.text, "Falta el input de busqueda"
+    assert 'filtro-prioridad' in r.text, "Falta el filtro de prioridad"
+
+@test("GET /kanban incluye command palette (boton + script)")
+def t70():
+    r = client.get("/kanban")
+    assert r.status_code == 200
+    assert 'id="command-palette-trigger"' in r.text, "Falta el trigger de command palette"
+    assert 'command-palette.js' in r.text, "Falta la referencia al JS del command palette"
+    assert 'command-palette-root' in r.text, "Falta el contenedor del command palette"
+
+
 # ============================================================
 # RESUMEN
 # ============================================================
@@ -749,3 +950,4 @@ if fallados:
         print(f"  - {n}: {e}")
 print("="*60)
 sys.exit(0 if not fallados else 1)
+

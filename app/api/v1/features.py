@@ -584,7 +584,7 @@ def eliminar_adjunto(
 # ==========================================
 # BÚSQUEDA Y FILTROS AVANZADOS
 # ==========================================
-@router.get("/buscar")
+@router.get("/buscar/avanzado")
 def buscar_tickets(
     texto: Optional[str] = None,
     estados: Optional[str] = Query(None, description="IDs separados por coma"),

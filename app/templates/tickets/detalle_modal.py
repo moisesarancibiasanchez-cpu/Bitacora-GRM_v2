@@ -160,13 +160,15 @@ DETALLE_TEMPLATE = Template(r"""
         <div class="space-y-2.5 max-h-72 overflow-y-auto pr-1">
           {% if comentarios %}
             {% for c in comentarios %}
+              {% set nc = (c.usuario.nombre_completo if c.usuario else '') %}
+              {% set ini = (nc.split(' ')[:2]|map('first')|join|upper) if nc else '?' %}
               <div class="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
                 <div class="flex items-center justify-between mb-1">
                   <div class="flex items-center gap-1.5">
-                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold">
-                      {{ c.usuario.nombre_completo[:1]|upper if c.usuario else '?' }}
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold" title="{{ nc or 'Anónimo' }}">
+                      {{ ini }}
                     </span>
-                    <span class="text-xs font-medium text-slate-700">{{ c.usuario.nombre_completo if c.usuario else 'Anónimo' }}</span>
+                    <span class="text-xs font-medium text-slate-700">{{ nc or 'Anónimo' }}</span>
                     {% if c.es_interno %}
                       <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">INTERNO</span>
                     {% endif %}
@@ -207,11 +209,21 @@ DETALLE_TEMPLATE = Template(r"""
         <div class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
           {% if adjuntos %}
             {% for a in adjuntos %}
+              {% set ext = (a.nombre_original or a.filename or a.nombre or '').split('.')[-1].lower() if (a.nombre_original or a.filename or a.nombre) else '' %}
+              {% set es_imagen = ext in ['png','jpg','jpeg','gif','webp','bmp','svg'] %}
               <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/40 p-2.5">
                 <div class="flex items-center gap-2 min-w-0">
-                  <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
-                  </svg>
+                  {% if es_imagen %}
+                    <a href="/api/v1/adjuntos/{{ a.id }}/descargar" target="_blank" title="Vista previa">
+                      <img src="/api/v1/adjuntos/{{ a.id }}/descargar"
+                           alt="{{ a.nombre_original or a.filename or a.nombre }}"
+                           class="w-10 h-10 object-cover rounded border border-slate-200 hover:ring-2 hover:ring-indigo-400 transition-shadow" />
+                    </a>
+                  {% else %}
+                    <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                    </svg>
+                  {% endif %}
                   <span class="text-xs text-slate-700 truncate">{{ a.nombre_original or a.filename or a.nombre }}</span>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
@@ -298,10 +310,18 @@ DETALLE_TEMPLATE = Template(r"""
       <span class="text-[11px] text-slate-500">
         Ticket #{{ ticket.id }} · Actualizado {{ ticket.updated_at.strftime('%Y-%m-%d %H:%M') if ticket.updated_at else '—' }}
       </span>
-      <button data-close-modal
-              class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
-        Cerrar
-      </button>
+      <div class="flex items-center gap-2">
+        <button type="button"
+                onclick="duplicarTicket({{ ticket.id }})"
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          Duplicar
+        </button>
+        <button data-close-modal
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+          Cerrar
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -336,6 +356,31 @@ DETALLE_TEMPLATE = Template(r"""
     window.cambiarEstadoRapido = function (ticketId, estadoId) {
       const evt = new CustomEvent('quick-state-change', { detail: { ticketId, estadoId } });
       document.dispatchEvent(evt);
+    };
+
+    // Duplicar ticket: POST al endpoint, recarga modal con el nuevo
+    window.duplicarTicket = async function (ticketId) {
+      if (!confirm('¿Duplicar este ticket? Se creará una copia en estado inicial.')) return;
+      try {
+        const r = await fetch('/api/v1/tickets/' + ticketId + '/duplicar', {
+          method: 'POST',
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.detail || 'Error al duplicar');
+        }
+        const data = await r.json();
+        // Cerrar este modal y abrir el nuevo
+        document.getElementById('modal-root').innerHTML = '';
+        if (window.showToast) window.showToast('Ticket duplicado: ' + (data.codigo || ''), 'success');
+        // Reabrir el modal con el nuevo ticket
+        htmx.ajax('GET', '/api/v1/tickets/' + data.id + '/detalle-html', {
+          target: '#modal-root', swap: 'innerHTML',
+        });
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
     };
   })();
 </script>

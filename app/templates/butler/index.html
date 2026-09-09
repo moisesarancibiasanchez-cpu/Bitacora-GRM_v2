@@ -200,7 +200,105 @@ async function eliminarComando(id){
   } catch(e) { alert('Error: '+e.message); }
 }
 
-function abrirModalRegla(){ window.location.href='/butler/nueva-regla'; }
+function abrirModalRegla(){
+  // Crear modal dinámico con el formulario de regla
+  let m = document.getElementById('modal-regla');
+  if (m) m.remove();
+  m = document.createElement('div');
+  m.id = 'modal-regla';
+  m.className = 'fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50';
+  m.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-slate-800">Nueva regla de automatización</h3>
+        <button data-close-modal class="text-slate-400 hover:text-slate-600">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form id="form-regla" class="px-5 py-4 space-y-3">
+        <div>
+          <label class="text-xs font-medium text-slate-700">Nombre</label>
+          <input name="nombre" required maxlength="120"
+                 class="mt-1 w-full text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500"
+                 placeholder="Ej: Asignar crítico a líder" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-700">Disparador</label>
+          <select name="disparador" required
+                  class="mt-1 w-full text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500">
+            <option value="ticket_creado">Cuando se crea un ticket</option>
+            <option value="ticket_etiquetado">Cuando se etiqueta un ticket</option>
+            <option value="ticket_asignado">Cuando se asigna un ticket</option>
+            <option value="ticket_estado_cambiado">Cuando cambia de estado</option>
+            <option value="cada_dia">Cada día</option>
+            <option value="cada_semana">Cada semana</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-700">Acción</label>
+          <select name="accion_tipo" required
+                  class="mt-1 w-full text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500">
+            <option value="set_estado">Cambiar estado</option>
+            <option value="add_etiqueta">Agregar etiqueta</option>
+            <option value="remove_etiqueta">Quitar etiqueta</option>
+            <option value="set_asignado">Asignar a usuario</option>
+            <option value="add_comentario">Agregar comentario</option>
+            <option value="notify">Enviar notificación</option>
+            <option value="archive">Archivar</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-700">Parámetros (JSON opcional)</label>
+          <input name="parametros" value="{}"
+                 class="mt-1 w-full text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 font-mono"
+                 placeholder='{"estado_id": 2, "comentario": "Auto"}' />
+          <p class="text-[10px] text-slate-500 mt-1">JSON con parámetros específicos de la acción.</p>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-700">Descripción (opcional)</label>
+          <textarea name="descripcion" rows="2"
+                    class="mt-1 w-full text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500"
+                    placeholder="¿Qué hace esta regla?"></textarea>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+          <button type="button" data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cancelar</button>
+          <button type="submit" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">Crear regla</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(m);
+  m.addEventListener('click', (e) => {
+    if (e.target === m || e.target.hasAttribute('data-close-modal')) m.remove();
+  });
+  document.getElementById('form-regla').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    let params = {};
+    try { params = JSON.parse(fd.get('parametros') || '{}'); }
+    catch (_) { alert('Parámetros debe ser JSON válido'); return; }
+    const body = {
+      nombre: fd.get('nombre'),
+      disparador: fd.get('disparador'),
+      descripcion: fd.get('descripcion') || null,
+      acciones: [{ tipo: fd.get('accion_tipo'), parametros: params }],
+      activo: true,
+    };
+    try {
+      const r = await fetch('/api/v1/butler/reglas', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.detail || 'Error al crear regla');
+      }
+      location.reload();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+}
 function abrirModalBoton(){ window.location.href='/butler/nuevo-boton'; }
 function abrirModalComando(){ window.location.href='/butler/nuevo-comando'; }
 </script>

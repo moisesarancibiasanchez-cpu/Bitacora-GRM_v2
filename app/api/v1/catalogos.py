@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.deps import get_current_user, require_role
 from app.db.session import get_db
 from app.models.catalogo import CatalogoTipo, CatalogoItem
+from app.models.etiqueta import Etiqueta
 from app.models.usuario import Usuario, RolUsuario
 
 
@@ -80,3 +81,51 @@ def crear_item(
     db.commit()
     db.refresh(item)
     return item
+
+
+# ---------------- Usuarios (para filtros y asignaciones) ----------------
+@router.get("/usuarios")
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Lista los usuarios activos. Usado por filtros Kanban y selectores."""
+    usuarios = (
+        db.query(Usuario)
+        .filter(Usuario.is_active == True)  # noqa: E712
+        .order_by(Usuario.nombre_completo.asc())
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "nombre_completo": u.nombre_completo,
+            "nombre": u.nombre_completo,
+            "email": u.email,
+            "rol": u.rol.value if u.rol else None,
+        }
+        for u in usuarios
+    ]
+
+
+# ---------------- Etiquetas (para filtros) ----------------
+@router.get("/etiquetas")
+def listar_etiquetas(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Lista las etiquetas activas. Usado por filtros Kanban."""
+    etiquetas = (
+        db.query(Etiqueta)
+        .filter(Etiqueta.activo == True)  # noqa: E712
+        .order_by(Etiqueta.nombre.asc())
+        .all()
+    )
+    return [
+        {
+            "id": e.id,
+            "nombre": e.nombre,
+            "color": e.color or "#64748b",
+        }
+        for e in etiquetas
+    ]

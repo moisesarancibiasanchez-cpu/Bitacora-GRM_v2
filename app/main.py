@@ -575,6 +575,23 @@ async def vista_timeline_page(request: Request):
         db.close()
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    """Dashboard con KPIs y métricas del módulo de incidencias."""
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        return templates.TemplateResponse(
+            "dashboard/index.html",
+            {"request": request, "usuario": usuario},
+        )
+    finally:
+        db.close()
+
+
 @app.get("/butler", response_class=HTMLResponse)
 async def butler_page(request: Request):
     """Página de automatizaciones Butler."""

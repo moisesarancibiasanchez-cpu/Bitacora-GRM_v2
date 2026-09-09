@@ -318,6 +318,7 @@
     initSortable();
     initCardDoubleClick();
     initModalClose();
+    initFilters();
   });
 
   // Re-inicializar si HTMX inyecta nuevas tarjetas
@@ -325,4 +326,173 @@
     initSortable();
   });
   document.body.addEventListener('htmx:load', initSortable);
+
+  // ============================================================
+  // FILTROS DE TABLERO (estilo Trello / Linear)
+  // ============================================================
+  // Carga opciones de filtro (asignados/etiquetas) y aplica filtros
+  // client-side a las tarjetas Kanban (data-* attributes).
+  // ============================================================
+  async function loadFilterOptions() {
+    try {
+      // Cargar usuarios y etiquetas en paralelo
+      const [rUsr, rEt] = await Promise.all([
+        fetch('/api/v1/catalogos/usuarios', { headers: { 'X-User-Id': String(getCurrentUserId()) } }),
+        fetch('/api/v1/catalogos/etiquetas', { headers: { 'X-User-Id': String(getCurrentUserId()) } }),
+      ]);
+      const usuarios = rUsr.ok ? await rUsr.json() : [];
+      const etiquetas = rEt.ok ? await rEt.json() : [];
+
+      const selAsig = document.getElementById('filtro-asignado');
+      if (selAsig) {
+        selAsig.innerHTML = '<option value="">Todos</option>' +
+          usuarios.map(u => `<option value="${u.id}">${u.nombre_completo || u.nombre || ('Usuario ' + u.id)}</option>`).join('');
+      }
+      const selEti = document.getElementById('filtro-etiqueta');
+      if (selEti) {
+        selEti.innerHTML = '<option value="">Todas</option>' +
+          etiquetas.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
+      }
+    } catch (e) {
+      console.warn('No se pudieron cargar las opciones de filtro', e);
+    }
+  }
+
+  function getFilterState() {
+    return {
+      q: (document.getElementById('filtro-q')?.value || '').trim().toLowerCase(),
+      prioridad: document.getElementById('filtro-prioridad')?.value || '',
+      asignado: document.getElementById('filtro-asignado')?.value || '',
+      etiqueta: document.getElementById('filtro-etiqueta')?.value || '',
+      mios: document.getElementById('filtro-mios')?.checked || false,
+      criticos: document.getElementById('filtro-criticos')?.checked || false,
+    };
+  }
+
+  function countActiveFilters(s) {
+    let n = 0;
+    if (s.q) n++;
+    if (s.prioridad) n++;
+    if (s.asignado) n++;
+    if (s.etiqueta) n++;
+    if (s.mios) n++;
+    if (s.criticos) n++;
+    return n;
+  }
+
+  function applyFilters() {
+    const s = getFilterState();
+    const cards = document.querySelectorAll('.kanban-card');
+    let visible = 0;
+    cards.forEach((card) => {
+      let ok = true;
+      // Texto libre
+      if (s.q) {
+        const haystack = [
+          card.dataset.codigo || '',
+          card.dataset.titulo || '',
+          card.dataset.descripcion || '',
+        ].join(' ');
+        if (!haystack.includes(s.q)) ok = false;
+      }
+      // Prioridad
+      if (ok && s.prioridad && card.dataset.prioridad !== s.prioridad) ok = false;
+      // Asignado
+      if (ok && s.asignado && String(card.dataset.asignadoId) !== String(s.asignado)) ok = false;
+      // Etiqueta
+      if (ok && s.etiqueta) {
+        const ets = (card.dataset.etiquetas || '').split(',');
+        if (!ets.includes(String(s.etiqueta))) ok = false;
+      }
+      // Solo míos
+      if (ok && s.mios) {
+        if (String(card.dataset.asignadoId) !== String(getCurrentUserId())) ok = false;
+      }
+      // Solo críticos
+      if (ok && s.criticos && card.dataset.prioridad !== 'critica') ok = false;
+      card.style.display = ok ? '' : 'none';
+      if (ok) visible++;
+    });
+    // Actualizar contadores de cada columna
+    document.querySelectorAll('.kanban-column').forEach((col) => {
+      const id = col.dataset.estadoId;
+      const count = col.querySelectorAll('.kanban-card:not([style*="display: none"])').length;
+      const badge = document.getElementById(`count-${id}`);
+      if (badge) badge.textContent = count;
+    });
+    // Resumen
+    const resumen = document.getElementById('filtros-resumen');
+    if (resumen) {
+      const total = cards.length;
+      resumen.textContent = total > 0 ? `${visible} de ${total} tarjetas` : '';
+    }
+    // Badge en botón Filtros
+    const active = countActiveFilters(s);
+    const badgeBtn = document.getElementById('filtros-activos');
+    if (badgeBtn) {
+      if (active > 0) {
+        badgeBtn.textContent = active;
+        badgeBtn.classList.remove('hidden');
+      } else {
+        badgeBtn.classList.add('hidden');
+      }
+    }
+  }
+
+  function initFilters() {
+    const btn = document.getElementById('toggle-filtros');
+    const panel = document.getElementById('panel-filtros');
+    if (!btn || !panel) return; // No estamos en el Kanban
+
+    btn.addEventListener('click', () => {
+      panel.classList.toggle('hidden');
+      // Si se está abriendo, cargar opciones
+      if (!panel.classList.contains('hidden')) {
+        loadFilterOptions();
+      }
+    });
+
+    // Escuchar cambios en los inputs
+    const ids = ['filtro-q', 'filtro-prioridad', 'filtro-asignado', 'filtro-etiqueta', 'filtro-mios', 'filtro-criticos'];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const evt = (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'search'))
+        ? 'input' : 'change';
+      el.addEventListener(evt, applyFilters);
+    });
+
+    // Botón limpiar
+    const limpiar = document.getElementById('filtros-limpiar');
+    if (limpiar) {
+      limpiar.addEventListener('click', () => {
+        const q = document.getElementById('filtro-q');
+        if (q) q.value = '';
+        const p = document.getElementById('filtro-prioridad');
+        if (p) p.value = '';
+        const a = document.getElementById('filtro-asignado');
+        if (a) a.value = '';
+        const e = document.getElementById('filtro-etiqueta');
+        if (e) e.value = '';
+        const m = document.getElementById('filtro-mios');
+        if (m) m.checked = false;
+        const c = document.getElementById('filtro-criticos');
+        if (c) c.checked = false;
+        applyFilters();
+      });
+    }
+
+    // Aplicar filtros iniciales (si vienen por querystring)
+    const params = new URLSearchParams(window.location.search);
+    const qP = params.get('q');
+    if (qP) {
+      const q = document.getElementById('filtro-q');
+      if (q) {
+        q.value = qP;
+        panel.classList.remove('hidden');
+        loadFilterOptions();
+        setTimeout(applyFilters, 100);
+      }
+    }
+  }
 })();

@@ -2,9 +2,13 @@
 Endpoints del módulo de Incidencias.
 El más importante: PATCH /tickets/{id}/estado - recibe la señal de HTMX.
 """
+import csv
+import io
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from sqlalchemy import or_, and_, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -12,6 +16,7 @@ from app.api.v1.deps import get_current_user
 from app.db.session import get_db
 from app.models.ticket import Ticket
 from app.models.usuario import Usuario
+from app.models.etiqueta import Etiqueta, ticket_etiquetas
 from app.schemas.ticket import (
     TicketCreate, TicketRead, CambioEstadoRequest, CambioEstadoResponse, ErrorResponse,
 )
@@ -270,3 +275,210 @@ def detalle_html(
         usuario=usuario,
     )
     return HTMLResponse(content=html)
+
+
+# ===========================================================================
+#  Búsqueda y filtrado (Sprint 1 - Feature Trello)
+# ===========================================================================
+@router.get("/buscar/query")
+def buscar_tickets(
+    q: str | None = Query(None, description="Texto libre: busca en titulo, codigo, descripcion"),
+    etiqueta_id: int | None = Query(None, description="ID de etiqueta"),
+    asignado_id: int | None = Query(None, description="ID de usuario asignado"),
+    prioridad: str | None = Query(None, description="critica|alta|media|baja"),
+    estado_id: int | None = Query(None),
+    archivado: bool | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Búsqueda y filtrado de tickets estilo Trello.
+
+    - ``q``: texto libre que busca en codigo, titulo, descripcion.
+    - ``etiqueta_id``: filtra por etiqueta exacta.
+    - ``asignado_id``: filtra por usuario asignado.
+    - ``prioridad``: filtra por prioridad.
+    - ``estado_id``: filtra por estado.
+    - ``archivado``: por defecto False (no mostrar archivados).
+    """
+    query = db.query(Ticket)
+    if q:
+        patron = f"%{q}%"
+        query = query.filter(
+            or_(
+                Ticket.codigo.ilike(patron),
+                Ticket.titulo.ilike(patron),
+                Ticket.descripcion.ilike(patron),
+            )
+        )
+    if etiqueta_id is not None:
+        query = query.join(ticket_etiquetas, ticket_etiquetas.c.ticket_id == Ticket.id).filter(
+            ticket_etiquetas.c.etiqueta_id == etiqueta_id
+        )
+    if asignado_id is not None:
+        query = query.filter(Ticket.asignado_id == asignado_id)
+    if prioridad:
+        query = query.filter(Ticket.prioridad == prioridad)
+    if estado_id is not None:
+        query = query.filter(Ticket.estado_id == estado_id)
+    if archivado is not None:
+        query = query.filter(Ticket.archivado == archivado)
+    else:
+        query = query.filter(Ticket.archivado == False)  # noqa: E712
+    tickets = query.order_by(Ticket.updated_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": t.id,
+            "codigo": t.codigo,
+            "titulo": t.titulo,
+            "estado_id": t.estado_id,
+            "estado_nombre": t.estado.nombre if t.estado else None,
+            "estado_color": t.estado.color if t.estado else "#94a3b8",
+            "prioridad": t.prioridad.value if t.prioridad else "media",
+            "asignado_id": t.asignado_id,
+            "asignado_nombre": t.asignado.nombre_completo if t.asignado else None,
+            "etiquetas": [{"id": e.id, "nombre": e.nombre, "color": e.color} for e in t.etiquetas],
+            "archivado": t.archivado,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        }
+        for t in tickets
+    ]
+
+
+# ===========================================================================
+#  Duplicar tarjeta (Sprint 1 - Feature Trello básica)
+# ===========================================================================
+@router.post("/{ticket_id}/duplicar", response_model=TicketRead, status_code=201)
+def duplicar_ticket(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Crea una copia exacta de un ticket con sufijo '(Copia)'.
+
+    - Conserva: titulo + ' (Copia)', descripcion, tipo, prioridad, asignado, etiquetas, catalogos.
+    - Resetea: estado (vuelve al estado inicial), orden (ultimo + 1), SLA (recalculado),
+      archivado (False), creador (usuario actual).
+    - Auditoria: registra 'ticket_duplicado' con referencia al origen.
+    """
+    from app.models.estado import Estado
+    from app.models.auditoria import Auditoria
+    from app.models.ticket import TipoIncidencia, Prioridad
+    from datetime import timedelta
+    from sqlalchemy import func as sqlfunc
+
+    original = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    # Estado inicial: primer estado con es_inicial=True, sino el primero por orden
+    estado_inicial = (
+        db.query(Estado).filter(Estado.es_inicial == True).first()  # noqa: E712
+        or db.query(Estado).order_by(Estado.orden).first()
+    )
+
+    # Generar nuevo codigo correlativo
+    ultimo = db.query(sqlfunc.max(Ticket.id)).scalar() or 0
+    codigo = f"GRM-INC-2026-{(ultimo + 1):06d}"
+
+    # Calcular nueva fecha de SLA
+    fecha_sla = None
+    if estado_inicial and estado_inicial.sla_horas:
+        fecha_sla = datetime.utcnow() + timedelta(hours=estado_inicial.sla_horas)
+
+    copia = Ticket(
+        codigo=codigo,
+        titulo=f"{original.titulo} (Copia)",
+        descripcion=original.descripcion,
+        tipo=original.tipo,
+        prioridad=original.prioridad,
+        estado_id=estado_inicial.id if estado_inicial else original.estado_id,
+        creador_id=usuario.id,
+        asignado_id=original.asignado_id,
+        catalogo_tipo_id=original.catalogo_tipo_id,
+        datos_catalogo=original.datos_catalogo,
+        fecha_vencimiento_sla=fecha_sla,
+        sla_cumplido=-1,
+        archivado=False,
+        tablero_id=original.tablero_id,
+    )
+    db.add(copia)
+    db.flush()
+
+    # Copiar etiquetas many-to-many
+    for et in original.etiquetas:
+        copia.etiquetas.append(et)
+
+    # Auditoria: registrar la duplicacion
+    aud = Auditoria(
+        ticket_id=copia.id,
+        usuario_id=usuario.id,
+        accion="ticket_duplicado",
+        valor_anterior={"ticket_origen_id": original.id, "codigo_origen": original.codigo},
+        valor_nuevo={"ticket_copia_id": copia.id, "codigo_copia": copia.codigo},
+        ip_origen=request.client.host if request.client else None,
+    )
+    db.add(aud)
+    db.commit()
+    db.refresh(copia)
+    return copia
+
+
+# ===========================================================================
+#  Exportar tickets a CSV (Sprint 1 - Feature Trello)
+# ===========================================================================
+@router.get("/exportar/csv")
+def exportar_csv(
+    estado_id: int | None = Query(None),
+    etiqueta_id: int | None = Query(None),
+    asignado_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Exporta los tickets filtrados a un CSV descargable."""
+    query = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
+    if estado_id is not None:
+        query = query.filter(Ticket.estado_id == estado_id)
+    if etiqueta_id is not None:
+        query = query.join(ticket_etiquetas, ticket_etiquetas.c.ticket_id == Ticket.id).filter(
+            ticket_etiquetas.c.etiqueta_id == etiqueta_id
+        )
+    if asignado_id is not None:
+        query = query.filter(Ticket.asignado_id == asignado_id)
+    tickets = query.order_by(Ticket.created_at.desc()).limit(1000).all()
+
+    # Construir CSV en memoria
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID", "Codigo", "Titulo", "Tipo", "Prioridad", "Estado",
+        "Asignado", "Creador", "Etiquetas", "SLA_Vencimiento", "SLA_Cumplido",
+        "Creado", "Actualizado",
+    ])
+    for t in tickets:
+        writer.writerow([
+            t.id,
+            t.codigo,
+            t.titulo,
+            t.tipo.value if t.tipo else "",
+            t.prioridad.value if t.prioridad else "",
+            t.estado.nombre if t.estado else "",
+            t.asignado.nombre_completo if t.asignado else "",
+            t.creador.nombre_completo if t.creador else "",
+            ";".join(e.nombre for e in t.etiquetas),
+            t.fecha_vencimiento_sla.isoformat() if t.fecha_vencimiento_sla else "",
+            "Si" if t.sla_cumplido == 1 else ("No" if t.sla_cumplido == 0 else "Pendiente"),
+            t.created_at.isoformat() if t.created_at else "",
+            t.updated_at.isoformat() if t.updated_at else "",
+        ])
+
+    output.seek(0)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="tickets_bitacora_{timestamp}.csv"',
+        },
+    )

@@ -11,13 +11,64 @@
       <span class="text-xs text-slate-500">Arrastra las tarjetas entre columnas para cambiar el estado</span>
     </div>
     <div class="flex items-center gap-2">
-      <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+      <button id="toggle-filtros" type="button"
+              class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+        </svg>
         Filtros
+        <span id="filtros-activos" class="hidden ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold">0</span>
       </button>
       <button class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white"
               hx-get="/tickets/nuevo" hx-target="#modal-root" hx-swap="innerHTML">
         + Nueva Incidencia
       </button>
+    </div>
+  </div>
+
+  <!-- Panel de filtros (plegable) -->
+  <div id="panel-filtros" class="hidden bg-white border-b border-slate-200 px-4 py-3 flex-shrink-0">
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Búsqueda</label>
+        <input id="filtro-q" type="text" placeholder="Título, código o descripción…"
+               class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 w-56" />
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Prioridad</label>
+        <select id="filtro-prioridad" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="">Todas</option>
+          <option value="critica">Crítica</option>
+          <option value="alta">Alta</option>
+          <option value="media">Media</option>
+          <option value="baja">Baja</option>
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Asignado</label>
+        <select id="filtro-asignado" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Etiqueta</label>
+        <select id="filtro-etiqueta" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <label class="flex items-center gap-1.5 text-xs text-slate-700 pb-1.5 cursor-pointer">
+        <input id="filtro-mios" type="checkbox" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+        <span>Solo mis tickets</span>
+      </label>
+      <label class="flex items-center gap-1.5 text-xs text-slate-700 pb-1.5 cursor-pointer">
+        <input id="filtro-criticos" type="checkbox" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+        <span>Solo críticos</span>
+      </label>
+      <button id="filtros-limpiar" type="button"
+              class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600">
+        Limpiar
+      </button>
+      <span id="filtros-resumen" class="text-xs text-slate-500 pb-1.5 ml-auto"></span>
     </div>
   </div>
 
@@ -54,4 +105,11 @@
   </div>
 </div>
 
+<!-- Fuente de datos para los filtros (JSON con prioridades, usuarios, etiquetas) -->
+<script id="kanban-filters-data" type="application/json">
+  {
+    "current_user_id": {{ usuario.id if usuario else 0 }},
+    "prioridades": ["critica", "alta", "media", "baja"]
+  }
+</script>
 {% endblock %}

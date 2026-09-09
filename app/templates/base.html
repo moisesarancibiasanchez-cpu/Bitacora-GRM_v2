@@ -35,6 +35,9 @@
         </div>
       </div>
       <nav class="flex items-center gap-1 text-sm">
+        <a href="/dashboard" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <span class="text-indigo-500">📈</span> Dashboard
+        </a>
         <a href="/espacios" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Espacios</a>
         <a href="/tableros" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Tableros</a>
         <a href="/kanban" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Kanban</a>
@@ -59,6 +62,14 @@
         </a>
         <a href="/catalogos" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Catálogos</a>
         <a href="/docs" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">API</a>
+        <!-- Buscador / Command Palette -->
+        <button type="button" id="command-palette-trigger"
+                class="ml-1 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-slate-500 hover:bg-white hover:border-slate-300 text-xs"
+                title="Búsqueda global (Ctrl/Cmd + K)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+          <span>Buscar...</span>
+          <kbd class="hidden md:inline-block ml-1 px-1.5 py-0.5 text-[10px] font-mono rounded border border-slate-200 bg-white text-slate-500">⌘K</kbd>
+        </button>
       </nav>
       <div class="flex items-center gap-2 text-xs">
         <span class="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">● Online</span>
@@ -76,6 +87,9 @@
   <!-- Contenedor global para modales HTMX -->
   <div id="modal-root"></div>
 
+  <!-- Command Palette (Búsqueda global) -->
+  <div id="command-palette-root" class="hidden fixed inset-0 z-[60]"></div>
+
   <main class="h-[calc(100vh-57px)] overflow-hidden">
     {% block content %}{% endblock %}
   </main>
@@ -88,5 +102,6 @@
 
   <script src="/static/js/kanban.js"></script>
   <script src="/static/js/htmx-events.js"></script>
+  <script src="/static/js/command-palette.js"></script>
 </body>
 </html>
