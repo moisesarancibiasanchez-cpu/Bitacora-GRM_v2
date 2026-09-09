@@ -1,17 +1,32 @@
 <div id="ticket-{{ ticket.id }}"
-     class="kanban-card group cursor-move rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2 hover:shadow-md transition-all duration-150"
+     class="kanban-card group cursor-pointer rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2 hover:shadow-md hover:border-indigo-300 transition-all duration-150"
      data-ticket-id="{{ ticket.id }}"
      data-prioridad="{{ ticket.prioridad.value }}"
-     data-estado="{{ ticket.estado.nombre }}">
+     data-estado="{{ ticket.estado.nombre }}"
+     title="Doble clic o click para ver detalle · Arrastrar para mover">
   <div class="flex items-start justify-between gap-2 mb-1.5">
     <span class="font-mono text-[10px] tracking-wide text-slate-500 uppercase">{{ ticket.codigo }}</span>
-    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold
-                 {% if ticket.prioridad.value == 'critica' %}bg-red-100 text-red-700
-                 {% elif ticket.prioridad.value == 'alta' %}bg-orange-100 text-orange-700
-                 {% elif ticket.prioridad.value == 'media' %}bg-yellow-100 text-yellow-700
-                 {% else %}bg-slate-100 text-slate-600{% endif %}">
-      {{ ticket.prioridad.value|upper }}
-    </span>
+    <div class="flex items-center gap-1.5">
+      <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold
+                   {% if ticket.prioridad.value == 'critica' %}bg-red-100 text-red-700
+                   {% elif ticket.prioridad.value == 'alta' %}bg-orange-100 text-orange-700
+                   {% elif ticket.prioridad.value == 'media' %}bg-yellow-100 text-yellow-700
+                   {% else %}bg-slate-100 text-slate-600{% endif %}">
+        {{ ticket.prioridad.value|upper }}
+      </span>
+      <button type="button"
+              class="open-detail-btn w-5 h-5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              hx-get="/api/v1/tickets/{{ ticket.id }}/detalle-html"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              title="Ver detalle">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+        </svg>
+      </button>
+    </div>
   </div>
   <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2">{{ ticket.titulo }}</h4>
   <p class="text-xs text-slate-500 line-clamp-2 mb-2">{{ ticket.descripcion }}</p>

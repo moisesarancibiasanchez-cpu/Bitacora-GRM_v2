@@ -133,3 +133,105 @@ def cambiar_estado(
             "HX-Trigger": "ticket-updated",
         },
     )
+
+
+# ===========================================================================
+#  Helper: indica si una transición requiere comentario
+#  (el frontend lo consulta antes de hacer drag & drop para mostrar un prompt)
+# ===========================================================================
+@router.get("/{ticket_id}/transicion-info/{estado_destino_id}")
+def transicion_info(
+    ticket_id: int,
+    estado_destino_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Devuelve metadata de la transición: si requiere comentario, rol permitido, etc."""
+    from app.models.estado import Estado, TransicionEstado
+    from app.models.ticket import Ticket
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    estado_destino = db.query(Estado).filter(Estado.id == estado_destino_id).first()
+    if not estado_destino:
+        raise HTTPException(status_code=404, detail="Estado destino no encontrado")
+
+    transicion = (
+        db.query(TransicionEstado)
+        .filter(
+            TransicionEstado.estado_origen_id == ticket.estado_id,
+            TransicionEstado.estado_destino_id == estado_destino_id,
+        )
+        .first()
+    )
+
+    if not transicion:
+        return {
+            "valida": False,
+            "motivo": f"No existe una transición válida de '{ticket.estado.nombre}' a '{estado_destino.nombre}'.",
+            "requiere_comentario": False,
+            "rol_requerido": None,
+        }
+
+    return {
+        "valida": True,
+        "requiere_comentario": transicion.requiere_comentario,
+        "rol_requerido": transicion.rol_requerido,
+        "descripcion": transicion.descripcion,
+    }
+
+
+# ===========================================================================
+#  Helper: vista de detalle de un ticket (HTML, no JSON)
+# ===========================================================================
+@router.get("/{ticket_id}/detalle-html", response_class=HTMLResponse)
+def detalle_html(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Devuelve la vista de detalle completa en HTML (para modal)."""
+    from app.models.estado import Estado
+    from app.models.ticket import Ticket
+    from app.models.comentario import Comentario
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
+
+    estados = db.query(Estado).order_by(Estado.orden).all()
+    comentarios = (
+        db.query(Comentario)
+        .filter(Comentario.ticket_id == ticket_id)
+        .order_by(Comentario.created_at.asc())
+        .all()
+    )
+    adjuntos = (
+        db.query(Adjunto)
+        .filter(Adjunto.ticket_id == ticket_id)
+        .order_by(Adjunto.created_at.desc())
+        .all()
+    )
+    checklists = (
+        db.query(Checklist)
+        .filter(Checklist.ticket_id == ticket_id)
+        .order_by(Checklist.orden.asc())
+        .all()
+    )
+
+    # Renderizar la plantilla del modal
+    from app.templates.tickets.detalle_modal import render_detalle_modal
+    html = render_detalle_modal(
+        ticket=ticket,
+        estados=estados,
+        comentarios=comentarios,
+        adjuntos=adjuntos,
+        checklists=checklists,
+        usuario=usuario,
+    )
+    return HTMLResponse(content=html)

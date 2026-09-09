@@ -1,0 +1,172 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 modal-backdrop"
+     data-modal="nuevo-ticket">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+    <!-- Header -->
+    <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+      <div>
+        <h3 class="text-base font-semibold text-slate-800">Nueva Incidencia</h3>
+        <p class="text-xs text-slate-500 mt-0.5">Registra un nuevo ticket en el sistema</p>
+      </div>
+      <button data-close-modal
+              class="w-8 h-8 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Body (form) -->
+    <form hx-post="/tickets/crear"
+          hx-target="#modal-root"
+          hx-swap="innerHTML"
+          class="flex flex-col flex-1 overflow-hidden">
+      <div class="px-5 py-4 overflow-y-auto flex-1 space-y-4">
+
+        <!-- Título -->
+        <div>
+          <label for="titulo" class="block text-xs font-semibold text-slate-700 mb-1">
+            Título <span class="text-red-500">*</span>
+          </label>
+          <input type="text" id="titulo" name="titulo" required
+                 placeholder="Resumen breve del problema"
+                 class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                 maxlength="200" />
+        </div>
+
+        <!-- Descripción -->
+        <div>
+          <label for="descripcion" class="block text-xs font-semibold text-slate-700 mb-1">
+            Descripción detallada
+          </label>
+          <textarea id="descripcion" name="descripcion" rows="4"
+                    placeholder="Detalla el problema, pasos para reproducirlo, mensajes de error, etc."
+                    class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+        </div>
+
+        <!-- Tipo y Prioridad -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="tipo" class="block text-xs font-semibold text-slate-700 mb-1">Tipo</label>
+            <select id="tipo" name="tipo"
+                    class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <option value="incidencia" selected>Incidencia</option>
+              <option value="solicitud">Solicitud</option>
+              <option value="problema">Problema</option>
+              <option value="cambio">Cambio</option>
+            </select>
+          </div>
+          <div>
+            <label for="prioridad" class="block text-xs font-semibold text-slate-700 mb-1">Prioridad</label>
+            <select id="prioridad" name="prioridad"
+                    class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <option value="baja">Baja</option>
+              <option value="media" selected>Media</option>
+              <option value="alta">Alta</option>
+              <option value="critica">Crítica</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Catálogo tipo / item -->
+        {% if catalogos_tipos %}
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="catalogo_tipo_id" class="block text-xs font-semibold text-slate-700 mb-1">Categoría</label>
+            <select id="catalogo_tipo_id" name="catalogo_tipo_id"
+                    class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <option value="">— Sin categoría —</option>
+              {% for ct in catalogos_tipos %}
+                <option value="{{ ct.id }}">{{ ct.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="catalogo_item_id" class="block text-xs font-semibold text-slate-700 mb-1">Ítem</label>
+            <select id="catalogo_item_id" name="catalogo_item_id"
+                    class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <option value="">— Ninguno —</option>
+              {% for ci in catalogos_items %}
+                <option value="{{ ci.id }}">{{ ci.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Asignado a -->
+        <div>
+          <label for="asignado_id" class="block text-xs font-semibold text-slate-700 mb-1">Asignar a</label>
+          <select id="asignado_id" name="asignado_id"
+                  class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="">— Sin asignar —</option>
+            {% if usuario %}
+              <option value="{{ usuario.id }}" selected>{{ usuario.nombre_completo }} (mismo)</option>
+            {% endif %}
+          </select>
+          <p class="text-[11px] text-slate-500 mt-1">Por defecto se asigna a ti mismo.</p>
+        </div>
+
+        <!-- Etiquetas -->
+        {% if etiquetas %}
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1.5">Etiquetas</label>
+          <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-md bg-slate-50">
+            {% for et in etiquetas %}
+              <label class="inline-flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-colors">
+                <input type="checkbox" name="etiquetas_cb" value="{{ et.id }}" class="etiqueta-cb text-indigo-600 focus:ring-indigo-500 h-3 w-3">
+                <span class="inline-block w-2 h-2 rounded-full" style="background-color: {{ et.color }}"></span>
+                <span class="text-[11px] text-slate-700">{{ et.nombre }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <p class="text-[11px] text-slate-500 mt-1">Selecciona una o varias etiquetas para clasificar el ticket.</p>
+        </div>
+        {% endif %}
+
+      </div>
+
+      <!-- Footer -->
+      <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2 flex-shrink-0">
+        <button type="button" data-close-modal
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+          </svg>
+          Crear Incidencia
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Convertir checkboxes de etiquetas a un campo "etiquetas" separado por comas
+  (function () {
+    const form = document.currentScript?.previousElementSibling?.querySelector('form')
+              || document.querySelector('[data-modal="nuevo-ticket"] form');
+    if (!form) return;
+
+    // Insertar un input hidden que se llenará con los IDs seleccionados
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'etiquetas';
+    hidden.id = 'etiquetas-hidden';
+    hidden.value = '';
+    form.appendChild(hidden);
+
+    const updateHidden = () => {
+      const ids = Array.from(form.querySelectorAll('.etiqueta-cb:checked'))
+        .map(cb => cb.value);
+      hidden.value = ids.join(',');
+    };
+
+    form.querySelectorAll('.etiqueta-cb').forEach(cb => {
+      cb.addEventListener('change', updateHidden);
+    });
+    updateHidden();
+  })();
+</script>

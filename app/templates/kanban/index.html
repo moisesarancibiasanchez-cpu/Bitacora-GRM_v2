@@ -15,7 +15,7 @@
         Filtros
       </button>
       <button class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white"
-              hx-get="/tickets/nuevo" hx-target="#modal-content" hx-swap="innerHTML">
+              hx-get="/tickets/nuevo" hx-target="#modal-root" hx-swap="innerHTML">
         + Nueva Incidencia
       </button>
     </div>
@@ -54,6 +54,4 @@
   </div>
 </div>
 
-<!-- Modal para crear tickets -->
-<div id="modal-content"></div>
 {% endblock %}

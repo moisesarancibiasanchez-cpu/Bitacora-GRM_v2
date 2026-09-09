@@ -53,9 +53,18 @@
   <!-- Toaster de notificaciones (HTMX events) -->
   <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm"></div>
 
+  <!-- Contenedor global para modales HTMX -->
+  <div id="modal-root"></div>
+
   <main class="h-[calc(100vh-57px)] overflow-hidden">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Identificador del usuario actual para llamadas API en modo demo -->
+  <script>
+    window.CURRENT_USER_ID = {{ usuario.id if usuario else 1 }};
+    window.CURRENT_USER_ROL = "{{ usuario.rol.value if usuario else 'solicitante' }}";
+  </script>
 
   <script src="/static/js/kanban.js"></script>
   <script src="/static/js/htmx-events.js"></script>

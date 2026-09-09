@@ -136,6 +136,166 @@ async def tickets_page(request: Request):
         db.close()
 
 
+@app.get("/tickets/nuevo", response_class=HTMLResponse)
+async def ticket_nuevo_form(request: Request):
+    """Devuelve el fragmento HTML del modal de creación de un nuevo ticket.
+    Se carga por HTMX desde el botón '+ Nueva Incidencia' del tablero Kanban."""
+    from app.db.session import SessionLocal
+    from app.models.catalogo import CatalogoTipo, CatalogoItem
+    from app.models.usuario import Usuario, RolUsuario
+    from app.models.etiqueta import Etiqueta
+
+    db = SessionLocal()
+    try:
+        usuario = (
+            db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
+            or db.query(Usuario).first()
+        )
+        catalogos_tipos = db.query(CatalogoTipo).all()
+        catalogos_items = db.query(CatalogoItem).all()
+        etiquetas = db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
+        return templates.TemplateResponse(
+            "tickets/nuevo_modal.html",
+            {
+                "request": request,
+                "usuario": usuario,
+                "catalogos_tipos": catalogos_tipos,
+                "catalogos_items": catalogos_items,
+                "etiquetas": etiquetas,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/tickets/crear", response_class=HTMLResponse)
+async def ticket_crear(
+    request: Request,
+    titulo: str = "",
+    descripcion: str = "",
+    tipo: str = "incidencia",
+    prioridad: str = "media",
+    asignado_id: int | None = None,
+    catalogo_tipo_id: int | None = None,
+    catalogo_item_id: int | None = None,
+    etiquetas: str = "",
+):
+    """Crea un ticket y devuelve el modal de éxito con un enlace al detalle."""
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket, TipoIncidencia, Prioridad
+    from app.models.usuario import Usuario
+    from app.models.estado import Estado
+    from app.models.etiqueta import Etiqueta
+    from datetime import datetime, timedelta
+
+    db = SessionLocal()
+    try:
+        usuario = (
+            db.query(Usuario).filter(Usuario.rol == "administrador").first()
+            or db.query(Usuario).first()
+        )
+        # Asignar al usuario actual si no se especificó
+        if not asignado_id:
+            asignado_id = usuario.id if usuario else None
+
+        # Estado inicial: el primero con es_inicial=True
+        estado_inicial = db.query(Estado).filter(Estado.es_inicial == True).first()  # noqa: E712
+        if not estado_inicial:
+            estado_inicial = db.query(Estado).order_by(Estado.orden).first()
+
+        # Generar código correlativo
+        from sqlalchemy import func
+        ultimo = db.query(func.max(Ticket.id)).scalar() or 0
+        codigo = f"GRM-INC-2026-{(ultimo + 1):06d}"
+
+        # Mapear tipo y prioridad
+        try:
+            tipo_enum = TipoIncidencia(tipo)
+        except ValueError:
+            tipo_enum = TipoIncidencia.INCIDENCIA
+        try:
+            prioridad_enum = Prioridad(prioridad)
+        except ValueError:
+            prioridad_enum = Prioridad.MEDIA
+
+        # Calcular fecha de SLA
+        fecha_sla = None
+        if estado_inicial and estado_inicial.sla_horas:
+            fecha_sla = datetime.utcnow() + timedelta(hours=estado_inicial.sla_horas)
+
+        ticket = Ticket(
+            codigo=codigo,
+            titulo=titulo,
+            descripcion=descripcion,
+            tipo=tipo_enum,
+            prioridad=prioridad_enum,
+            estado_id=estado_inicial.id if estado_inicial else None,
+            creador_id=usuario.id if usuario else None,
+            asignado_id=asignado_id,
+            catalogo_tipo_id=catalogo_tipo_id,
+            fecha_vencimiento_sla=fecha_sla,
+            sla_cumplido=-1,
+        )
+        db.add(ticket)
+        db.flush()
+
+        # Asignar etiquetas si vienen separadas por coma
+        if etiquetas:
+            for et_id in [e.strip() for e in etiquetas.split(",") if e.strip()]:
+                try:
+                    et = db.query(Etiqueta).filter(Etiqueta.id == int(et_id)).first()
+                    if et:
+                        ticket.etiquetas.append(et)
+                except (ValueError, TypeError):
+                    pass
+
+        db.commit()
+        db.refresh(ticket)
+
+        # Devolver HTML de éxito con enlace al detalle
+        return HTMLResponse(
+            f'''<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 modal-backdrop">
+              <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">
+                <div class="w-12 h-12 rounded-full bg-emerald-100 mx-auto flex items-center justify-center mb-3">
+                  <svg class="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-slate-800 mb-1">Incidencia creada</h3>
+                <p class="text-sm text-slate-500 mb-1">Tu ticket fue registrado con el código</p>
+                <p class="font-mono text-base text-indigo-600 font-semibold mb-4">{ticket.codigo}</p>
+                <div class="flex items-center justify-center gap-2">
+                  <button data-close-modal
+                          hx-get="/api/v1/tickets/{ticket.id}/detalle-html"
+                          hx-target="#modal-root" hx-swap="innerHTML"
+                          class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">
+                    Ver detalle
+                  </button>
+                  <button data-close-modal
+                          class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            </div>''',
+            headers={"HX-Trigger": "ticket-created"},
+        )
+    except Exception as e:
+        db.rollback()
+        return HTMLResponse(
+            f'''<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 modal-backdrop">
+              <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+                <h3 class="text-lg font-semibold text-red-700 mb-2">Error al crear la incidencia</h3>
+                <p class="text-sm text-slate-600 mb-4">{str(e)}</p>
+                <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
+              </div>
+            </div>''',
+            status_code=500,
+        )
+    finally:
+        db.close()
+
+
 @app.get("/catalogos", response_class=HTMLResponse)
 async def catalogos_page(request: Request):
     """Página de mantenedores de catálogos."""
