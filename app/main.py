@@ -316,6 +316,291 @@ async def catalogos_page(request: Request):
         db.close()
 
 
+# === Páginas de Workspaces / Tableros / Vistas / Butler / Notificaciones ===
+def _usuario_demo(db):
+    from app.models.usuario import Usuario, RolUsuario
+    return (
+        db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
+        or db.query(Usuario).first()
+    )
+
+
+@app.get("/espacios", response_class=HTMLResponse)
+async def espacios_page(request: Request):
+    """Lista de espacios de trabajo (workspaces)."""
+    from app.db.session import SessionLocal
+    from app.models.espacio import Espacio
+    from app.models.espacio import espacio_miembros, Tablero
+    from sqlalchemy import func
+
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        espacios = db.query(Espacio).order_by(Espacio.created_at.desc()).all()
+        # Anotar totales (atributos transient, no las properties read-only)
+        for e in espacios:
+            e._total_tableros = db.query(func.count(Tablero.id)).filter(Tablero.espacio_id == e.id).scalar() or 0
+            e._total_miembros = db.query(func.count(espacio_miembros.c.usuario_id)).filter(espacio_miembros.c.espacio_id == e.id).scalar() or 0
+        return templates.TemplateResponse(
+            "espacios/index.html",
+            {"request": request, "usuario": usuario, "espacios": espacios},
+        )
+    finally:
+        db.close()
+
+
+@app.get("/tableros", response_class=HTMLResponse)
+async def tableros_page(request: Request):
+    """Lista de tableros (filtrable por espacio)."""
+    from app.db.session import SessionLocal
+    from app.models.espacio import Espacio, Tablero
+    from app.models.ticket import Ticket
+    from app.models.estado import Estado
+    from sqlalchemy import func
+
+    espacio_id = request.query_params.get("espacio")
+
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        espacios = db.query(Espacio).order_by(Espacio.nombre).all()
+        espacio_actual = None
+        if espacio_id:
+            try:
+                espacio_actual = db.query(Espacio).filter(Espacio.id == int(espacio_id)).first()
+            except (ValueError, TypeError):
+                pass
+        q = db.query(Tablero)
+        if espacio_actual:
+            q = q.filter(Tablero.espacio_id == espacio_actual.id)
+        tableros = q.order_by(Tablero.created_at.desc()).all()
+        for t in tableros:
+            t.total_tickets = db.query(func.count(Ticket.id)).filter(
+                Ticket.estado_id.in_(
+                    db.query(Estado.id).filter(Estado.tablero_id == t.id)
+                )
+            ).scalar() or 0
+            t.total_listas = db.query(func.count(Estado.id)).filter(Estado.tablero_id == t.id).scalar() or 0
+        return templates.TemplateResponse(
+            "tableros/index.html",
+            {
+                "request": request, "usuario": usuario,
+                "tableros": tableros, "espacios": espacios, "espacio_actual": espacio_actual,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.get("/vistas/tabla", response_class=HTMLResponse)
+async def vista_tabla_page(request: Request):
+    """Vista multidimensional: Tabla."""
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+    from app.models.estado import Estado
+    from app.models.usuario import Usuario
+    from app.models.campo_personalizado import CampoPersonalizado, ValorCampo
+    from app.models.etiqueta import Etiqueta
+    from app.models.espacio import Espacio
+    espacio_id = request.query_params.get("espacio")
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        # Si hay espacio, filtrar; si no, mostrar todos
+        q = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
+        if espacio_id:
+            try:
+                from app.models.espacio import Tablero
+                tableros_esp = db.query(Tablero.id).filter(Tablero.espacio_id == int(espacio_id)).all()
+                ids = [t[0] for t in tableros_esp]
+                if ids:
+                    q = q.filter(Ticket.tablero_id.in_(ids))
+                else:
+                    q = q.filter(Ticket.id.is_(None))
+            except (ValueError, TypeError):
+                pass
+        tickets = q.order_by(Ticket.created_at.desc()).limit(200).all()
+        estados = db.query(Estado).order_by(Estado.orden).all()
+        usuarios = db.query(Usuario).order_by(Usuario.nombre_completo).all()
+        # Custom fields (del primer tablero disponible, o globales)
+        custom_fields = db.query(CampoPersonalizado).order_by(CampoPersonalizado.posicion).limit(10).all()
+        filas = []
+        for t in tickets:
+            f = {
+                "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
+                "estado": t.estado.nombre if t.estado else "",
+                "estado_color": t.estado.color if t.estado else "#94a3b8",
+                "prioridad": t.prioridad.value if t.prioridad else "media",
+                "asignado": t.asignado.nombre_completo if t.asignado else None,
+                "asignado_id": t.asignado_id,
+                "fecha_inicio": t.fecha_inicio.strftime("%Y-%m-%d") if t.fecha_inicio else None,
+                "fecha_vencimiento": t.fecha_vencimiento_sla.strftime("%Y-%m-%d") if t.fecha_vencimiento_sla else None,
+                "sla": t.estado_sla_visual,
+                "etiquetas": [{"nombre": e.nombre, "color": e.color} for e in t.etiquetas] if t.etiquetas else [],
+            }
+            # Valores de custom fields
+            for c in custom_fields:
+                vc = db.query(ValorCampo).filter(
+                    ValorCampo.campo_id == c.id, ValorCampo.ticket_id == t.id
+                ).first()
+                f[f"custom_{c.id}"] = str(vc.valor) if vc and vc.valor else None
+            filas.append(f)
+        return templates.TemplateResponse(
+            "vistas/tabla.html",
+            {
+                "request": request, "usuario": usuario, "filas": filas,
+                "estados": estados, "usuarios": usuarios, "custom_fields": custom_fields,
+                "espacio_id": espacio_id,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.get("/vistas/calendario", response_class=HTMLResponse)
+async def vista_calendario_page(request: Request):
+    """Vista multidimensional: Calendario."""
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+    espacio_id = request.query_params.get("espacio")
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        q = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
+        if espacio_id:
+            try:
+                from app.models.espacio import Tablero
+                tableros_esp = db.query(Tablero.id).filter(Tablero.espacio_id == int(espacio_id)).all()
+                ids = [t[0] for t in tableros_esp]
+                if ids:
+                    q = q.filter(Ticket.tablero_id.in_(ids))
+            except (ValueError, TypeError):
+                pass
+        tickets = q.filter(Ticket.fecha_vencimiento_sla.isnot(None)).limit(500).all()
+        tickets_cal = []
+        for t in tickets:
+            f = t.fecha_vencimiento_sla.strftime("%Y-%m-%d")
+            tickets_cal.append({
+                "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
+                "fecha": f, "prioridad": t.prioridad.value if t.prioridad else "media",
+            })
+            if t.fecha_inicio:
+                tickets_cal.append({
+                    "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
+                    "fecha": t.fecha_inicio.strftime("%Y-%m-%d"),
+                    "prioridad": t.prioridad.value if t.prioridad else "media",
+                })
+        return templates.TemplateResponse(
+            "vistas/calendario.html",
+            {"request": request, "usuario": usuario, "tickets_cal": tickets_cal, "espacio_id": espacio_id},
+        )
+    finally:
+        db.close()
+
+
+@app.get("/vistas/timeline", response_class=HTMLResponse)
+async def vista_timeline_page(request: Request):
+    """Vista multidimensional: Timeline (Gantt simple)."""
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+    from datetime import datetime
+    espacio_id = request.query_params.get("espacio")
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        q = db.query(Ticket).filter(
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.fecha_inicio.isnot(None),
+            Ticket.fecha_vencimiento_sla.isnot(None),
+        )
+        if espacio_id:
+            try:
+                from app.models.espacio import Tablero
+                tableros_esp = db.query(Tablero.id).filter(Tablero.espacio_id == int(espacio_id)).all()
+                ids = [t[0] for t in tableros_esp]
+                if ids:
+                    q = q.filter(Ticket.tablero_id.in_(ids))
+            except (ValueError, TypeError):
+                pass
+        tickets = q.order_by(Ticket.fecha_inicio.asc()).limit(100).all()
+        tickets_tl = []
+        for t in tickets:
+            inicio = t.fecha_inicio
+            fin = t.fecha_vencimiento_sla
+            hoy = datetime.utcnow()
+            if fin > inicio:
+                total = (fin - inicio).days or 1
+                if hoy < inicio:
+                    prog = 0
+                elif hoy > fin:
+                    prog = 100
+                else:
+                    prog = int(((hoy - inicio).days / total) * 100)
+            else:
+                prog = 100 if t.sla_cumplido == 1 else 0
+            tickets_tl.append({
+                "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
+                "prioridad": t.prioridad.value if t.prioridad else "media",
+                "estado": t.estado.nombre if t.estado else "",
+                "asignado": t.asignado.nombre_completo if t.asignado else None,
+                "fecha_inicio": inicio.strftime("%Y-%m-%d"),
+                "fecha_fin": fin.strftime("%Y-%m-%d"),
+                "duracion_dias": max(1, (fin - inicio).days),
+                "progreso": prog, "estado_sla": t.estado_sla_visual,
+            })
+        return templates.TemplateResponse(
+            "vistas/timeline.html",
+            {"request": request, "usuario": usuario, "tickets_timeline": tickets_tl, "espacio_id": espacio_id},
+        )
+    finally:
+        db.close()
+
+
+@app.get("/butler", response_class=HTMLResponse)
+async def butler_page(request: Request):
+    """Página de automatizaciones Butler."""
+    from app.db.session import SessionLocal
+    from app.models.automacion import ReglaAutomatizacion
+    from app.models.butler_extras import BotonTarjeta, ComandoProgramado
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        reglas = db.query(ReglaAutomatizacion).order_by(ReglaAutomatizacion.nombre).all()
+        botones = db.query(BotonTarjeta).order_by(BotonTarjeta.posicion).all()
+        comandos = db.query(ComandoProgramado).order_by(ComandoProgramado.nombre).all()
+        return templates.TemplateResponse(
+            "butler/index.html",
+            {
+                "request": request, "usuario": usuario,
+                "reglas": reglas, "botones": botones, "comandos": comandos,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.get("/notificaciones", response_class=HTMLResponse)
+async def notificaciones_page(request: Request):
+    """Centro de notificaciones del usuario."""
+    from app.db.session import SessionLocal
+    from app.models.watch import Notificacion
+    db = SessionLocal()
+    try:
+        usuario = _usuario_demo(db)
+        notifs = db.query(Notificacion).filter(
+            Notificacion.usuario_id == usuario.id
+        ).order_by(Notificacion.created_at.desc()).limit(100).all()
+        # Anotar origen_usuario como string
+        for n in notifs:
+            n.origen_usuario = n.origen_usuario_id if n.origen_usuario_id else None
+        return templates.TemplateResponse(
+            "notificaciones/index.html",
+            {"request": request, "usuario": usuario, "notificaciones": notifs},
+        )
+    finally:
+        db.close()
+
+
 # === Health check robusto (usado por Railway y por balanceadores) ===
 @app.get("/health")
 def health():

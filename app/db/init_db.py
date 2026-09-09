@@ -5,6 +5,7 @@ Crea las tablas y carga datos semilla:
 - Transiciones válidas
 - Usuarios de ejemplo
 - Catálogos base
+- Espacios, tableros, custom fields, butler (estilo Trello)
 """
 import json
 import logging
@@ -23,6 +24,10 @@ from app.models import (
     ReglaAutomatizacion,
 )
 from app.models.ticket import Prioridad, TipoIncidencia
+from app.models.espacio import Espacio, Tablero, PermisoTablero, espacio_miembros
+from app.models.campo_personalizado import CampoPersonalizado, ValorCampo
+from app.models.butler_extras import BotonTarjeta, ComandoProgramado
+from app.models.watch import Notificacion, Watch, Reaccion
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +50,11 @@ def init_database():
         seed_usuarios(db)
         seed_catalogos(db)
         seed_etiquetas(db)
+        seed_espacios(db)
+        seed_tableros(db)
+        seed_custom_fields(db)
+        seed_butler_extras(db)
+        seed_notificaciones_demo(db)
         seed_tickets_demo(db)
         seed_automatizaciones(db)
         db.commit()
@@ -369,6 +379,336 @@ def seed_automatizaciones(db: Session):
         db.add(ReglaAutomatizacion(creador_id=admin.id if admin else None, **r))
     db.flush()
     print(f"  ✓ {len(reglas)} reglas Butler creadas")
+
+
+def seed_espacios(db: Session):
+    """Crea espacios de trabajo (workspaces) de ejemplo."""
+    if db.query(Espacio).count() > 0:
+        print("  · Espacios ya existen, saltando seed")
+        return
+    admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+    espacios = [
+        Espacio(
+            nombre="Operaciones TI",
+            descripcion="Gestión de incidencias, problemas y cambios del área de tecnología.",
+            plan="empresa",
+            color="#6366f1",
+            icono="🏢",
+            es_publico=False,
+            propietario_id=admin.id if admin else None,
+        ),
+        Espacio(
+            nombre="Proyectos 2026",
+            descripcion="Tableros para seguimiento de proyectos estratégicos del año.",
+            plan="equipo",
+            color="#10b981",
+            icono="🚀",
+            es_publico=True,
+            propietario_id=admin.id if admin else None,
+        ),
+        Espacio(
+            nombre="Atención al Cliente",
+            descripcion="Solicitudes y consultas de clientes externos e internos.",
+            plan="equipo",
+            color="#f59e0b",
+            icono="🎧",
+            es_publico=False,
+            propietario_id=admin.id if admin else None,
+        ),
+    ]
+    for e in espacios:
+        db.add(e)
+    db.flush()
+    # Agregar miembros a todos los espacios (admin + otros)
+    if espacios and admin:
+        otros = db.query(Usuario).limit(4).all()
+        for e in espacios:
+            for u in otros:
+                db.execute(espacio_miembros.insert().values(
+                    espacio_id=e.id, usuario_id=u.id
+                ))
+    print(f"  ✓ {len(espacios)} espacios creados")
+
+
+def seed_tableros(db: Session):
+    """Crea tableros dentro de los espacios."""
+    if db.query(Tablero).count() > 0:
+        print("  · Tableros ya existen, saltando seed")
+        return
+    admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+    espacios = db.query(Espacio).all()
+    if not espacios:
+        return
+    tableros = [
+        Tablero(
+            nombre="Incidencias de Producción",
+            descripcion="Tickets activos de sistemas en producción.",
+            espacio_id=espacios[0].id,
+            propietario_id=admin.id if admin else None,
+            visibilidad="espacio",
+            color_fondo="#1e293b",
+            slug_publico="incidencias-prod",
+        ),
+        Tablero(
+            nombre="Mantenimientos Programados",
+            descripcion="Planificación y seguimiento de mantenimientos.",
+            espacio_id=espacios[0].id,
+            propietario_id=admin.id if admin else None,
+            visibilidad="espacio",
+            color_fondo="#0f766e",
+            slug_publico="mantto-prog",
+        ),
+        Tablero(
+            nombre="Roadmap Q1",
+            descripcion="Iniciativas y entregables del primer trimestre.",
+            espacio_id=espacios[1].id if len(espacios) > 1 else espacios[0].id,
+            propietario_id=admin.id if admin else None,
+            visibilidad="publico",
+            color_fondo="#7c3aed",
+            slug_publico="roadmap-q1",
+        ),
+        Tablero(
+            nombre="Backlog de Mejoras",
+            descripcion="Ideas y solicitudes de mejora pendientes.",
+            espacio_id=espacios[1].id if len(espacios) > 1 else espacios[0].id,
+            propietario_id=admin.id if admin else None,
+            visibilidad="espacio",
+            color_fondo="#ea580c",
+        ),
+        Tablero(
+            nombre="Soporte Cliente",
+            descripcion="Atención de tickets de clientes.",
+            espacio_id=espacios[2].id if len(espacios) > 2 else espacios[0].id,
+            propietario_id=admin.id if admin else None,
+            visibilidad="privado",
+            color_fondo="#be185d",
+        ),
+    ]
+    for t in tableros:
+        db.add(t)
+    db.flush()
+    # Crear permisos para tableros privados/espacio
+    usuarios = db.query(Usuario).all()
+    for t in tableros:
+        if t.visibilidad in ("privado", "espacio") and admin:
+            # Admin siempre
+            existe = db.query(PermisoTablero).filter(
+                PermisoTablero.tablero_id == t.id,
+                PermisoTablero.usuario_id == admin.id
+            ).first()
+            if not existe:
+                db.add(PermisoTablero(
+                    tablero_id=t.id, usuario_id=admin.id,
+                    rol_tablero="admin", notificar=True,
+                ))
+        # Agregar al menos 2 usuarios como editores
+        for u in usuarios[1:3]:
+            existe = db.query(PermisoTablero).filter(
+                PermisoTablero.tablero_id == t.id,
+                PermisoTablero.usuario_id == u.id
+            ).first()
+            if not existe:
+                db.add(PermisoTablero(
+                    tablero_id=t.id, usuario_id=u.id,
+                    rol_tablero="editor" if t.visibilidad != "privado" else "lector",
+                    notificar=True,
+                ))
+    print(f"  ✓ {len(tableros)} tableros creados con permisos")
+
+
+def seed_custom_fields(db: Session):
+    """Crea campos personalizados de ejemplo en los tableros."""
+    if db.query(CampoPersonalizado).count() > 0:
+        print("  · Campos personalizados ya existen, saltando seed")
+        return
+    tableros = db.query(Tablero).all()
+    if not tableros:
+        return
+    campos = [
+        # Tablero 0: Incidencias
+        {"tablero_id": tableros[0].id, "nombre": "Sistema afectado", "tipo": "dropdown",
+         "configuracion": {"opciones": ["SAP", "Portal Web", "CRM", "Email", "Otro"]},
+         "requerido": True, "posicion": 0, "color": "#3b82f6"},
+        {"tablero_id": tableros[0].id, "nombre": "Horas estimadas", "tipo": "numero",
+         "configuracion": {"min": 0, "max": 999},
+         "posicion": 1, "color": "#10b981"},
+        {"tablero_id": tableros[0].id, "nombre": "Requiere rollback", "tipo": "checkbox",
+         "posicion": 2, "color": "#ef4444"},
+        # Tablero 1: Mantenimientos
+        {"tablero_id": tableros[1].id, "nombre": "Ventana de mantenimiento", "tipo": "fecha",
+         "posicion": 0, "color": "#f59e0b"},
+        {"tablero_id": tableros[1].id, "nombre": "URL de runbook", "tipo": "url",
+         "posicion": 1, "color": "#8b5cf6"},
+        # Tablero 2: Roadmap
+        {"tablero_id": tableros[2].id, "nombre": "Esfuerzo (story points)", "tipo": "numero",
+         "configuracion": {"min": 0, "max": 100}, "posicion": 0, "color": "#06b6d4"},
+    ]
+    for c in campos:
+        db.add(CampoPersonalizado(**c))
+    db.flush()
+    print(f"  ✓ {len(campos)} campos personalizados creados")
+
+
+def seed_butler_extras(db: Session):
+    """Crea botones y comandos programados de ejemplo."""
+    if db.query(BotonTarjeta).count() == 0:
+        admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+        tableros = db.query(Tablero).all()
+        t0 = tableros[0] if tableros else None
+        botones = [
+            BotonTarjeta(
+                nombre="Marcar como urgente",
+                descripcion="Agrega etiqueta Urgente y notifica al asignado",
+                ambito="tarjeta",
+                tablero_id=t0.id if t0 else None,
+                color="#ef4444",
+                icono="🔥",
+                acciones=[
+                    {"tipo": "agregar_etiqueta", "parametros": {"etiqueta_nombre": "Urgente"}},
+                    {"tipo": "crear_comentario", "parametros": {
+                        "texto": "🔥 [Botón] Marcado como urgente",
+                        "es_interno": False,
+                    }},
+                ],
+                requiere_confirmacion=True,
+                creador_id=admin.id if admin else None,
+                posicion=0,
+            ),
+            BotonTarjeta(
+                nombre="Asignar a líder",
+                descripcion="Reasigna el ticket a Carlos Ramírez",
+                ambito="tarjeta",
+                tablero_id=t0.id if t0 else None,
+                color="#3b82f6",
+                icono="👤",
+                acciones=[
+                    {"tipo": "asignar_usuario", "parametros": {"username": "lider"}},
+                    {"tipo": "crear_comentario", "parametros": {
+                        "texto": "👤 [Botón] Asignado a @lider",
+                        "es_interno": False,
+                    }},
+                ],
+                creador_id=admin.id if admin else None,
+                posicion=1,
+            ),
+            BotonTarjeta(
+                nombre="Archivar todas las tarjetas completadas",
+                descripcion="Mueve a archivo los tickets en estado Cerrado",
+                ambito="tablero",
+                tablero_id=t0.id if t0 else None,
+                color="#6b7280",
+                icono="📦",
+                acciones=[
+                    {"tipo": "archivar_estado", "parametros": {"estado_nombre": "Cerrado"}},
+                ],
+                requiere_confirmacion=True,
+                creador_id=admin.id if admin else None,
+                posicion=0,
+            ),
+        ]
+        for b in botones:
+            db.add(b)
+        db.flush()
+        print(f"  ✓ {len(botones)} botones Butler creados")
+
+    if db.query(ComandoProgramado).count() == 0:
+        admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+        comandos = [
+            ComandoProgramado(
+                nombre="Recordatorio diario de SLA",
+                descripcion="Cada mañana notifica tickets con SLA por vencer",
+                cron_expression="0 9 * * 1-5",
+                timezone="America/Santiago",
+                acciones=[
+                    {"tipo": "crear_comentario", "parametros": {
+                        "texto": "⏰ [Butler] Revisar tickets con SLA por vencer hoy",
+                        "es_interno": True,
+                    }},
+                ],
+                activo=True,
+                creador_id=admin.id if admin else None,
+            ),
+            ComandoProgramado(
+                nombre="Archivar tickets cerrados semanalmente",
+                descripcion="Todos los viernes archiva tickets cerrados hace más de 30 días",
+                cron_expression="0 18 * * 5",
+                timezone="UTC",
+                acciones=[
+                    {"tipo": "archivar_antiguos", "parametros": {"estado_nombre": "Cerrado", "dias": 30}},
+                ],
+                activo=True,
+                creador_id=admin.id if admin else None,
+            ),
+            ComandoProgramado(
+                nombre="Reporte semanal",
+                descripcion="Cada lunes genera resumen de actividad",
+                cron_expression="0 8 * * 1",
+                timezone="America/Santiago",
+                acciones=[
+                    {"tipo": "crear_comentario", "parametros": {
+                        "texto": "📊 [Butler] Generando reporte semanal...",
+                        "es_interno": True,
+                    }},
+                ],
+                activo=True,
+                creador_id=admin.id if admin else None,
+            ),
+        ]
+        for c in comandos:
+            db.add(c)
+        db.flush()
+        print(f"  ✓ {len(comandos)} comandos programados creados")
+
+
+def seed_notificaciones_demo(db: Session):
+    """Crea notificaciones de ejemplo para el admin."""
+    if db.query(Notificacion).count() > 0:
+        print("  · Notificaciones demo ya existen, saltando seed")
+        return
+    admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+    agente = db.query(Usuario).filter(Usuario.username == "agente1").first()
+    if not admin:
+        return
+    notifs = [
+        Notificacion(
+            usuario_id=admin.id, tipo="mencion",
+            titulo="@agente1 te mencionó en un comentario",
+            mensaje="He reseteado la contraseña temporal, por favor @admin valida el acceso",
+            url="/tickets", leida=False,
+            origen_usuario_id=agente.id if agente else None,
+        ),
+        Notificacion(
+            usuario_id=admin.id, tipo="asignacion",
+            titulo="Nuevo ticket asignado a ti",
+            mensaje="Impresora de contabilidad no responde",
+            url="/tickets", leida=False,
+        ),
+        Notificacion(
+            usuario_id=admin.id, tipo="sla_vencimiento",
+            titulo="SLA por vencer en 2h",
+            mensaje="El ticket GRM-INC-2026-000005 vence pronto",
+            url="/tickets", leida=False,
+        ),
+        Notificacion(
+            usuario_id=admin.id, tipo="watch",
+            titulo="Cambio de estado en ticket que sigues",
+            mensaje="CRM Salesforce pasó a En curso",
+            url="/tickets", leida=True,
+        ),
+    ]
+    for n in notifs:
+        db.add(n)
+    db.flush()
+    # Crear también algunas reacciones demo
+    if agente:
+        tickets = db.query(Ticket).limit(3).all()
+        emojis = ["👍", "🎉", "👀"]
+        for i, t in enumerate(tickets):
+            db.add(Reaccion(
+                usuario_id=agente.id, tipo_objeto="ticket",
+                objeto_id=t.id, emoji=emojis[i % len(emojis)],
+            ))
+    print(f"  ✓ {len(notifs)} notificaciones demo creadas")
 
 
 if __name__ == "__main__":

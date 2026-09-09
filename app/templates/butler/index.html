@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Butler · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-50">
+  <div class="max-w-6xl mx-auto px-6 py-6">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <span class="text-amber-500 text-3xl">⚡</span>
+          Butler · Automatizaciones
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">Crea reglas, botones y comandos programados para automatizar tu flujo de trabajo.</p>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="bg-white border border-slate-200 rounded-lg mb-4 flex items-center px-2">
+      <button onclick="cambiarTab('reglas')" id="tab-reglas" class="px-4 py-2.5 text-sm font-medium text-indigo-600 border-b-2 border-indigo-600">
+        Reglas ({{ reglas|length }})
+      </button>
+      <button onclick="cambiarTab('botones')" id="tab-botones" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
+        Botones ({{ botones|length }})
+      </button>
+      <button onclick="cambiarTab('comandos')" id="tab-comandos" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
+        Comandos programados ({{ comandos|length }})
+      </button>
+    </div>
+
+    <!-- Reglas -->
+    <div id="panel-reglas" class="panel-tab">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-700">Reglas basadas en eventos</h2>
+        <button onclick="abrirModalRegla()" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">+ Nueva regla</button>
+      </div>
+      <div class="space-y-2">
+        {% for r in reglas %}
+        <div class="bg-white border border-slate-200 rounded-lg p-4 flex items-center justify-between">
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-semibold text-slate-800">{{ r.nombre }}</h3>
+              {% if not r.activo %}
+              <span class="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">Pausada</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-slate-500 mt-1">
+              <span class="font-mono text-indigo-600">{{ r.disparador }}</span>
+              → {{ r.acciones|length }} acción{% if r.acciones|length != 1 %}es{% endif %}
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="inline-flex items-center cursor-pointer">
+              <input type="checkbox" {% if r.activo %}checked{% endif %} onchange="toggleRegla({{ r.id }}, this.checked)"
+                     class="sr-only peer">
+              <div class="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-4 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all relative"></div>
+            </label>
+            <button onclick="eliminarRegla({{ r.id }})" class="text-slate-400 hover:text-red-600 p-1">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3"/></svg>
+            </button>
+          </div>
+        </div>
+        {% else %}
+        <div class="bg-white border border-dashed border-slate-300 rounded-lg p-8 text-center">
+          <p class="text-sm text-slate-500">No hay reglas aún. Crea la primera para automatizar eventos.</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Botones -->
+    <div id="panel-botones" class="panel-tab hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-700">Botones de tarjeta y tablero</h2>
+        <button onclick="abrirModalBoton()" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">+ Nuevo botón</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {% for b in botones %}
+        <div class="bg-white border border-slate-200 rounded-lg p-4">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-9 h-9 rounded-md flex items-center justify-center text-lg" style="background: {{ b.color }}; color: white;">
+              {{ b.icono }}
+            </div>
+            <div class="flex-1">
+              <h3 class="text-sm font-semibold text-slate-800">{{ b.nombre }}</h3>
+              <p class="text-[11px] text-slate-500 capitalize">{{ b.ambito }}</p>
+            </div>
+            {% if b.requiere_confirmacion %}
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Confirmar</span>
+            {% endif %}
+          </div>
+          {% if b.descripcion %}
+          <p class="text-xs text-slate-600 mb-2">{{ b.descripcion }}</p>
+          {% endif %}
+          <div class="text-[10px] text-slate-500 font-mono bg-slate-50 px-2 py-1 rounded">
+            {{ b.acciones|length }} acción{% if b.acciones|length != 1 %}es{% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div class="col-span-2 bg-white border border-dashed border-slate-300 rounded-lg p-8 text-center">
+          <p class="text-sm text-slate-500">No hay botones. Crea uno para ejecutar acciones con un clic.</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Comandos programados -->
+    <div id="panel-comandos" class="panel-tab hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-700">Comandos basados en tiempo (cron)</h2>
+        <button onclick="abrirModalComando()" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">+ Nuevo comando</button>
+      </div>
+      <div class="space-y-2">
+        {% for c in comandos %}
+        <div class="bg-white border border-slate-200 rounded-lg p-4">
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold text-slate-800">{{ c.nombre }}</h3>
+                {% if c.activo %}
+                <span class="px-1.5 py-0.5 text-[10px] rounded bg-emerald-100 text-emerald-700">Activo</span>
+                {% else %}
+                <span class="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">Pausado</span>
+                {% endif %}
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-[11px] text-slate-500">
+                <span class="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{{ c.cron_expression }}</span>
+                <span>· {{ c.timezone }}</span>
+                {% if c.ultima_ejecucion %}
+                <span>· Última: {{ c.ultima_ejecucion }}</span>
+                {% endif %}
+              </div>
+              {% if c.descripcion %}
+              <p class="text-xs text-slate-600 mt-1">{{ c.descripcion }}</p>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="ejecutarComandoAhora({{ c.id }})" title="Ejecutar ahora"
+                      class="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-50">▶</button>
+              <button onclick="eliminarComando({{ c.id }})" class="text-slate-400 hover:text-red-600 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="bg-white border border-dashed border-slate-300 rounded-lg p-8 text-center">
+          <p class="text-sm text-slate-500">No hay comandos programados. Crea uno para ejecutar acciones periódicamente.</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function cambiarTab(tab){
+  document.querySelectorAll('.panel-tab').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('[id^="tab-"]').forEach(b => {
+    b.classList.remove('text-indigo-600','border-indigo-600');
+    b.classList.add('text-slate-600','border-transparent');
+  });
+  document.getElementById('panel-'+tab).classList.remove('hidden');
+  const btn = document.getElementById('tab-'+tab);
+  btn.classList.add('text-indigo-600','border-indigo-600');
+  btn.classList.remove('text-slate-600','border-transparent');
+}
+
+async function toggleRegla(id, activo){
+  try {
+    const r = await fetch('/api/v1/reglas/'+id, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({activo})
+    });
+    if (!r.ok) throw new Error('Error');
+  } catch(e) { alert('Error: '+e.message); location.reload(); }
+}
+
+async function eliminarRegla(id){
+  if (!confirm('¿Eliminar esta regla?')) return;
+  try {
+    const r = await fetch('/api/v1/reglas/'+id, {method:'DELETE'});
+    if (r.ok) location.reload();
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+async function ejecutarComandoAhora(id){
+  if (!confirm('¿Ejecutar este comando ahora?')) return;
+  try {
+    const r = await fetch('/api/v1/comandos-programados/'+id+'/ejecutar-ahora', {method:'POST'});
+    const data = await r.json();
+    if (r.ok) { alert('Ejecutado correctamente'); location.reload(); }
+    else { alert('Error: '+(data.detail||'')); }
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+async function eliminarComando(id){
+  if (!confirm('¿Eliminar este comando?')) return;
+  try {
+    const r = await fetch('/api/v1/comandos-programados/'+id, {method:'DELETE'});
+    if (r.ok) location.reload();
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+function abrirModalRegla(){ window.location.href='/butler/nueva-regla'; }
+function abrirModalBoton(){ window.location.href='/butler/nuevo-boton'; }
+function abrirModalComando(){ window.location.href='/butler/nuevo-comando'; }
+</script>
+{% endblock %}

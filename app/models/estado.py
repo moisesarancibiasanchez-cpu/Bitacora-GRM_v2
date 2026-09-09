@@ -29,6 +29,16 @@ class Estado(Base, TimestampMixin):
     categoria = Column(String(40), default="abierto", nullable=False)
     # SLA por defecto en horas cuando un ticket entra en este estado
     sla_horas = Column(Integer, nullable=True)
+    # Tablero al que pertenece (null = estado global del sistema)
+    tablero_id = Column(
+        Integer, ForeignKey("tableros.id", ondelete="CASCADE"),
+        nullable=True, index=True
+    )
+    # Si la lista está archivada
+    archivado = Column(Boolean, default=False, nullable=False, index=True)
+    # Límite de WIP (Work In Progress) - opcional
+    limite_wip = Column(Integer, nullable=True)
+    # Suscriptores: se consultan a través de WatchService (polimórfico)
 
     # Relaciones
     transiciones_salida = relationship(
@@ -38,6 +48,7 @@ class Estado(Base, TimestampMixin):
         cascade="all, delete-orphan",
     )
     tickets = relationship("Ticket", back_populates="estado")
+    tablero = relationship("Tablero", back_populates="listas")
 
     def __repr__(self) -> str:
         return f"<Estado {self.nombre} (orden={self.orden})>"

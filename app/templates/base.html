@@ -35,8 +35,28 @@
         </div>
       </div>
       <nav class="flex items-center gap-1 text-sm">
-        <a href="/kanban" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Tablero</a>
+        <a href="/espacios" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Espacios</a>
+        <a href="/tableros" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Tableros</a>
+        <a href="/kanban" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Kanban</a>
         <a href="/tickets" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Tickets</a>
+        <div class="relative group">
+          <button class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+            Vistas
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div class="hidden group-hover:block absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-md shadow-lg z-10">
+            <a href="/vistas/tabla" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">📊 Tabla</a>
+            <a href="/vistas/calendario" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">📅 Calendario</a>
+            <a href="/vistas/timeline" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">📆 Timeline</a>
+          </div>
+        </div>
+        <a href="/butler" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <span class="text-amber-500">⚡</span> Butler
+        </a>
+        <a href="/notificaciones" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          🔔
+          <span id="notif-counter" class="px-1.5 text-[10px] font-semibold rounded-full bg-red-500 text-white hidden">0</span>
+        </a>
         <a href="/catalogos" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Catálogos</a>
         <a href="/docs" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">API</a>
       </nav>

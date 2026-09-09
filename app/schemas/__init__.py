@@ -16,6 +16,18 @@ from app.schemas.features import (
     CondicionRegla, AccionRegla,
     TicketDetalleRead,
 )
+from app.schemas.trello import (
+    EspacioCreate, EspacioUpdate, EspacioRead, EspacioDetalle,
+    TableroCreate, TableroUpdate, TableroRead,
+    PermisoTableroCreate, PermisoTableroRead,
+    WatchCreate, WatchRead,
+    ReaccionCreate, ReaccionRead, ReaccionGrupo,
+    CampoPersonalizadoCreate, CampoPersonalizadoUpdate, CampoPersonalizadoRead,
+    ValorCampoCreate, ValorCampoRead,
+    BotonTarjetaCreate, BotonTarjetaUpdate, BotonTarjetaRead,
+    ComandoProgramadoCreate, ComandoProgramadoUpdate, ComandoProgramadoRead,
+    NotificacionRead, TicketMetadataUpdate, VistaTablaFila,
+)
 
 __all__ = [
     # Base
@@ -33,4 +45,15 @@ __all__ = [
     "ReglaAutomatizacionRead", "EjecucionAutomatizacionRead",
     "CondicionRegla", "AccionRegla",
     "TicketDetalleRead",
+    # Nuevos Trello
+    "EspacioCreate", "EspacioUpdate", "EspacioRead", "EspacioDetalle",
+    "TableroCreate", "TableroUpdate", "TableroRead",
+    "PermisoTableroCreate", "PermisoTableroRead",
+    "WatchCreate", "WatchRead",
+    "ReaccionCreate", "ReaccionRead", "ReaccionGrupo",
+    "CampoPersonalizadoCreate", "CampoPersonalizadoUpdate", "CampoPersonalizadoRead",
+    "ValorCampoCreate", "ValorCampoRead",
+    "BotonTarjetaCreate", "BotonTarjetaUpdate", "BotonTarjetaRead",
+    "ComandoProgramadoCreate", "ComandoProgramadoUpdate", "ComandoProgramadoRead",
+    "NotificacionRead", "TicketMetadataUpdate", "VistaTablaFila",
 ]

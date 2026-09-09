@@ -31,7 +31,7 @@ class Adjunto(Base, TimestampMixin):
     tamano_bytes = Column(BigInteger, default=0, nullable=False)
     descripcion = Column(Text, nullable=True)
 
-    ticket = relationship("Ticket", back_populates="adjuntos")
+    ticket = relationship("Ticket", back_populates="adjuntos", foreign_keys=[ticket_id])
     usuario = relationship("Usuario")
 
     @property

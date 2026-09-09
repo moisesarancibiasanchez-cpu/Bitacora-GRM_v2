@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Tableros · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-50">
+  <div class="max-w-7xl mx-auto px-6 py-6">
+    <!-- Encabezado -->
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-3">
+        {% if espacio_actual %}
+        <a href="/espacios" class="p-2 rounded-md hover:bg-slate-200 text-slate-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </a>
+        <div class="w-12 h-12 rounded-lg flex items-center justify-center text-2xl" style="background: {{ espacio_actual.color }}1a; color: {{ espacio_actual.color }}">
+          {{ espacio_actual.icono or '🏢' }}
+        </div>
+        <div>
+          <h1 class="text-2xl font-bold text-slate-800">{{ espacio_actual.nombre }}</h1>
+          <p class="text-sm text-slate-500">{{ espacio_actual.descripcion or 'Sin descripción' }}</p>
+        </div>
+        {% else %}
+        <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-7 h-7 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          Todos los tableros
+        </h1>
+        {% endif %}
+      </div>
+      <button onclick="abrirModalCrearTablero()"
+              class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Nuevo tablero
+      </button>
+    </div>
+
+    <!-- Tabs de vistas -->
+    <div class="bg-white border border-slate-200 rounded-lg mb-4 flex items-center px-2">
+      <a href="?{% if espacio_actual %}espacio={{ espacio_actual.id }}{% endif %}" class="px-4 py-2.5 text-sm font-medium text-indigo-600 border-b-2 border-indigo-600">
+        Tableros
+      </a>
+      <a href="/vistas/tabla{% if espacio_actual %}?espacio={{ espacio_actual.id }}{% endif %}" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
+        Vista tabla
+      </a>
+      <a href="/vistas/calendario{% if espacio_actual %}?espacio={{ espacio_actual.id }}{% endif %}" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
+        Calendario
+      </a>
+      <a href="/vistas/timeline{% if espacio_actual %}?espacio={{ espacio_actual.id }}{% endif %}" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
+        Timeline
+      </a>
+      <div class="flex-1"></div>
+      <a href="/butler" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800">
+        <span class="flex items-center gap-1">
+          <span class="text-amber-500">⚡</span> Butler
+        </span>
+      </a>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+      <input id="filtro-tableros" type="text" placeholder="Buscar tableros..." oninput="filtrarTableros()"
+             class="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-md outline-none">
+      <select id="filtro-visibilidad" onchange="filtrarTableros()"
+              class="px-3 py-1.5 text-sm border border-slate-300 rounded-md outline-none">
+        <option value="">Toda visibilidad</option>
+        <option value="privado">Privado</option>
+        <option value="espacio">Espacio</option>
+        <option value="publico">Público</option>
+      </select>
+      <label class="inline-flex items-center gap-2 text-sm text-slate-600 px-2">
+        <input id="filtro-archivados" type="checkbox" onchange="filtrarTableros()"
+               class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+        Mostrar archivados
+      </label>
+    </div>
+
+    <!-- Grid de tableros -->
+    <div id="grid-tableros" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {% for t in tableros %}
+      <div class="tablero-card group bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-lg transition"
+           data-nombre="{{ t.nombre|lower }}" data-visibilidad="{{ t.visibilidad }}"
+           data-archivado="{{ '1' if t.archivado else '0' }}">
+        <a href="/kanban?tablero={{ t.id }}" class="block">
+          <div class="h-24 relative" style="background: {{ t.color_fondo or '#475569' }}">
+            <div class="absolute inset-0 bg-gradient-to-br from-transparent to-black/30"></div>
+            <div class="absolute top-2 left-2 flex gap-1">
+              <span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-white/80 text-slate-700">
+                {% if t.visibilidad == 'privado' %}🔒 Privado{% elif t.visibilidad == 'publico' %}🌐 Público{% else %}👥 Espacio{% endif %}
+              </span>
+              {% if t.archivado %}
+              <span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700">📦 Archivado</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="p-3">
+            <h3 class="font-semibold text-slate-800 text-sm truncate">{{ t.nombre }}</h3>
+            {% if t.descripcion %}
+            <p class="text-xs text-slate-500 mt-1 line-clamp-2">{{ t.descripcion }}</p>
+            {% endif %}
+            <div class="flex items-center justify-between mt-3 text-[11px] text-slate-500">
+              <span>{{ t.total_tickets or 0 }} tickets</span>
+              <span>{{ t.total_listas or 0 }} listas</span>
+            </div>
+          </div>
+        </a>
+        {% if t.slug_publico %}
+        <div class="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+          <a href="/p/{{ t.slug_publico }}" target="_blank" class="text-[10px] text-indigo-600 hover:underline truncate">
+            /p/{{ t.slug_publico }}
+          </a>
+          <button onclick="copiarEnlace('{{ t.slug_publico }}', event)" title="Copiar enlace"
+                  class="text-slate-400 hover:text-slate-600">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="col-span-4 text-center py-16">
+        <div class="text-5xl mb-3">📋</div>
+        <p class="text-slate-600 font-medium">No hay tableros todavía</p>
+        <p class="text-sm text-slate-500 mt-1">Crea tu primer tablero para empezar.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Modal crear tablero -->
+<div id="modal-crear-tablero" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+    <h3 class="text-lg font-semibold text-slate-800 mb-4">Nuevo tablero</h3>
+    <form id="form-crear-tablero" onsubmit="crearTablero(event)">
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 mb-1">Nombre *</label>
+          <input name="nombre" required maxlength="100"
+                 class="w-full px-3 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 mb-1">Descripción</label>
+          <textarea name="descripcion" rows="2" maxlength="500"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-md outline-none"></textarea>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 mb-1">Espacio</label>
+          <select name="espacio_id" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-md outline-none">
+            {% for e in espacios %}
+            <option value="{{ e.id }}" {% if espacio_actual and espacio_actual.id == e.id %}selected{% endif %}>{{ e.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Visibilidad</label>
+            <select name="visibilidad" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-md outline-none">
+              <option value="privado">🔒 Privado</option>
+              <option value="espacio">👥 Espacio</option>
+              <option value="publico">🌐 Público</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Color de fondo</label>
+            <input name="color_fondo" type="color" value="#475569" class="w-full h-9 border border-slate-300 rounded-md cursor-pointer">
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button type="button" onclick="cerrarModalCrearTablero()"
+                class="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cancelar</button>
+        <button type="submit"
+                class="px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">Crear tablero</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function abrirModalCrearTablero(){ document.getElementById('modal-crear-tablero').classList.remove('hidden'); }
+function cerrarModalCrearTablero(){ document.getElementById('modal-crear-tablero').classList.add('hidden'); }
+
+function filtrarTableros(){
+  const q = document.getElementById('filtro-tableros').value.toLowerCase();
+  const vis = document.getElementById('filtro-visibilidad').value;
+  const showArch = document.getElementById('filtro-archivados').checked;
+  document.querySelectorAll('.tablero-card').forEach(c => {
+    const matchN = c.dataset.nombre.includes(q);
+    const matchV = !vis || c.dataset.visibilidad === vis;
+    const matchA = showArch || c.dataset.archivado === '0';
+    c.style.display = (matchN && matchV && matchA) ? '' : 'none';
+  });
+}
+
+async function crearTablero(e){
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const data = {
+    nombre: fd.get('nombre'),
+    descripcion: fd.get('descripcion') || null,
+    espacio_id: fd.get('espacio_id') ? parseInt(fd.get('espacio_id')) : null,
+    visibilidad: fd.get('visibilidad'),
+    color_fondo: fd.get('color_fondo'),
+    propietario_id: window.CURRENT_USER_ID,
+  };
+  try {
+    const r = await fetch('/api/v1/tableros', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) { const t = await r.text(); throw new Error(t || 'Error al crear'); }
+    const t = await r.json();
+    window.location.href = '/kanban?tablero=' + t.id;
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function copiarEnlace(slug, e){
+  e.preventDefault(); e.stopPropagation();
+  const url = window.location.origin + '/p/' + slug;
+  try { await navigator.clipboard.writeText(url); mostrarToast('Enlace copiado', 'success'); }
+  catch { mostrarToast('No se pudo copiar', 'error'); }
+}
+
+document.getElementById('modal-crear-tablero').addEventListener('click', cerrarModalCrearTablero);
+
+function mostrarToast(msg, tipo='info'){
+  const t = document.createElement('div');
+  t.className = 'px-3 py-2 rounded-md text-sm font-medium shadow-lg ' + (
+    tipo === 'success' ? 'bg-emerald-600 text-white' :
+    tipo === 'error' ? 'bg-red-600 text-white' : 'bg-slate-800 text-white'
+  );
+  t.textContent = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+</script>
+{% endblock %}
