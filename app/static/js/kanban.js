@@ -450,10 +450,16 @@
   // === Cerrar cualquier modal del modal-root ===
   function initModalClose() {
     document.body.addEventListener('click', (e) => {
-      if (e.target.matches('[data-close-modal]')) {
+      // Usar closest() para capturar clicks en el SVG/path dentro del botón
+      const closeBtn = e.target.closest('[data-close-modal]');
+      if (closeBtn) {
+        e.preventDefault();
+        e.stopPropagation();
         const root = document.getElementById('modal-root');
         if (root) root.innerHTML = '';
+        return;
       }
+      // Click en el backdrop (fuera del modal)
       if (e.target.classList && e.target.classList.contains('modal-backdrop')) {
         const root = document.getElementById('modal-root');
         if (root) root.innerHTML = '';

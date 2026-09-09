@@ -9,6 +9,7 @@ API endpoints para las nuevas funcionalidades estilo Trello:
 - /tickets/{id}/detalle    Vista de detalle del ticket
 """
 import os
+import json
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -276,16 +277,137 @@ def eliminar_checklist(
     return Response(status_code=204)
 
 
-@router.post("/checklists/{checklist_id}/items", response_model=ChecklistItemRead, status_code=201)
-def agregar_item(
+@router.post("/checklists/{checklist_id}/items")
+async def agregar_item(
     checklist_id: int,
-    datos: ChecklistItemCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
-    item = ChecklistService(db).agregar_item(checklist_id, datos.texto, datos.asignado_id)
+    """Agrega un item a un checklist.
+
+    Acepta form-data (HTMX) o JSON (API). Si es HTMX, devuelve el modal
+    re-renderizado preservando la tab activa.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    content_type = request.headers.get("content-type", "")
+    texto = ""
+    active_tab = ""
+    asignado_id = None
+
+    if content_type.startswith("application/json"):
+        import json as _json
+        try:
+            body_bytes = await request.body()
+            body = _json.loads(body_bytes.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        texto = (body.get("texto") or "").strip()
+        asignado_id = body.get("asignado_id")
+        active_tab = (body.get("active_tab") or "").strip()
+    else:
+        form = await request.form()
+        texto = (form.get("texto") or "").strip()
+        asignado_id_raw = form.get("asignado_id")
+        if asignado_id_raw and str(asignado_id_raw).strip():
+            try:
+                asignado_id = int(asignado_id_raw)
+            except (ValueError, TypeError):
+                asignado_id = None
+        active_tab = (form.get("active_tab") or "").strip()
+
+    if not texto:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">El texto del item no puede estar vacío.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="El texto del item no puede estar vacío")
+
+    item = ChecklistService(db).agregar_item(checklist_id, texto, asignado_id)
     if not item:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Checklist no encontrada.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Checklist no encontrada")
+
+    # Auditoría
+    cl = db.query(Checklist).filter(Checklist.id == checklist_id).first()
+    if cl:
+        registrar_auditoria(db, cl.ticket_id, user.id, "checklist_item_agregado", valor_nuevo={
+            "checklist_id": checklist_id, "item_id": item.id, "texto": texto
+        })
+
+    if is_htmx:
+        ticket = db.query(Ticket).filter(Ticket.id == cl.ticket_id).first() if cl else None
+        if not ticket:
+            return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
+        from app.models.estado import Estado
+        from app.models.comentario import Comentario
+        from app.models.adjunto import Adjunto
+        from app.models.usuario import Usuario as UsuarioModel
+        from app.models.etiqueta import Etiqueta
+        from app.models.auditoria import Auditoria
+        from app.api.v1.tickets import _formatear_ultima_modificacion
+        from app.services.trello_service import CampoPersonalizadoService
+        estados = db.query(Estado).order_by(Estado.orden).all()
+        comentarios = (
+            db.query(Comentario)
+            .filter(Comentario.ticket_id == ticket.id)
+            .order_by(Comentario.created_at.asc())
+            .all()
+        )
+        adjuntos = (
+            db.query(Adjunto)
+            .filter(Adjunto.ticket_id == ticket.id)
+            .order_by(Adjunto.created_at.desc())
+            .all()
+        )
+        checklists = (
+            db.query(Checklist)
+            .filter(Checklist.ticket_id == ticket.id)
+            .order_by(Checklist.orden.asc())
+            .all()
+        )
+        auditorias = (
+            db.query(Auditoria)
+            .filter(Auditoria.ticket_id == ticket.id)
+            .order_by(Auditoria.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        usuarios = (
+            db.query(UsuarioModel)
+            .filter(UsuarioModel.is_active == True)  # noqa: E712
+            .order_by(UsuarioModel.nombre_completo.asc())
+            .all()
+        )
+        etiquetas_disponibles = (
+            db.query(Etiqueta)
+            .filter(Etiqueta.activo == True)  # noqa: E712
+            .order_by(Etiqueta.nombre.asc())
+            .all()
+        )
+        campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket.id)
+        ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+        from app.templates.tickets.detalle_modal import render_detalle_modal
+        html = render_detalle_modal(
+            ticket=ticket, estados=estados, comentarios=comentarios,
+            adjuntos=adjuntos, checklists=checklists,
+            auditorias=auditorias, usuario=user,
+            ultima_modificacion=ultima_mod,
+            active_tab=active_tab or "checklist",
+            usuarios=usuarios,
+            etiquetas_disponibles=etiquetas_disponibles,
+            campos_personalizados=campos_personalizados,
+        )
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "checklist-item-agregado"},
+        )
     return item
 
 
@@ -528,17 +650,18 @@ def listar_adjuntos(
 async def subir_adjunto(
     ticket_id: int,
     request: Request,
-    archivo: UploadFile = File(...),
+    archivo: Optional[UploadFile] = File(None),
+    archivos: Optional[List[UploadFile]] = File(None),
     descripcion: Optional[str] = Form(None),
     active_tab: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
-    """Sube un archivo adjunto al ticket.
+    """Sube uno o varios archivos adjuntos al ticket.
 
-    Acepta ``multipart/form-data`` con campo ``archivo``. Si la petición
-    viene de HTMX, devuelve el modal re-renderizado con el nuevo adjunto
-    en la pestaña correspondiente.
+    Acepta ``multipart/form-data`` con campo ``archivo`` (singular, compat)
+    o ``archivos`` (plural, múltiples). Si la petición viene de HTMX,
+    devuelve el modal re-renderizado.
     """
     is_htmx = request.headers.get("HX-Request") == "true"
     active_tab = (active_tab or "").strip()
@@ -550,39 +673,62 @@ async def subir_adjunto(
                 status_code=404,
             )
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
-    if not archivo or not archivo.filename:
+
+    # Normalizar: aceptar tanto 'archivo' (singular, retro-compat) como 'archivos' (plural)
+    files_to_upload: List[UploadFile] = []
+    if archivos:
+        files_to_upload.extend([f for f in archivos if f and f.filename])
+    if archivo and archivo.filename:
+        files_to_upload.append(archivo)
+    # Quitar duplicados manteniendo orden
+    seen = set()
+    files_unique = []
+    for f in files_to_upload:
+        key = (f.filename, id(f))
+        if key not in seen:
+            seen.add(key)
+            files_unique.append(f)
+    files_to_upload = files_unique
+
+    if not files_to_upload:
         if is_htmx:
             return HTMLResponse(
                 content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">No se envió ningún archivo.</div>',
                 status_code=400,
             )
         raise HTTPException(status_code=400, detail="No se envió ningún archivo")
-    contenido = await archivo.read()
-    if not contenido:
+
+    errores = []
+    subidos = []
+    for archivo_actual in files_to_upload:
+        contenido = await archivo_actual.read()
+        if not contenido:
+            errores.append(f"'{archivo_actual.filename}' está vacío")
+            continue
+        adj, error = AdjuntoService(db).guardar_archivo(
+            ticket=ticket,
+            usuario=user,
+            file_bytes=contenido,
+            nombre_original=archivo_actual.filename or "archivo",
+            mime_type=archivo_actual.content_type,
+            descripcion=descripcion,
+        )
+        if error:
+            errores.append(f"'{archivo_actual.filename}': {error}")
+            continue
+        subidos.append(adj)
+        registrar_auditoria(db, ticket.id, user.id, "adjunto_subido", valor_nuevo={
+            "adjunto_id": adj.id, "nombre": adj.nombre_original, "tamano": adj.tamano_bytes
+        })
+
+    if not subidos and errores:
+        msg = "; ".join(errores)
         if is_htmx:
             return HTMLResponse(
-                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">El archivo está vacío.</div>',
+                content=f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{msg}</div>',
                 status_code=400,
             )
-        raise HTTPException(status_code=400, detail="El archivo está vacío")
-    adj, error = AdjuntoService(db).guardar_archivo(
-        ticket=ticket,
-        usuario=user,
-        file_bytes=contenido,
-        nombre_original=archivo.filename or "archivo",
-        mime_type=archivo.content_type,
-        descripcion=descripcion,
-    )
-    if error:
-        if is_htmx:
-            return HTMLResponse(
-                content=f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>',
-                status_code=400,
-            )
-        raise HTTPException(status_code=400, detail=error)
-    registrar_auditoria(db, ticket.id, user.id, "adjunto_subido", valor_nuevo={
-        "adjunto_id": adj.id, "nombre": adj.nombre_original, "tamano": adj.tamano_bytes
-    })
+        raise HTTPException(status_code=400, detail=msg)
 
     if is_htmx:
         # Re-renderizar el modal completo
@@ -591,7 +737,6 @@ async def subir_adjunto(
         from app.models.checklist import Checklist
         from app.models.usuario import Usuario
         from app.models.etiqueta import Etiqueta
-        db.refresh(adj)
         estados = db.query(Estado).order_by(Estado.orden).all()
         comentarios = (
             db.query(Comentario)
@@ -647,12 +792,15 @@ async def subir_adjunto(
             etiquetas_disponibles=etiquetas_disponibles,
             campos_personalizados=campos_personalizados,
         )
+        trigger_payload = {"adjunto-subido": {"count": len(subidos)}}
+        if errores:
+            trigger_payload["adjunto-error"] = {"errores": errores}
         return HTMLResponse(
             content=html,
             status_code=200,
-            headers={"HX-Trigger": "adjunto-subido"},
+            headers={"HX-Trigger": json.dumps(trigger_payload)},
         )
-    return adj
+    return subidos[0] if len(subidos) == 1 else subidos
 
 
 @router.get("/adjuntos/{adjunto_id}/descargar")

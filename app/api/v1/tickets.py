@@ -342,8 +342,29 @@ async def actualizar_ticket_campo(
     """
     form = await request.form()
     campo = (form.get("campo") or "").strip()
-    valor = form.get("valor")
     active_tab = (form.get("active_tab") or "detalles").strip() or "detalles"
+
+    # Mapear el nombre de campo de UI a su nombre en el form.
+    # El modal envía los valores con prefijo "valor_" (valor_titulo, valor_descripcion, etc.)
+    valor = form.get("valor")
+    if valor is None and campo:
+        # Buscar el campo real en el form: valor_<campo>
+        nombre_real = f"valor_{campo}"
+        valor = form.get(nombre_real)
+    # Compatibilidad: si tampoco, probar con variantes
+    if valor is None and campo:
+        aliases = {
+            "titulo": ["valor_titulo", "titulo"],
+            "descripcion": ["valor_descripcion", "descripcion"],
+            "prioridad": ["valor_prioridad", "prioridad"],
+            "asignado_id": ["valor_asignado_id", "asignado_id"],
+            "fecha_vencimiento": ["valor_fecha_vencimiento", "fecha_vencimiento"],
+        }
+        for alias in aliases.get(campo, []):
+            v = form.get(alias)
+            if v is not None:
+                valor = v
+                break
 
     if not campo:
         return HTMLResponse(

@@ -47,17 +47,23 @@ DETALLE_TEMPLATE = Template(r"""
             {{ ticket.estado.nombre }}
           </span>
         </div>
-        {# Título editable: input que auto-guarda con HTMX al perder foco o presionar Enter #}
+        {# Título editable: input que auto-guarda con HTMX al perder foco o presionar Enter + botón Guardar #}
         <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
               hx-target="#modal-root" hx-swap="innerHTML"
-              hx-trigger="blur changed delay:800ms from:input[name='valor_titulo']"
-              class="m-0 p-0">
+              hx-trigger="blur changed delay:800ms from:input[name='valor_titulo'], submit"
+              class="m-0 p-0 flex items-center gap-1">
           <input type="hidden" name="campo" value="titulo">
           <input type="hidden" name="active_tab" value="{{ _active }}">
           <input type="text" name="valor_titulo" value="{{ ticket.titulo }}"
                  aria-label="Título del ticket"
-                 class="w-full text-base font-semibold text-slate-800 leading-snug bg-transparent border-0 border-b border-transparent
+                 class="flex-1 min-w-0 text-base font-semibold text-slate-800 leading-snug bg-transparent border-0 border-b border-transparent
                         hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 transition-colors" />
+          <button type="submit" title="Guardar título"
+                  class="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
         </form>
       </div>
       <button data-close-modal
@@ -101,19 +107,30 @@ DETALLE_TEMPLATE = Template(r"""
       <!-- Tab: Detalles -->
       <div class="tab-panel {% if _active != 'detalles' %}hidden{% endif %} p-5 space-y-4" data-panel="detalles">
 
-        {# ----- Descripción editable ----- #}
+        {# ----- Descripción editable con Markdown + botón Guardar ----- #}
         <div>
-          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Descripción</h4>
+          <div class="flex items-center justify-between mb-1">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Descripción (Markdown)</h4>
+            <span class="text-[10px] text-slate-400 italic">**negrita** *itálica* `código` # título - lista</span>
+          </div>
           <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
                 hx-target="#modal-root" hx-swap="innerHTML"
-                hx-trigger="blur changed delay:800ms from:textarea[name='valor_descripcion']"
+                hx-trigger="blur changed delay:800ms from:textarea[name='valor_descripcion'], submit"
                 class="m-0 p-0">
             <input type="hidden" name="campo" value="descripcion">
             <input type="hidden" name="active_tab" value="{{ _active }}">
-            <textarea name="valor_descripcion" rows="3"
-                      placeholder="Sin descripción..."
-                      class="w-full text-sm text-slate-700 bg-transparent border-0 border-b border-transparent
-                             hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-1 transition-colors resize-y whitespace-pre-wrap">{{ ticket.descripcion or '' }}</textarea>
+            <textarea name="valor_descripcion" rows="4" data-markdown="true"
+                      placeholder="Detalla el problema, pasos para reproducir, mensajes de error, etc. Soporta **Markdown**."
+                      class="w-full text-sm text-slate-700 border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y">{{ ticket.descripcion or '' }}</textarea>
+            <div class="flex justify-end mt-1">
+              <button type="submit"
+                      class="px-2.5 py-1 text-[11px] font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Guardar descripción
+              </button>
+            </div>
           </form>
         </div>
 
@@ -418,20 +435,27 @@ DETALLE_TEMPLATE = Template(r"""
         <form hx-post="/api/v1/tickets/{{ ticket.id }}/adjuntos"
               hx-target="#modal-root" hx-swap="innerHTML"
               hx-encoding="multipart/form-data"
-              class="pt-3 border-t border-slate-100 space-y-2">
+              class="pt-3 border-t border-slate-100 space-y-2"
+              id="adjuntos-form-{{ ticket.id }}">
           <input type="hidden" name="active_tab" value="adjuntos">
-          <label for="adjunto-file-{{ ticket.id }}"
-                 class="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-colors">
+          <div class="adjuntos-dropzone flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-colors relative"
+               data-ticket-id="{{ ticket.id }}">
             <svg class="w-6 h-6 text-slate-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
             </svg>
-            <span class="text-xs text-slate-500">Click para seleccionar archivo o arrastra aquí</span>
-            <input id="adjunto-file-{{ ticket.id }}" name="archivo" type="file" class="hidden" required>
-          </label>
-          <div class="flex justify-end">
+            <span class="text-xs text-slate-500">Click para seleccionar o arrastra y suelta aquí</span>
+            <span class="text-[10px] text-slate-400 mt-0.5">Múltiples archivos permitidos</span>
+            <input id="adjunto-file-{{ ticket.id }}" name="archivos" type="file" multiple class="hidden">
+          </div>
+          <div id="adjuntos-preview-{{ ticket.id }}" class="hidden flex flex-wrap gap-1.5 text-xs text-slate-600"></div>
+          <div class="flex items-center justify-between">
+            <span id="adjuntos-info-{{ ticket.id }}" class="text-[11px] text-slate-500"></span>
             <button type="submit"
-                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">
-              Subir archivo
+                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+              </svg>
+              Subir archivo(s)
             </button>
           </div>
         </form>
@@ -439,26 +463,72 @@ DETALLE_TEMPLATE = Template(r"""
 
       <!-- Tab: Checklist -->
       <div class="tab-panel {% if _active != 'checklist' %}hidden{% endif %} p-5 space-y-3" data-panel="checklist">
-        <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
+        <div class="space-y-3 max-h-96 overflow-y-auto pr-1">
           {% if checklists %}
             {% for cl in checklists %}
+              {% set _total = cl.items|length %}
+              {% set _completados = cl.items|selectattr('completado')|list|length %}
+              {% set _pct = (100 * _completados / _total)|int if _total > 0 else 0 %}
               <div class="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
-                <h5 class="text-xs font-semibold text-slate-700 mb-2">{{ cl.titulo }}</h5>
-                <ul class="space-y-1.5">
+                <div class="flex items-center justify-between mb-2">
+                  <h5 class="text-xs font-semibold text-slate-700">{{ cl.titulo }}</h5>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-slate-500">{{ _completados }}/{{ _total }} ({{ _pct }}%)</span>
+                    <button type="button"
+                            hx-delete="/api/v1/checklists/{{ cl.id }}"
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-trigger="click"
+                            hx-confirm="¿Eliminar este checklist completo?"
+                            class="text-[10px] text-red-500 hover:text-red-700 font-medium">
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+                {% if _total > 0 %}
+                <div class="w-full bg-slate-200 rounded-full h-1 mb-2 overflow-hidden">
+                  <div class="bg-indigo-500 h-1 rounded-full transition-all duration-300" style="width: {{ _pct }}%"></div>
+                </div>
+                {% endif %}
+                <ul class="space-y-1.5 mb-2">
                   {% for item in cl.items %}
-                    <li class="flex items-center gap-2 text-xs text-slate-700">
+                    <li class="flex items-center gap-2 text-xs text-slate-700 group">
                       <input type="checkbox"
-                             class="h-3.5 w-3.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+                             class="h-3.5 w-3.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded cursor-pointer"
                              {% if item.completado %}checked{% endif %}
                              hx-post="/api/v1/checklist-items/{{ item.id }}/toggle"
                              hx-trigger="change"
                              hx-target="#modal-root" hx-swap="innerHTML">
-                      <span class="{% if item.completado %}line-through text-slate-400{% endif %}">
+                      <span class="flex-1 {% if item.completado %}line-through text-slate-400{% endif %}">
                         {{ item.texto }}
                       </span>
+                      <button type="button"
+                              hx-delete="/api/v1/checklist-items/{{ item.id }}"
+                              hx-target="#modal-root" hx-swap="innerHTML"
+                              hx-trigger="click"
+                              hx-confirm="¿Eliminar esta tarea?"
+                              class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-opacity">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
                     </li>
                   {% endfor %}
                 </ul>
+                <form hx-post="/api/v1/checklists/{{ cl.id }}/items"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      class="flex items-center gap-1.5 pt-2 border-t border-slate-100">
+                  <input type="hidden" name="active_tab" value="checklist">
+                  <input type="text" name="texto" required
+                         placeholder="Añadir nueva tarea..."
+                         class="flex-1 text-xs border border-slate-200 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" />
+                  <button type="submit"
+                          class="px-2 py-1 text-[11px] font-medium rounded bg-slate-100 hover:bg-slate-200 text-slate-700 inline-flex items-center gap-0.5">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Añadir
+                  </button>
+                </form>
               </div>
             {% endfor %}
           {% else %}
@@ -470,13 +540,16 @@ DETALLE_TEMPLATE = Template(r"""
               hx-target="#modal-root" hx-swap="innerHTML"
               class="pt-3 border-t border-slate-100 space-y-2">
           <input type="hidden" name="active_tab" value="checklist">
-          <input type="text" name="titulo" required
-                 placeholder="Título del nuevo checklist..."
-                 class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-          <div class="flex justify-end">
+          <div class="flex items-center gap-1.5">
+            <input type="text" name="titulo" required
+                   placeholder="Título del nuevo checklist (ej: 'Tareas de cierre')..."
+                   class="flex-1 text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
             <button type="submit"
-                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">
-              Agregar checklist
+                    class="px-3 py-2 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              Crear checklist
             </button>
           </div>
         </form>

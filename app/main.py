@@ -188,27 +188,69 @@ async def ticket_nuevo_form(request: Request):
 
 
 @app.post("/tickets/crear", response_class=HTMLResponse)
-async def ticket_crear(
-    request: Request,
-    titulo: str = "",
-    descripcion: str = "",
-    tipo: str = "incidencia",
-    prioridad: str = "media",
-    asignado_id: int | None = None,
-    catalogo_tipo_id: int | None = None,
-    catalogo_item_id: int | None = None,
-    etiquetas: str = "",
-):
-    """Crea un ticket y devuelve el modal de éxito con un enlace al detalle."""
+async def ticket_crear(request: Request):
+    """Crea un ticket con archivos adjuntos, checklist inicial, fecha de vencimiento,
+    descripción en Markdown y devuelve el modal de éxito con un enlace al detalle."""
+    from fastapi import UploadFile, File, Form
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket, TipoIncidencia, Prioridad
     from app.models.usuario import Usuario
     from app.models.estado import Estado
     from app.models.etiqueta import Etiqueta
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist
+    from app.services.features_service import AdjuntoService, ChecklistService
     from datetime import datetime, timedelta
+    from typing import List, Optional
 
     db = SessionLocal()
     try:
+        # Aceptar tanto form-data como multipart/form-data (para archivos)
+        content_type = request.headers.get("content-type", "")
+        if content_type.startswith("multipart/form-data"):
+            form = await request.form()
+        else:
+            form = await request.form()
+
+        titulo = (form.get("titulo") or "").strip()
+        descripcion = (form.get("descripcion") or "").strip()
+        tipo = (form.get("tipo") or "incidencia").strip()
+        prioridad = (form.get("prioridad") or "media").strip()
+        fecha_vencimiento_raw = (form.get("fecha_vencimiento") or "").strip()
+        catalogo_tipo_id_raw = form.get("catalogo_tipo_id")
+        catalogo_item_id_raw = form.get("catalogo_item_id")
+        asignado_id_raw = form.get("asignado_id")
+        etiquetas_raw = (form.get("etiquetas") or "").strip()
+        checklist_titulo = (form.get("checklist_titulo") or "").strip()
+        checklist_items_raw = (form.get("checklist_items") or "").strip()
+        descripcion_md_raw = (form.get("descripcion_md") or "false").strip().lower()
+        descripcion_md = descripcion_md_raw in ("true", "on", "1", "yes")
+
+        def _to_int(value, default=None):
+            if value is None or str(value).strip() == "":
+                return default
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+
+        asignado_id = _to_int(asignado_id_raw)
+        catalogo_tipo_id = _to_int(catalogo_tipo_id_raw)
+        catalogo_item_id = _to_int(catalogo_item_id_raw)
+
+        # Validar título obligatorio
+        if not titulo:
+            return HTMLResponse(
+                '''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
+                  <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+                    <h3 class="text-lg font-semibold text-red-700 mb-2">Falta el título</h3>
+                    <p class="text-sm text-slate-600 mb-4">Debes ingresar un título para la incidencia.</p>
+                    <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
+                  </div>
+                </div>''',
+                status_code=400,
+            )
+
         usuario = (
             db.query(Usuario).filter(Usuario.rol == "administrador").first()
             or db.query(Usuario).first()
@@ -237,9 +279,19 @@ async def ticket_crear(
         except ValueError:
             prioridad_enum = Prioridad.MEDIA
 
-        # Calcular fecha de SLA
-        fecha_sla = None
-        if estado_inicial and estado_inicial.sla_horas:
+        # Parsear fecha de vencimiento (input type="date" => "YYYY-MM-DD")
+        fecha_vencimiento_dt = None
+        if fecha_vencimiento_raw:
+            try:
+                fecha_vencimiento_dt = datetime.strptime(fecha_vencimiento_raw, "%Y-%m-%d")
+                # Almacenar al final del día
+                fecha_vencimiento_dt = fecha_vencimiento_dt.replace(hour=23, minute=59, second=59)
+            except ValueError:
+                fecha_vencimiento_dt = None
+
+        # Calcular fecha de SLA (la del estado)
+        fecha_sla = fecha_vencimiento_dt
+        if not fecha_sla and estado_inicial and estado_inicial.sla_horas:
             fecha_sla = datetime.utcnow() + timedelta(hours=estado_inicial.sla_horas)
 
         ticket = Ticket(
@@ -254,13 +306,14 @@ async def ticket_crear(
             catalogo_tipo_id=catalogo_tipo_id,
             fecha_vencimiento_sla=fecha_sla,
             sla_cumplido=-1,
+            descripcion_md=descripcion_md,
         )
         db.add(ticket)
         db.flush()
 
         # Asignar etiquetas si vienen separadas por coma
-        if etiquetas:
-            for et_id in [e.strip() for e in etiquetas.split(",") if e.strip()]:
+        if etiquetas_raw:
+            for et_id in [e.strip() for e in etiquetas_raw.split(",") if e.strip()]:
                 try:
                     et = db.query(Etiqueta).filter(Etiqueta.id == int(et_id)).first()
                     if et:
@@ -268,12 +321,72 @@ async def ticket_crear(
                 except (ValueError, TypeError):
                     pass
 
+        # Procesar archivos adjuntos (drag-and-drop y file picker)
+        archivos = form.getlist("archivos") if hasattr(form, "getlist") else []
+        archivos_subidos = 0
+        errores_adjuntos = []
+        for archivo in archivos:
+            if not archivo or not getattr(archivo, "filename", None):
+                continue
+            contenido = await archivo.read()
+            if not contenido:
+                continue
+            adj, error = AdjuntoService(db).guardar_archivo(
+                ticket=ticket,
+                usuario=usuario,
+                file_bytes=contenido,
+                nombre_original=archivo.filename,
+                mime_type=getattr(archivo, "content_type", None),
+                descripcion=None,
+            )
+            if error:
+                errores_adjuntos.append(f"'{archivo.filename}': {error}")
+            else:
+                archivos_subidos += 1
+
+        # Crear checklist inicial si se proporcionó título y/o items
+        checklist_creada = False
+        items_creados = 0
+        if checklist_titulo or checklist_items_raw:
+            titulo_cl = checklist_titulo or "Tareas"
+            # Parsear items: una tarea por línea (acepta "- " o no)
+            lineas = [
+                ln.strip().lstrip("-").strip()
+                for ln in checklist_items_raw.splitlines()
+                if ln.strip() and ln.strip() != "-"
+            ]
+            # Si no hay items explícitos pero hay título, creamos la checklist vacía
+            cl = ChecklistService(db).crear(
+                ticket=ticket,
+                titulo=titulo_cl,
+                items=[{"texto": t} for t in lineas] if lineas else None,
+            )
+            checklist_creada = True
+            items_creados = len(lineas)
+
+        # Si hay catalogo_item_id, intentar asociarlo vía datos_catalogo
+        if catalogo_item_id:
+            datos = dict(ticket.datos_catalogo or {})
+            datos["catalogo_item_id"] = catalogo_item_id
+            ticket.datos_catalogo = datos
+
         db.commit()
         db.refresh(ticket)
 
         # Devolver HTML de éxito con enlace al detalle
+        # Adjuntar info de los archivos/checklist subidos al trigger
+        import json as _json
+        trigger_payload = {
+            "ticket-created": {
+                "ticket_id": ticket.id,
+                "codigo": ticket.codigo,
+                "archivos_subidos": archivos_subidos,
+                "checklist_creada": checklist_creada,
+                "items_creados": items_creados,
+            }
+        }
         return HTMLResponse(
-            f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">
+            f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="ticket-creado-ok">
               <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">
                 <div class="w-12 h-12 rounded-full bg-emerald-100 mx-auto flex items-center justify-center mb-3">
                   <svg class="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -283,6 +396,7 @@ async def ticket_crear(
                 <h3 class="text-lg font-semibold text-slate-800 mb-1">Incidencia creada</h3>
                 <p class="text-sm text-slate-500 mb-1">Tu ticket fue registrado con el código</p>
                 <p class="font-mono text-base text-indigo-600 font-semibold mb-4">{ticket.codigo}</p>
+                {(f'<p class="text-xs text-slate-500 mb-3">{archivos_subidos} archivo(s), {items_creados} item(s) de checklist</p>') if (archivos_subidos or items_creados) else ''}
                 <div class="flex items-center justify-center gap-2">
                   <button data-close-modal
                           hx-get="/api/v1/tickets/{ticket.id}/detalle-html"
@@ -291,18 +405,22 @@ async def ticket_crear(
                     Ver detalle
                   </button>
                   <button data-close-modal
+                          hx-get="/kanban"
+                          hx-target="#main-content" hx-swap="innerHTML"
                           class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
                     Cerrar
                   </button>
                 </div>
               </div>
             </div>''',
-            headers={"HX-Trigger": "ticket-created"},
+            headers={"HX-Trigger": _json.dumps(trigger_payload)},
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         db.rollback()
         return HTMLResponse(
-            f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">
+            f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="ticket-creado-error">
               <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
                 <h3 class="text-lg font-semibold text-red-700 mb-2">Error al crear la incidencia</h3>
                 <p class="text-sm text-slate-600 mb-4">{str(e)}</p>
