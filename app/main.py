@@ -273,7 +273,7 @@ async def ticket_crear(
 
         # Devolver HTML de éxito con enlace al detalle
         return HTMLResponse(
-            f'''<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 modal-backdrop">
+            f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">
               <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">
                 <div class="w-12 h-12 rounded-full bg-emerald-100 mx-auto flex items-center justify-center mb-3">
                   <svg class="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -302,7 +302,7 @@ async def ticket_crear(
     except Exception as e:
         db.rollback()
         return HTMLResponse(
-            f'''<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 modal-backdrop">
+            f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">
               <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
                 <h3 class="text-lg font-semibold text-red-700 mb-2">Error al crear la incidencia</h3>
                 <p class="text-sm text-slate-600 mb-4">{str(e)}</p>

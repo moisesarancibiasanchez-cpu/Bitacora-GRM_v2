@@ -19,7 +19,8 @@
         Filtros
         <span id="filtros-activos" class="hidden ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold">0</span>
       </button>
-      <button class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white"
+      <button id="btn-nuevo-ticket" type="button"
+              class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white"
               hx-get="/tickets/nuevo" hx-target="#modal-root" hx-swap="innerHTML">
         + Nueva Incidencia
       </button>

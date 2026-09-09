@@ -26,7 +26,7 @@ from jinja2 import Template
 # ---------------------------------------------------------------------------
 
 DETALLE_TEMPLATE = Template(r"""
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 modal-backdrop"
+<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop"
      data-modal="detalle-ticket" data-ticket-id="{{ ticket.id }}">
   <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden flex flex-col max-h-[92vh]">
 

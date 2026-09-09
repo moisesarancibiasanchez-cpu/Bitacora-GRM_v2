@@ -319,7 +319,27 @@
     initCardDoubleClick();
     initModalClose();
     initFilters();
+    initNuevoTicketButton();
   });
+
+  // === Fallback robusto para el botón '+ Nueva Incidencia' ===
+  function initNuevoTicketButton() {
+    const btn = document.getElementById('btn-nuevo-ticket');
+    if (!btn) return;
+    btn.addEventListener('click', (e) => {
+      // HTMX se encargará del GET, pero por si falla (CDN lento, etc.)
+      // forzamos la apertura tras un breve timeout si no se insertó HTML.
+      setTimeout(() => {
+        const root = document.getElementById('modal-root');
+        if (root && !root.innerHTML.trim()) {
+          fetch('/tickets/nuevo', { headers: { 'X-User-Id': String(getCurrentUserId()) } })
+            .then(r => r.text())
+            .then(html => { if (root && !root.innerHTML.trim()) root.innerHTML = html; })
+            .catch(() => { /* HTMX probablemente ya cargó el modal */ });
+        }
+      }, 250);
+    });
+  }
 
   // Re-inicializar si HTMX inyecta nuevas tarjetas
   document.body.addEventListener('htmx:afterSwap', () => {
