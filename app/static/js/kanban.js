@@ -203,6 +203,11 @@
   }
 
   // === Inicializar SortableJS en las columnas ===
+  // NOTA: Con `delay: 80`, SortableJS dispara onStart cuando el usuario
+  // mantiene presionado >80ms (incluso sin mover el mouse). Si marcamos
+  // dragged='1' en onStart, eso suprime el click handler para clicks
+  // lentos (que es lo más común). Por eso solo marcamos dragged='1'
+  // DESPUÉS de verificar que la posición realmente cambió en onEnd.
   function initSortable() {
     const columns = document.querySelectorAll('.kanban-list');
     if (columns.length === 0) return;
@@ -219,23 +224,52 @@
         chosenClass: 'kanban-chosen',
         delay: 80,
         delayOnTouchOnly: true,
-        // Marcar la tarjeta como "realmente arrastrada" cuando SortableJS
-        // confirma el inicio del drag (después del delay). Si nunca llega,
-        // el click handler puede abrir el detalle sin chocar con drag.
+        // Solo registrar la posición de inicio. NO marcar como "dragged"
+        // todavía porque el usuario podría estar haciendo un click largo.
         onStart: function (evt) {
-          if (evt.item) evt.item.dataset.dragged = '1';
+          if (evt.item) {
+            evt.item.dataset.dragStartX = String(evt.originalEvent?.clientX || 0);
+            evt.item.dataset.dragStartY = String(evt.originalEvent?.clientY || 0);
+          }
         },
         onEnd: function (evt) {
           const tarjeta = evt.item;
-          // Limpiar flag de drag al terminar
-          if (tarjeta) tarjeta.dataset.dragged = '0';
+          // Determinar si fue un drag REAL: cambió de columna o de índice
+          const mismaColumna = evt.from === evt.to;
+          const mismaPosicion = mismaColumna && evt.oldIndex === evt.newIndex;
+          const huboMovimiento = !mismaPosicion;
+          if (tarjeta) {
+            if (huboMovimiento) {
+              tarjeta.dataset.dragged = '1';
+            } else {
+              tarjeta.dataset.dragged = '0';
+            }
+            // Limpiar después de un breve delay para que el click handler
+            // (que usa setTimeout(0)) tenga tiempo de leer el flag.
+            setTimeout(() => {
+              if (tarjeta) {
+                tarjeta.dataset.dragged = '0';
+                delete tarjeta.dataset.dragStartX;
+                delete tarjeta.dataset.dragStartY;
+              }
+            }, 150);
+          }
           handleDrop(tarjeta, evt);
         },
         // Si se suelta sin arrastrar (mousedown + mouseup sin mover),
         // limpiar el flag para que el click handler abra el detalle.
         onUnchoose: function (evt) {
           if (evt.item) {
-            setTimeout(() => { if (evt.item) evt.item.dataset.dragged = '0'; }, 50);
+            // Asegurar que el flag esté limpio para que un click lento
+            // (que disparó onChoose pero no generó drag real) abra el modal.
+            evt.item.dataset.dragged = '0';
+            setTimeout(() => {
+              if (evt.item) {
+                evt.item.dataset.dragged = '0';
+                delete evt.item.dataset.dragStartX;
+                delete evt.item.dataset.dragStartY;
+              }
+            }, 50);
           }
         },
       });
@@ -251,36 +285,86 @@
     });
   }
 
-  // === Doble clic en una tarjeta abre el detalle ===
+  // === Clic en tarjeta abre el detalle ===
+  // Implementación robusta: listeners DIRECTOS en cada tarjeta (no solo
+  // delegación en body), uso de fetch directo (no htmx.ajax) para evitar
+  // dependencias de HTMX, y un setTimeout(0) para evitar la condición de
+  // carrera con SortableJS que puede suprimir el evento click durante el
+  // mousedown.
   function initCardDoubleClick() {
-    document.body.addEventListener('dblclick', (e) => {
-      const card = e.target.closest('.kanban-card');
-      if (!card) return;
-      const ticketId = card.dataset.ticketId;
-      if (!ticketId) return;
-      e.preventDefault();
-      abrirDetalle(ticketId);
-    });
+    attachCardClickListeners();
+  }
 
-    // También soportar click en el cuerpo de la tarjeta (no solo dblclick).
-    // Solo se abre el detalle si NO se está arrastrando (SortableJS pone
-    // data-dragged='1' durante un drag real y lo limpia al soltarlo).
-    document.body.addEventListener('click', (e) => {
-      // Si es un click en un enlace o botón dentro de la tarjeta, no hacer nada
-      if (e.target.closest('button, a, input, textarea, select, label')) return;
-      const card = e.target.closest('.kanban-card');
-      if (!card) return;
-      const ticketId = card.dataset.ticketId;
-      if (!ticketId) return;
-      // Si la tarjeta está siendo arrastrada, no abrir el detalle
-      if (card.dataset.dragged === '1') return;
-      // Evitar que el click abra el modal cuando el dblclick ya lo abrió
-      if (e.detail >= 2) return; // segundo click de un dblclick
-      abrirDetalle(ticketId);
-    });
+  function attachCardClickListeners() {
+    const cards = document.querySelectorAll('.kanban-card');
+    cards.forEach((card) => {
+      if (card.dataset.clickInit === '1') return;
+      card.dataset.clickInit = '1';
 
-    // Activación por teclado (Enter o Space) para accesibilidad.
-    // Como el card tiene role="button" + tabindex="0", debe responder al teclado.
+      // === MOUSEDOWN: registrar posición de inicio ===
+      // Esto nos permite detectar si el usuario realmente arrastró
+      // midiendo la distancia entre mousedown y mouseup.
+      card.addEventListener('mousedown', (e) => {
+        card.dataset.mouseDownX = String(e.clientX);
+        card.dataset.mouseDownY = String(e.clientY);
+      });
+
+      // === MOUSEUP: si el mouse se movió >5px, fue un drag real ===
+      card.addEventListener('mouseup', (e) => {
+        const startX = parseInt(card.dataset.mouseDownX || '0', 10);
+        const startY = parseInt(card.dataset.mouseDownY || '0', 10);
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+        if (dx > 5 || dy > 5) {
+          card.dataset.realDrag = '1';
+        } else {
+          card.dataset.realDrag = '0';
+        }
+      });
+
+      // === CLICK handler en la tarjeta ===
+      card.addEventListener('click', (e) => {
+        // Si el click fue en el botón de ojo, ese botón tiene su propio handler
+        if (e.target.closest('.open-detail-btn')) return;
+        // Si el click fue en un input/textarea/select, no interceptar
+        if (e.target.closest('input, textarea, select, label')) return;
+        // Si fue en un enlace, dejar que el navegador lo maneje
+        if (e.target.closest('a')) return;
+        // Si fue un drag real (mouse se movió >5px), no abrir modal
+        if (card.dataset.realDrag === '1') return;
+        // Verificación adicional: comparar mousedown/mouseup
+        const startX = parseInt(card.dataset.mouseDownX || '0', 10);
+        const startY = parseInt(card.dataset.mouseDownY || '0', 10);
+        const dx = Math.abs((e.clientX || 0) - startX);
+        const dy = Math.abs((e.clientY || 0) - startY);
+        if (dx > 5 || dy > 5) return;
+        // Si la tarjeta fue arrastrada por SortableJS, no abrir
+        if (card.dataset.dragged === '1') return;
+        // Esperar al siguiente tick para evitar conflicto con SortableJS
+        setTimeout(() => {
+          if (card.dataset.dragged === '1') return;
+          const ticketId = card.dataset.ticketId;
+          if (ticketId) abrirDetalle(ticketId);
+        }, 0);
+      });
+
+      // === CLICK handler en el botón de ojo ===
+      const eyeBtn = card.querySelector('.open-detail-btn');
+      if (eyeBtn) {
+        eyeBtn.addEventListener('click', (e) => {
+          // Usar capture para que nuestro handler corra ANTES que el de HTMX
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          const ticketId = card.dataset.ticketId;
+          if (ticketId) abrirDetalle(ticketId);
+        }, true); // <-- capture: true para ganar la carrera con HTMX
+      }
+    });
+  }
+
+  // === Activación por teclado (Enter o Space) ===
+  function initKeyboardActivation() {
     document.body.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const card = e.target.closest('.kanban-card');
@@ -293,15 +377,74 @@
     });
   }
 
-  // === Abrir modal de detalle (HTMX) ===
+  // === Doble clic en una tarjeta abre el detalle ===
+  function initDblClick() {
+    document.body.addEventListener('dblclick', (e) => {
+      const card = e.target.closest('.kanban-card');
+      if (!card) return;
+      if (e.target.closest('button, a, input, textarea, select, label')) return;
+      const ticketId = card.dataset.ticketId;
+      if (!ticketId) return;
+      e.preventDefault();
+      abrirDetalle(ticketId);
+    });
+  }
+
+  // === Abrir modal de detalle ===
+  // Usa fetch directo (no htmx.ajax) para máxima robustez.
+  // Funciona incluso si HTMX no se ha cargado todavía.
   function abrirDetalle(ticketId) {
+    if (!ticketId) return;
     // Si ya hay un modal abierto, no abrir otro
     const existing = document.querySelector('[data-modal="detalle-ticket"]');
     if (existing) return;
-    htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, {
-      target: '#modal-root',
-      swap: 'innerHTML',
-    });
+
+    const root = document.getElementById('modal-root');
+    if (!root) {
+      console.error('[kanban] No se encontró #modal-root');
+      return;
+    }
+
+    // Mostrar loading state
+    root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30"><div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3"><div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><span class="text-sm text-slate-600">Cargando detalle...</span></div></div>';
+
+    // Usar HTMX si está disponible, si no, fetch directo
+    const useHtmx = typeof htmx !== 'undefined' && htmx.ajax;
+    if (useHtmx) {
+      try {
+        htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, {
+          target: '#modal-root',
+          swap: 'innerHTML',
+        });
+        return;
+      } catch (err) {
+        console.warn('[kanban] htmx.ajax falló, usando fetch directo:', err);
+      }
+    }
+
+    // Fallback: fetch directo
+    fetch(`/api/v1/tickets/${ticketId}/detalle-html`, {
+      headers: {
+        'X-User-Id': String(getCurrentUserId()),
+        'Accept': 'text/html',
+      },
+      credentials: 'same-origin',
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then((html) => {
+        root.innerHTML = html;
+        // Disparar evento htmx:load para que HTMX procese los nuevos elementos
+        if (typeof htmx !== 'undefined') {
+          try { htmx.process(root); } catch (_) {}
+        }
+      })
+      .catch((err) => {
+        console.error('[kanban] Error al cargar detalle:', err);
+        root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop"><div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center"><h3 class="text-lg font-semibold text-red-700 mb-2">Error</h3><p class="text-sm text-slate-600 mb-4">No se pudo cargar el detalle del ticket.</p><button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button></div></div>';
+      });
   }
 
   // === Cerrar cualquier modal del modal-root ===
@@ -330,6 +473,8 @@
   document.addEventListener('DOMContentLoaded', () => {
     initSortable();
     initCardDoubleClick();
+    initKeyboardActivation();
+    initDblClick();
     initModalClose();
     initFilters();
     initNuevoTicketButton();
@@ -357,8 +502,12 @@
   // Re-inicializar si HTMX inyecta nuevas tarjetas
   document.body.addEventListener('htmx:afterSwap', () => {
     initSortable();
+    attachCardClickListeners();
   });
-  document.body.addEventListener('htmx:load', initSortable);
+  document.body.addEventListener('htmx:load', () => {
+    initSortable();
+    attachCardClickListeners();
+  });
 
   // ============================================================
   // FILTROS DE TABLERO (estilo Trello / Linear)
