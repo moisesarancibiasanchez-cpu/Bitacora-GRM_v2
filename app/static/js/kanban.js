@@ -278,6 +278,19 @@
       if (e.detail >= 2) return; // segundo click de un dblclick
       abrirDetalle(ticketId);
     });
+
+    // Activación por teclado (Enter o Space) para accesibilidad.
+    // Como el card tiene role="button" + tabindex="0", debe responder al teclado.
+    document.body.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = e.target.closest('.kanban-card');
+      if (!card) return;
+      // Si el foco está en un botón/input/textarea, no interceptar
+      if (e.target.closest('button, a, input, textarea, select, label')) return;
+      e.preventDefault();
+      const ticketId = card.dataset.ticketId;
+      if (ticketId) abrirDetalle(ticketId);
+    });
   }
 
   // === Abrir modal de detalle (HTMX) ===
