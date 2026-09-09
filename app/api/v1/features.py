@@ -143,19 +143,85 @@ def listar_checklists(
     return ChecklistService(db).listar_de_ticket(ticket_id)
 
 
-@router.post("/tickets/{ticket_id}/checklists", response_model=ChecklistRead, status_code=201)
-def crear_checklist(
+@router.post("/tickets/{ticket_id}/checklists")
+async def crear_checklist(
     ticket_id: int,
-    datos: ChecklistCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Crea un checklist en el ticket.
+
+    Acepta form-data (HTMX) o JSON (API). Si viene de HTMX, devuelve el modal
+    re-renderizado con la nueva checklist.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    content_type = request.headers.get("content-type", "")
+    titulo = ""
+    if content_type.startswith("application/json"):
+        import json as _json
+        try:
+            body_bytes = await request.body()
+            body = _json.loads(body_bytes.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        titulo = (body.get("titulo") or "").strip()
+    else:
+        form = await request.form()
+        titulo = (form.get("titulo") or "").strip()
+    titulo = (titulo or "").strip()
+    if not titulo:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">El título del checklist no puede estar vacío.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="El título del checklist no puede estar vacío")
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Ticket no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
-    cl = ChecklistService(db).crear(ticket, datos.titulo, [i.model_dump() for i in datos.items])
-    registrar_auditoria(db, ticket.id, user.id, "checklist_creada", valor_nuevo={"titulo": datos.titulo})
+    cl = ChecklistService(db).crear(ticket, titulo, [])
+    registrar_auditoria(db, ticket.id, user.id, "checklist_creada", valor_nuevo={"titulo": titulo})
     db.refresh(cl)
+
+    if is_htmx:
+        from app.models.estado import Estado
+        from app.models.comentario import Comentario
+        from app.models.adjunto import Adjunto
+        estados = db.query(Estado).order_by(Estado.orden).all()
+        comentarios = (
+            db.query(Comentario)
+            .filter(Comentario.ticket_id == ticket_id)
+            .order_by(Comentario.created_at.asc())
+            .all()
+        )
+        adjuntos = (
+            db.query(Adjunto)
+            .filter(Adjunto.ticket_id == ticket_id)
+            .order_by(Adjunto.created_at.desc())
+            .all()
+        )
+        checklists = (
+            db.query(Checklist)
+            .filter(Checklist.ticket_id == ticket_id)
+            .order_by(Checklist.orden.asc())
+            .all()
+        )
+        from app.templates.tickets.detalle_modal import render_detalle_modal
+        html = render_detalle_modal(
+            ticket=ticket, estados=estados, comentarios=comentarios,
+            adjuntos=adjuntos, checklists=checklists, usuario=user,
+        )
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "checklist-creada"},
+        )
     return cl
 
 
@@ -243,24 +309,103 @@ def listar_comentarios(
     return ComentarioService(db).listar_de_ticket(ticket_id, incluir_internos)
 
 
-@router.post("/tickets/{ticket_id}/comentarios", response_model=ComentarioRead, status_code=201)
-def crear_comentario(
+@router.post("/tickets/{ticket_id}/comentarios")
+async def crear_comentario(
     ticket_id: int,
-    datos: ComentarioCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Crea un comentario en un ticket.
+
+    Acepta ``application/x-www-form-urlencoded`` (formularios HTMX),
+    ``multipart/form-data`` y ``application/json`` (clientes programáticos).
+    Si la petición viene de HTMX (``HX-Request: true``) devuelve el modal
+    re-renderizado con el nuevo comentario.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    content_type = request.headers.get("content-type", "")
+    texto = ""
+    es_interno = "false"
+
+    if content_type.startswith("application/json"):
+        import json as _json
+        try:
+            body_bytes = await request.body()
+            body = _json.loads(body_bytes.decode("utf-8") or "{}")
+        except Exception:
+            body = {}
+        texto = (body.get("texto") or "").strip()
+        es_interno = body.get("es_interno", False)
+    else:
+        # form-data (HTMX)
+        form = await request.form()
+        texto = (form.get("texto") or "").strip()
+        es_interno = form.get("es_interno", "false")
+
+    if not texto:
+        if is_htmx:
+            return HTMLResponse(
+                content=(
+                    f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">'
+                    f'El texto del comentario no puede estar vacío.</div>'
+                ),
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="El texto del comentario no puede estar vacío")
+    es_interno_bool = str(es_interno).lower() in ("true", "on", "1", "yes", "si", "sí")
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Ticket no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
     com = ComentarioService(db).crear(
         ticket_id=ticket_id,
         usuario_id=user.id,
-        texto=datos.texto,
-        es_interno=datos.es_interno,
+        texto=texto,
+        es_interno=es_interno_bool,
     )
     registrar_auditoria(db, ticket.id, user.id, "comentario_creado", valor_nuevo={"comentario_id": com.id})
     MotorAutomatizacion(db).disparar("ticket_comentado", ticket, {"comentario_id": com.id})
+
+    if is_htmx:
+        from app.models.estado import Estado
+        from app.models.adjunto import Adjunto
+        from app.models.checklist import Checklist
+        db.refresh(com)
+        estados = db.query(Estado).order_by(Estado.orden).all()
+        comentarios = (
+            db.query(Comentario)
+            .filter(Comentario.ticket_id == ticket_id)
+            .order_by(Comentario.created_at.asc())
+            .all()
+        )
+        adjuntos = (
+            db.query(Adjunto)
+            .filter(Adjunto.ticket_id == ticket_id)
+            .order_by(Adjunto.created_at.desc())
+            .all()
+        )
+        checklists = (
+            db.query(Checklist)
+            .filter(Checklist.ticket_id == ticket_id)
+            .order_by(Checklist.orden.asc())
+            .all()
+        )
+        from app.templates.tickets.detalle_modal import render_detalle_modal
+        html = render_detalle_modal(
+            ticket=ticket, estados=estados, comentarios=comentarios,
+            adjuntos=adjuntos, checklists=checklists, usuario=user,
+        )
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "comentario-creado"},
+        )
     return com
 
 
@@ -307,18 +452,45 @@ def listar_adjuntos(
     return AdjuntoService(db).listar_de_ticket(ticket_id)
 
 
-@router.post("/tickets/{ticket_id}/adjuntos", response_model=AdjuntoRead, status_code=201)
+@router.post("/tickets/{ticket_id}/adjuntos")
 async def subir_adjunto(
     ticket_id: int,
+    request: Request,
     archivo: UploadFile = File(...),
     descripcion: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Sube un archivo adjunto al ticket.
+
+    Acepta ``multipart/form-data`` con campo ``archivo``. Si la petición
+    viene de HTMX, devuelve el modal re-renderizado con el nuevo adjunto
+    en la pestaña correspondiente.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Ticket no encontrado.</div>',
+                status_code=404,
+            )
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    if not archivo or not archivo.filename:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">No se envió ningún archivo.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="No se envió ningún archivo")
     contenido = await archivo.read()
+    if not contenido:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">El archivo está vacío.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
     adj, error = AdjuntoService(db).guardar_archivo(
         ticket=ticket,
         usuario=user,
@@ -328,10 +500,51 @@ async def subir_adjunto(
         descripcion=descripcion,
     )
     if error:
+        if is_htmx:
+            return HTMLResponse(
+                content=f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>',
+                status_code=400,
+            )
         raise HTTPException(status_code=400, detail=error)
     registrar_auditoria(db, ticket.id, user.id, "adjunto_subido", valor_nuevo={
         "adjunto_id": adj.id, "nombre": adj.nombre_original, "tamano": adj.tamano_bytes
     })
+
+    if is_htmx:
+        # Re-renderizar el modal completo
+        from app.models.estado import Estado
+        from app.models.comentario import Comentario
+        from app.models.checklist import Checklist
+        db.refresh(adj)
+        estados = db.query(Estado).order_by(Estado.orden).all()
+        comentarios = (
+            db.query(Comentario)
+            .filter(Comentario.ticket_id == ticket_id)
+            .order_by(Comentario.created_at.asc())
+            .all()
+        )
+        adjuntos = (
+            db.query(Adjunto)
+            .filter(Adjunto.ticket_id == ticket_id)
+            .order_by(Adjunto.created_at.desc())
+            .all()
+        )
+        checklists = (
+            db.query(Checklist)
+            .filter(Checklist.ticket_id == ticket_id)
+            .order_by(Checklist.orden.asc())
+            .all()
+        )
+        from app.templates.tickets.detalle_modal import render_detalle_modal
+        html = render_detalle_modal(
+            ticket=ticket, estados=estados, comentarios=comentarios,
+            adjuntos=adjuntos, checklists=checklists, usuario=user,
+        )
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": "adjunto-subido"},
+        )
     return adj
 
 

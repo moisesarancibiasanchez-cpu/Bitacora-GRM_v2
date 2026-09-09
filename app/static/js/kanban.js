@@ -219,9 +219,24 @@
         chosenClass: 'kanban-chosen',
         delay: 80,
         delayOnTouchOnly: true,
+        // Marcar la tarjeta como "realmente arrastrada" cuando SortableJS
+        // confirma el inicio del drag (después del delay). Si nunca llega,
+        // el click handler puede abrir el detalle sin chocar con drag.
+        onStart: function (evt) {
+          if (evt.item) evt.item.dataset.dragged = '1';
+        },
         onEnd: function (evt) {
           const tarjeta = evt.item;
+          // Limpiar flag de drag al terminar
+          if (tarjeta) tarjeta.dataset.dragged = '0';
           handleDrop(tarjeta, evt);
+        },
+        // Si se suelta sin arrastrar (mousedown + mouseup sin mover),
+        // limpiar el flag para que el click handler abra el detalle.
+        onUnchoose: function (evt) {
+          if (evt.item) {
+            setTimeout(() => { if (evt.item) evt.item.dataset.dragged = '0'; }, 50);
+          }
         },
       });
     });
@@ -247,22 +262,29 @@
       abrirDetalle(ticketId);
     });
 
-    // También soportar click en el cuerpo de la tarjeta (no solo dblclick)
+    // También soportar click en el cuerpo de la tarjeta (no solo dblclick).
+    // Solo se abre el detalle si NO se está arrastrando (SortableJS pone
+    // data-dragged='1' durante un drag real y lo limpia al soltarlo).
     document.body.addEventListener('click', (e) => {
       // Si es un click en un enlace o botón dentro de la tarjeta, no hacer nada
-      if (e.target.closest('button, a, input, textarea, select')) return;
+      if (e.target.closest('button, a, input, textarea, select, label')) return;
       const card = e.target.closest('.kanban-card');
       if (!card) return;
       const ticketId = card.dataset.ticketId;
       if (!ticketId) return;
-      // Diferir el click para no chocar con drag
-      if (card.dataset.dragging === '1') return;
+      // Si la tarjeta está siendo arrastrada, no abrir el detalle
+      if (card.dataset.dragged === '1') return;
+      // Evitar que el click abra el modal cuando el dblclick ya lo abrió
+      if (e.detail >= 2) return; // segundo click de un dblclick
       abrirDetalle(ticketId);
     });
   }
 
   // === Abrir modal de detalle (HTMX) ===
   function abrirDetalle(ticketId) {
+    // Si ya hay un modal abierto, no abrir otro
+    const existing = document.querySelector('[data-modal="detalle-ticket"]');
+    if (existing) return;
     htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, {
       target: '#modal-root',
       swap: 'innerHTML',
@@ -291,25 +313,11 @@
     });
   }
 
-  // === Marcar tarjeta como dragging para evitar click durante drag ===
-  function initDragDetection() {
-    document.body.addEventListener('mousedown', (e) => {
-      const card = e.target.closest('.kanban-card');
-      if (card) card.dataset.dragging = '1';
-    });
-    document.body.addEventListener('mouseup', (e) => {
-      setTimeout(() => {
-        document.querySelectorAll('.kanban-card').forEach(c => c.dataset.dragging = '0');
-      }, 200);
-    });
-  }
-
   // Inicializar cuando cargue el DOM
   document.addEventListener('DOMContentLoaded', () => {
     initSortable();
     initCardDoubleClick();
     initModalClose();
-    initDragDetection();
   });
 
   // Re-inicializar si HTMX inyecta nuevas tarjetas

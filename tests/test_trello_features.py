@@ -635,6 +635,110 @@ def t47():
     ), f"2ª ejecución debería saltar las columnas existentes: {stats2}"
 
 # ============================================================
+# REGRESIÓN: endpoints de modal aceptan form-data (HTMX)
+# Bug: el botón "+ Nueva Incidencia" no abría el modal y al añadir
+# comentarios / checklists / adjuntos dentro de una tarjeta kanban,
+# los formularios HTMX (form-data) eran rechazados con 422 porque
+# los endpoints solo aceptaban JSON. La consecuencia era que el
+# usuario no podía editar nada desde la UI.
+# Fix: los endpoints /comentarios, /checklists y /adjuntos ahora
+# aceptan tanto form-data (HTMX) como JSON (API tradicional) y,
+# cuando llega el header HX-Request, devuelven el modal
+# re-renderizado en HTML para hacer el swap in-place.
+# ============================================================
+print("\n[REGRESIÓN - FORM-DATA PARA MODAL]")
+
+# Asegurar que tenemos al menos un ticket de prueba
+from app.models.ticket import Ticket
+from app.models.estado import Estado
+db_test = SessionLocal()
+try:
+    ticket_test = db_test.query(Ticket).first()
+    if not ticket_test:
+        # Crear ticket mínimo para los tests
+        estado = db_test.query(Estado).first()
+        ticket_test = Ticket(
+            codigo="TST-001",
+            titulo="Ticket de prueba form-data",
+            descripcion="Para tests de regresión",
+            estado_id=estado.id if estado else 1,
+            creador_id=1,
+        )
+        db_test.add(ticket_test)
+        db_test.commit()
+        db_test.refresh(ticket_test)
+    TICKET_ID = ticket_test.id
+finally:
+    db_test.close()
+
+@test("POST /tickets/{id}/comentarios con form-data devuelve HTML (HTMX)")
+def t48():
+    """El formulario HTMX envía application/x-www-form-urlencoded.
+    El endpoint debe aceptarlo y devolver HTML para hacer swap del modal."""
+    r = post(
+        f"/api/v1/tickets/{TICKET_ID}/comentarios",
+        data={"texto": "Comentario de regresión form-data"},
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
+    # Debe ser HTML con el modal
+    assert "<!DOCTYPE" in r.text or "<html" in r.text or 'data-modal="detalle-ticket"' in r.text, (
+        f"Se esperaba HTML del modal, se obtuvo: {r.text[:200]}"
+    )
+    # Debe incluir el comentario recién creado
+    assert "Comentario de regresión form-data" in r.text, (
+        f"El comentario no aparece en el HTML devuelto: {r.text[:300]}"
+    )
+
+@test("POST /tickets/{id}/comentarios con JSON devuelve 200/201 (API tradicional)")
+def t49():
+    """Compatibilidad hacia atrás: los clientes que envíen JSON
+    deben seguir funcionando sin cambios."""
+    r = post(
+        f"/api/v1/tickets/{TICKET_ID}/comentarios",
+        json={"texto": "Comentario JSON tradicional", "es_interno": False},
+    )
+    assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:200]}"
+    data = r.json()
+    assert "id" in data, f"Respuesta sin id: {data}"
+    assert "Comentario JSON tradicional" in data.get("texto", "")
+
+@test("POST /tickets/{id}/checklists con form-data (HTMX) crea checklist y devuelve HTML")
+def t50():
+    """El form de nueva checklist debe apuntar a /checklists (plural)
+    y el endpoint debe aceptar form-data devolviendo el modal."""
+    r = post(
+        f"/api/v1/tickets/{TICKET_ID}/checklists",
+        data={"titulo": "Checklist regresión form-data"},
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
+    assert 'data-modal="detalle-ticket"' in r.text or "<!DOCTYPE" in r.text, (
+        f"Se esperaba HTML del modal: {r.text[:200]}"
+    )
+    assert "Checklist regresión form-data" in r.text, (
+        f"La checklist no aparece en el HTML devuelto: {r.text[:300]}"
+    )
+
+@test("POST /tickets/{id}/adjuntos acepta multipart/form-data y devuelve HTML")
+def t51():
+    """Subida de archivo real con multipart/form-data."""
+    import io
+    contenido = b"%PDF-1.4\n%contenido de prueba para regresion\n%%EOF"
+    files = {"archivo": ("regresion.pdf", io.BytesIO(contenido), "application/pdf")}
+    r = post(
+        f"/api/v1/tickets/{TICKET_ID}/adjuntos",
+        files=files,
+        data={"descripcion": "PDF de regresión"},
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
+    # Debe incluir el nombre del archivo en el HTML re-renderizado
+    assert "regresion.pdf" in r.text, (
+        f"El adjunto no aparece en el HTML devuelto: {r.text[:300]}"
+    )
+
+# ============================================================
 # RESUMEN
 # ============================================================
 print("\n" + "="*60)

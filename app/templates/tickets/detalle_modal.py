@@ -276,7 +276,7 @@ DETALLE_TEMPLATE = Template(r"""
           {% endif %}
         </div>
 
-        <form hx-post="/api/v1/tickets/{{ ticket.id }}/checklist"
+        <form hx-post="/api/v1/tickets/{{ ticket.id }}/checklists"
               hx-target="#modal-root" hx-swap="innerHTML"
               class="pt-3 border-t border-slate-100 space-y-2">
           <input type="text" name="titulo" required
