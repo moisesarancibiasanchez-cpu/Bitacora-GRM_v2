@@ -283,12 +283,26 @@
   <div id="ticket-modal" class="fixed inset-0 z-40 hidden">
     <div class="modal-backdrop absolute inset-0" onclick="closeTicketModal()"></div>
     <div class="absolute inset-y-0 right-0 w-full max-w-2xl bg-white shadow-2xl flex flex-col">
-      <div class="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
-        <div>
+      <div class="p-4 border-b border-slate-200 flex-shrink-0">
+        <div class="flex items-center justify-between mb-2">
           <div class="font-mono text-xs text-slate-500" id="modal-codigo">GRM-INC-2026-000001</div>
-          <h2 class="text-lg font-semibold text-slate-800 mt-0.5" id="modal-titulo">Cargando...</h2>
+          <button data-close-modal="ticket"
+                  aria-label="Cerrar"
+                  class="close-x text-slate-400 hover:text-slate-600 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-slate-100">×</button>
         </div>
-        <button onclick="closeTicketModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+        <!-- Título editable con botón Guardar (Bug 1) -->
+        <div class="flex items-center gap-2">
+          <input id="edit-titulo" type="text"
+                 class="flex-1 text-lg font-semibold text-slate-800 border border-transparent rounded px-2 py-1 -ml-2 hover:border-slate-200 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                 placeholder="Título del ticket">
+          <button id="btn-save-titulo" type="button"
+                  onclick="saveTitle()"
+                  title="Guardar título"
+                  class="px-2.5 py-1.5 text-xs font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            Guardar
+          </button>
+        </div>
       </div>
       <div class="flex items-center gap-1 px-4 border-b border-slate-200 flex-shrink-0">
         <button data-detail-tab="detalles" class="detail-tab-btn active px-3 py-2 text-sm font-medium border-b-2 border-indigo-500 text-indigo-600" onclick="switchDetailTab('detalles')">Detalles</button>
@@ -312,18 +326,25 @@
       <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg flex flex-col">
         <div class="p-4 border-b border-slate-200 flex items-center justify-between">
           <h2 class="text-lg font-semibold text-slate-800">Nueva Incidencia</h2>
-          <button onclick="closeNewTicketModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+          <button data-close-modal="new-ticket"
+                  aria-label="Cerrar"
+                  class="close-x text-slate-400 hover:text-slate-600 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-slate-100">×</button>
         </div>
-        <div class="p-4 space-y-3">
+        <div class="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Título *</label>
             <input id="new-titulo" type="text" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="Describe brevemente el problema">
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Descripción</label>
-            <textarea id="new-desc" rows="3" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="Detalles, pasos para reproducir, etc."></textarea>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold text-slate-600">Descripción (Markdown)</label>
+              <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                <span>**negrita**</span><span>*itálica*</span><span>`código`</span><span># título</span><span>- lista</span>
+              </div>
+            </div>
+            <textarea id="new-desc" rows="3" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200 font-mono" placeholder="Detalles, pasos para reproducir, etc. (acepta Markdown)"></textarea>
           </div>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="block text-xs font-semibold text-slate-600 mb-1">Prioridad</label>
               <select id="new-prio" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2">
@@ -342,17 +363,52 @@
                 <option value="problema">Problema</option>
               </select>
             </div>
+            <div>
+              <!-- Bug 7: Fecha de vencimiento -->
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Vence</label>
+              <input id="new-due" type="date" class="w-full text-sm border border-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200">
+            </div>
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Etiquetas iniciales</label>
             <div id="new-etiquetas" class="flex flex-wrap gap-1.5"></div>
           </div>
+
+          <!-- Bug 6: Archivos adjuntos en nueva incidencia -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Archivos adjuntos (drag & drop)</label>
+            <div id="new-dropzone" class="new-dropzone border-2 border-dashed border-slate-300 rounded-md p-3 text-center text-xs text-slate-500 hover:border-indigo-400 cursor-pointer transition">
+              <div class="flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                <span>Arrastra archivos aquí o <span class="text-indigo-600 underline">haz click para seleccionar</span></span>
+              </div>
+              <input id="new-files" type="file" multiple class="hidden">
+            </div>
+            <div id="new-files-preview" class="mt-2 space-y-1"></div>
+          </div>
+
+          <!-- Bug 6: Checklist inicial -->
+          <div class="border border-slate-200 rounded-md p-3 bg-slate-50">
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-xs font-semibold text-slate-600">📋 Checklist inicial (opcional)</label>
+              <label class="text-[11px] text-slate-500 flex items-center gap-1 cursor-pointer">
+                <input id="new-checklist-enable" type="checkbox" class="rounded"> Crear
+              </label>
+            </div>
+            <div id="new-checklist-fields" class="hidden space-y-2">
+              <input id="new-checklist-titulo" type="text" placeholder="Título (ej. Pasos de diagnóstico)"
+                     class="w-full text-sm border border-slate-200 rounded-md px-3 py-1.5">
+              <textarea id="new-checklist-items" rows="3" placeholder="Una tarea por línea:&#10;- Revisar logs&#10;- Reiniciar servicio&#10;- Validar con el usuario"
+                        class="w-full text-sm border border-slate-200 rounded-md px-3 py-1.5 font-mono"></textarea>
+            </div>
+          </div>
+
           <div class="bg-indigo-50 border border-indigo-200 rounded-md p-2 text-xs text-indigo-800">
             💡 <strong>Butler:</strong> Al crear este ticket se evaluarán las reglas de automatización. Si la prioridad es "crítica", se asignará automáticamente a un agente senior.
           </div>
         </div>
         <div class="p-4 border-t border-slate-200 flex items-center justify-end gap-2">
-          <button onclick="closeNewTicketModal()" class="px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 rounded-md">Cancelar</button>
+          <button data-close-modal="new-ticket" class="px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 rounded-md">Cancelar</button>
           <button onclick="createNewTicket()" class="px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Crear ticket</button>
         </div>
       </div>
@@ -1045,13 +1101,157 @@ function resetSearch() {
 // ============================================================
 let currentTicket = null;
 
+// --------- Helpers de soporte (Bug 5 + sanitización) ---------
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(s) { return escapeHtml(s); }
+
+function renderMarkdown(text) {
+  if (!text) return '<p class="text-slate-400 italic">Sin descripción</p>';
+  // Paso 1: extraer code blocks (multilínea) y reemplazarlos por placeholders
+  const codeBlocks = [];
+  let html = escapeHtml(text).replace(/```([\s\S]*?)```/g, (m, code) => {
+    const i = codeBlocks.length;
+    codeBlocks.push(`<pre class="bg-slate-900 text-slate-100 text-xs rounded p-2 overflow-x-auto font-mono my-2">${code}</pre>`);
+    return `CB${i}`;
+  });
+  // Paso 2: aplicar inline styles sobre el resto
+  // Inline code -> placeholder para no romper bold/italic después
+  const codes = [];
+  html = html.replace(/`([^`\n]+)`/g, (m, c) => { codes.push(`<code class="bg-slate-100 text-pink-600 px-1 rounded font-mono text-[12px]">${c}</code>`); return `IC${codes.length - 1}`; });
+  // Bold
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  // Links [txt](url)
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-indigo-600 hover:underline">$1</a>');
+  // Paso 3: headings línea por línea para no consumir el resto
+  html = html.split(/\n/).map(line => {
+    if (/^###\s+/.test(line))  return `<h3 class="font-semibold text-sm mt-2 mb-1">${line.replace(/^###\s+/, '')}</h3>`;
+    if (/^##\s+/.test(line))   return `<h2 class="font-semibold text-base mt-2 mb-1">${line.replace(/^##\s+/, '')}</h2>`;
+    if (/^#\s+/.test(line))    return `<h1 class="font-bold text-lg mt-2 mb-1">${line.replace(/^#\s+/, '')}</h1>`;
+    return line;
+  }).join('\n');
+  // Paso 4: listas
+  html = html.replace(/^(\s*)- (.+)$/gm, '$1<li class="ml-4 list-disc">$2</li>');
+  html = html.replace(/(<li[^>]*>.*?<\/li>(?:\s*<li[^>]*>.*?<\/li>)*)/gs, '<ul class="my-1">$1</ul>');
+  // Paso 5: restaurar inline codes
+  html = html.replace(/IC(\d+)/g, (m, i) => codes[parseInt(i)] || m);
+  // Paso 6: restaurar code blocks
+  html = html.replace(/CB(\d+)/g, (m, i) => codeBlocks[parseInt(i)] || m);
+  // Paso 7: saltos de línea (después de los placeholders para que no se metan dentro)
+  html = html.replace(/\n/g, "<br>");
+  return html;
+}
+
+function saveTitle() {
+  if (!currentTicket) return;
+  const input = document.getElementById("edit-titulo");
+  if (!input) return;
+  const v = input.value.trim();
+  if (!v) { showToast("El título no puede estar vacío", "error"); return; }
+  if (v === currentTicket.titulo) { showToast("Sin cambios", "info", 1500); return; }
+  currentTicket.titulo = v;
+  renderBoard();
+  updateStats();
+  persistTickets();
+  showToast("✓ Título guardado", "success", 1500);
+}
+
+function saveDescription() {
+  if (!currentTicket) return;
+  const ta = document.getElementById("edit-descripcion");
+  if (!ta) return;
+  const v = ta.value;
+  if (v === currentTicket.descripcion) { showToast("Sin cambios", "info", 1500); return; }
+  currentTicket.descripcion = v;
+  persistTickets();
+  showToast("✓ Descripción guardada", "success", 1500);
+}
+
+function switchMdTab(tab) {
+  document.querySelectorAll(".md-tab-btn").forEach(b => {
+    b.classList.remove("border-indigo-500", "text-indigo-700");
+    b.classList.add("border-transparent", "text-slate-500");
+  });
+  const activeBtn = document.querySelector(`.md-tab-btn[data-md-tab="${tab}"]`);
+  if (activeBtn) activeBtn.classList.add("border-indigo-500", "text-indigo-700");
+  document.querySelectorAll("[data-md-pane]").forEach(p => p.classList.add("hidden"));
+  const activePane = document.querySelector(`[data-md-pane="${tab}"]`);
+  if (activePane) activePane.classList.remove("hidden");
+  if (tab === "preview") {
+    const ta = document.getElementById("edit-descripcion");
+    const out = document.getElementById("md-preview-content");
+    if (ta && out) out.innerHTML = renderMarkdown(ta.value);
+  }
+}
+
+function mdWrap(left, right) {
+  const ta = document.getElementById("edit-descripcion");
+  if (!ta) return;
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const sel = ta.value.substring(start, end);
+  const replacement = left + (sel || "texto") + right;
+  ta.value = ta.value.substring(0, start) + replacement + ta.value.substring(end);
+  ta.focus();
+  ta.selectionStart = start + left.length;
+  ta.selectionEnd = start + left.length + (sel ? sel.length : "texto".length);
+}
+
+function mdPrefix(prefix) {
+  const ta = document.getElementById("edit-descripcion");
+  if (!ta) return;
+  const start = ta.selectionStart;
+  // Insertar prefijo al inicio de la línea actual
+  const before = ta.value.substring(0, start);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  ta.value = ta.value.substring(0, lineStart) + prefix + ta.value.substring(lineStart);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = start + prefix.length;
+}
+
+function mdCode() {
+  // Evita problemas de escape de backticks en template strings
+  mdWrap(String.fromCharCode(96), String.fromCharCode(96));
+}
+
+// --------- Persistencia localStorage ---------
+function persistTickets() {
+  try { localStorage.setItem("bitacora_grm_tickets", JSON.stringify(tickets)); } catch (e) {}
+}
+function loadTickets() {
+  try {
+    const raw = localStorage.getItem("bitacora_grm_tickets");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {}
+  return null;
+}
+
 function openTicketModal(id) {
   currentTicket = tickets.find(t => t.id === id);
   if (!currentTicket) return;
   document.getElementById("modal-codigo").textContent = currentTicket.codigo;
-  document.getElementById("modal-titulo").textContent = currentTicket.titulo;
-  document.getElementById("ticket-modal").classList.remove("hidden");
+  // header input (editable) y textarea descripción
+  const tituloInput = document.getElementById("edit-titulo");
+  if (tituloInput) tituloInput.value = currentTicket.titulo || "";
+  const descTa = document.getElementById("edit-descripcion");
+  if (descTa) descTa.value = currentTicket.descripcion || "";
+  // Forzar tab detalles al abrir
   switchDetailTab("detalles");
+  // Resetear el editor de markdown a la pestaña "write"
+  switchMdTab("write");
+  document.getElementById("ticket-modal").classList.remove("hidden");
   renderDetailContent();
 }
 
@@ -1094,8 +1294,39 @@ function renderDetailContent() {
       <div><span class="text-xs text-slate-500 block">Vence</span><span class="font-mono text-xs">${t.due_date}</span></div>
     </div>
     <div>
-      <h4 class="text-xs font-semibold text-slate-600 mb-2">Descripción</h4>
-      <p class="text-sm text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-md">${t.descripcion}</p>
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="text-xs font-semibold text-slate-600">Descripción (Markdown)</h4>
+        <button onclick="saveDescription()" type="button"
+                class="px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+          Guardar descripción
+        </button>
+      </div>
+      <!-- Editor Markdown con tabs Escribir / Vista previa -->
+      <div class="markdown-editor border border-slate-200 rounded-md overflow-hidden">
+        <div class="flex items-center border-b border-slate-200 bg-slate-50">
+          <button type="button" data-md-tab="write" onclick="switchMdTab('write')"
+                  class="md-tab-btn px-3 py-1.5 text-xs font-medium border-b-2 border-indigo-500 text-indigo-700">Escribir</button>
+          <button type="button" data-md-tab="preview" onclick="switchMdTab('preview')"
+                  class="md-tab-btn px-3 py-1.5 text-xs font-medium border-b-2 border-transparent text-slate-500">Vista previa</button>
+          <div class="ml-auto px-2 flex items-center gap-1 text-slate-400">
+            <button type="button" title="Negrita" onclick="mdWrap('**','**')" class="hover:text-indigo-600 px-1"><b>B</b></button>
+            <button type="button" title="Itálica" onclick="mdWrap('*','*')" class="hover:text-indigo-600 px-1"><i>I</i></button>
+            <button type="button" title="Código" onclick="mdCode()" class="hover:text-indigo-600 px-1 font-mono text-[11px]">‹/›</button>
+            <button type="button" title="Encabezado" onclick="mdPrefix('# ')" class="hover:text-indigo-600 px-1 font-bold">H</button>
+            <button type="button" title="Lista" onclick="mdPrefix('- ')" class="hover:text-indigo-600 px-1">•</button>
+            <button type="button" title="Link" onclick="mdWrap('[','](url)')" class="hover:text-indigo-600 px-1">🔗</button>
+          </div>
+        </div>
+        <div data-md-pane="write" class="md-pane">
+          <textarea id="edit-descripcion" rows="5"
+                    class="w-full text-sm px-3 py-2 focus:outline-none resize-y font-mono"
+                    placeholder="Detalles del ticket... **negrita**, *itálica*, 'código', # título, - lista"></textarea>
+        </div>
+        <div data-md-pane="preview" class="md-pane hidden p-3 text-sm text-slate-700 min-h-[110px] bg-white">
+          <div id="md-preview-content" class="prose prose-sm max-w-none"></div>
+        </div>
+      </div>
     </div>
     <div>
       <h4 class="text-xs font-semibold text-slate-600 mb-2">Etiquetas (click para alternar)</h4>
@@ -1110,11 +1341,13 @@ function renderDetailContent() {
 
   // Adjuntos
   document.getElementById("detail-tab-adjuntos").innerHTML = renderAttachments(t);
+  // Bug 3: Activar el dropzone real con drag-and-drop tras renderizar el HTML
+  setupAdjuntosDropzone();
 }
 
 function renderChecklists(t) {
   if (!t.checklists || t.checklists.length === 0) {
-    return `<div class="text-center text-slate-400 py-6 italic text-sm">Sin checklists. <button class="text-indigo-600 hover:underline" onclick="addChecklist()">+ Agregar</button></div>`;
+    return `<div class="text-center text-slate-400 py-6 italic text-sm">Sin checklists. <button class="text-indigo-600 hover:underline font-medium" onclick="addChecklist()">+ Agregar checklist</button></div>`;
   }
   let html = `<div class="space-y-3">`;
   t.checklists.forEach(cl => {
@@ -1122,24 +1355,35 @@ function renderChecklists(t) {
     html += `
       <div class="border border-slate-200 rounded-lg p-3">
         <div class="flex items-center justify-between mb-2">
-          <h5 class="font-semibold text-sm text-slate-800">${cl.titulo}</h5>
-          <span class="text-xs text-slate-500">${p.done}/${p.total}</span>
+          <h5 class="font-semibold text-sm text-slate-800">${escapeHtml(cl.titulo)}</h5>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500 font-mono">${p.done}/${p.total}</span>
+            <button class="text-xs text-red-500 hover:underline" title="Eliminar checklist" onclick="deleteChecklist(${cl.id})">×</button>
+          </div>
         </div>
         <div class="checklist-progress-bar mb-3"><div class="checklist-progress-fill" style="width:${p.pct}%"></div></div>
         <div class="space-y-1">
           ${cl.items.map(item => `
-            <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded">
-              <input type="checkbox" ${item.completado ? "checked" : ""} onchange="toggleChecklistItem(${cl.id}, ${item.id})" class="rounded">
-              <span class="${item.completado ? "line-through text-slate-400" : "text-slate-700"}">${item.texto}</span>
-            </label>`).join("")}
+            <div class="flex items-center gap-2 text-sm hover:bg-slate-50 p-1.5 rounded group">
+              <input type="checkbox" ${item.completado ? "checked" : ""} onchange="toggleChecklistItem(${cl.id}, ${item.id})" class="rounded cursor-pointer">
+              <span class="flex-1 ${item.completado ? "line-through text-slate-400" : "text-slate-700"}">${escapeHtml(item.texto)}</span>
+              <button class="text-xs text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100" title="Eliminar item" onclick="deleteChecklistItem(${cl.id}, ${item.id})">×</button>
+            </div>`).join("")}
         </div>
-        <div class="mt-2 flex gap-2">
-          <input type="text" placeholder="+ Agregar ítem" class="flex-1 text-xs border border-slate-200 rounded px-2 py-1" onkeypress="if(event.key==='Enter')addChecklistItem(${cl.id}, this)">
-          <button class="text-xs text-indigo-600 hover:underline" onclick="addChecklist()">+ Nueva lista</button>
+        <!-- Bug 4: Form para añadir items con botón explícito -->
+        <div class="mt-2 pt-2 border-t border-slate-100 flex gap-2">
+          <input type="text" placeholder="Nueva tarea..." class="cl-item-input flex-1 text-xs border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300" data-cl-id="${cl.id}">
+          <button type="button" onclick="addChecklistItemFromInput(${cl.id})"
+                  class="px-2.5 py-1 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1">
+            <span>+</span> Añadir
+          </button>
         </div>
       </div>`;
   });
-  html += `</div>`;
+  html += `</div>
+    <div class="mt-3">
+      <button class="text-xs font-medium text-indigo-600 hover:underline" onclick="addChecklist()">+ Nueva checklist</button>
+    </div>`;
   return html;
 }
 
@@ -1178,27 +1422,37 @@ function renderComments(t) {
 }
 
 function renderAttachments(t) {
-  if (!t.adjuntos || t.adjuntos.length === 0) {
-    return `<div class="text-center text-slate-400 py-6 italic text-sm">Sin adjuntos.</div>`;
-  }
   let html = `<div class="space-y-2">`;
-  t.adjuntos.forEach(a => {
-    const ext = a.nombre.split(".").pop().toUpperCase();
-    html += `
+  if (!t.adjuntos || t.adjuntos.length === 0) {
+    html += `<div class="text-center text-slate-400 py-4 italic text-sm">Sin adjuntos.</div>`;
+  } else {
+    t.adjuntos.forEach(a => {
+      const ext = (a.nombre.split(".").pop() || "?").toUpperCase();
+      const isImage = a.mime && a.mime.startsWith("image/");
+      html += `
       <div class="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50">
-        <div class="w-10 h-10 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">${ext}</div>
+        <div class="w-10 h-10 rounded ${isImage ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'} flex items-center justify-center text-xs font-bold">${isImage ? 'IMG' : ext}</div>
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium text-slate-800 truncate">${a.nombre}</div>
-          <div class="text-xs text-slate-500">${formatSize(a.tamaño)} · ${a.autor} · ${a.fecha}</div>
+          <div class="text-sm font-medium text-slate-800 truncate">${escapeHtml(a.nombre)}</div>
+          <div class="text-xs text-slate-500">${formatSize(a.tamaño)} · ${escapeHtml(a.autor || 'Anónimo')} · ${escapeHtml(a.fecha || '')}</div>
         </div>
-        <button class="text-xs text-indigo-600 hover:underline" onclick="showToast('Descargando ${a.nombre}...', 'info')">Descargar</button>
+        <button class="text-xs text-indigo-600 hover:underline" onclick="downloadAdjunto(${a.id})">Descargar</button>
+        <button class="text-xs text-red-500 hover:underline" onclick="deleteAdjunto(${a.id})">×</button>
       </div>`;
-  });
+    });
+  }
   html += `</div>
     <div class="mt-4 border-t border-slate-200 pt-3">
-      <div class="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center text-sm text-slate-500 hover:border-indigo-400 cursor-pointer" onclick="fakeUpload()">
-        📎 Click para subir archivo (máx 25 MB)
+      <!-- Bug 3: Dropzone real con drag-and-drop + file picker + preview -->
+      <div id="adj-dropzone" data-ticket-id="${t.id}" class="adj-dropzone border-2 border-dashed border-slate-300 rounded-lg p-4 text-center text-sm text-slate-500 hover:border-indigo-400 cursor-pointer transition">
+        <div class="flex items-center justify-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+          <span>Arrastra archivos aquí o <span class="text-indigo-600 underline">haz click para seleccionar</span></span>
+        </div>
+        <div class="text-[10px] text-slate-400 mt-1">Máx 25 MB por archivo</div>
+        <input type="file" multiple class="adj-file-input hidden">
       </div>
+      <div class="adj-preview mt-2 space-y-1"></div>
     </div>`;
   return html;
 }
@@ -1234,7 +1488,40 @@ function addChecklistItem(clId, input) {
   cl.items.push({ id: newId, texto: input.value.trim(), completado: false });
   renderDetailContent();
   renderBoard();
+  persistTickets();
   showToast("Tarea agregada", "success", 1500);
+}
+
+function addChecklistItemFromInput(clId) {
+  const input = document.querySelector(`.cl-item-input[data-cl-id="${clId}"]`);
+  if (!input) return;
+  if (!input.value.trim()) { showToast("Escribe una tarea", "error"); input.focus(); return; }
+  addChecklistItem(clId, input);
+  // Limpiar el input tras agregar
+  setTimeout(() => { const i = document.querySelector(`.cl-item-input[data-cl-id="${clId}"]`); if (i) i.value = ""; }, 50);
+}
+
+function deleteChecklist(clId) {
+  if (!currentTicket) return;
+  const cl = currentTicket.checklists.find(c => c.id === clId);
+  if (!cl) return;
+  if (!confirm(`¿Eliminar la checklist "${cl.titulo}" con ${cl.items.length} tarea(s)?`)) return;
+  currentTicket.checklists = currentTicket.checklists.filter(c => c.id !== clId);
+  renderDetailContent();
+  renderBoard();
+  persistTickets();
+  showToast("Checklist eliminada", "info", 2000);
+}
+
+function deleteChecklistItem(clId, itemId) {
+  if (!currentTicket) return;
+  const cl = currentTicket.checklists.find(c => c.id === clId);
+  if (!cl) return;
+  cl.items = cl.items.filter(i => i.id !== itemId);
+  renderDetailContent();
+  renderBoard();
+  persistTickets();
+  showToast("Tarea eliminada", "info", 1500);
 }
 
 function addChecklist() {
@@ -1244,27 +1531,116 @@ function addChecklist() {
   const newId = Math.max(...tickets.flatMap(t => t.checklists.map(c => c.id)), 0) + 1;
   currentTicket.checklists.push({ id: newId, titulo, items: [] });
   renderDetailContent();
+  persistTickets();
   showToast("Checklist creada", "success");
 }
 
 function addComment() {
-  const text = document.getElementById("new-comment").value.trim();
-  if (!text) return;
+  const ta = document.getElementById("new-comment");
+  if (!ta) { showToast("Error: textarea no encontrada", "error"); return; }
+  const text = ta.value.trim();
+  if (!text) { showToast("Escribe un comentario", "error"); ta.focus(); return; }
   const interno = document.getElementById("comment-internal").checked;
   if (!currentTicket.comentarios) currentTicket.comentarios = [];
   const newId = Math.max(...tickets.flatMap(t => t.comentarios.map(c => c.id)), 0) + 1;
   currentTicket.comentarios.push({ id: newId, autor: "Carlos R.", fecha: "ahora", texto: text, interno });
+  ta.value = "";
   renderDetailContent();
+  persistTickets();
   showToast(interno ? "🔒 Comentario interno publicado" : "Comentario publicado", "success");
 }
 
-function fakeUpload() {
-  const nombre = `archivo_${Date.now()}.pdf`;
-  if (!currentTicket.adjuntos) currentTicket.adjuntos = [];
-  const newId = Math.max(...tickets.flatMap(t => t.adjuntos.map(a => a.id)), 0) + 1;
-  currentTicket.adjuntos.push({ id: newId, nombre, tamaño: Math.floor(Math.random() * 1000000) + 100000, autor: "Carlos R.", fecha: "ahora" });
+// --------- Adjuntos: dropzone real + descargar/eliminar (Bug 3) ---------
+function bytesToReadable(n) {
+  if (!n && n !== 0) return "?";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1024 * 1024 * 1024) return (n / 1048576).toFixed(1) + " MB";
+  return (n / 1073741824).toFixed(1) + " GB";
+}
+
+function renderAdjPreview(adjuntos) {
+  return adjuntos.slice(-3).map(a => {
+    const sizeStr = typeof a.tamano_bytes === "number" ? bytesToReadable(a.tamano_bytes) : (a.tamaño ? bytesToReadable(a.tamaño) : "?");
+    return `<div class="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1 flex items-center gap-2">
+      <svg class="w-3 h-3 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+      <span class="truncate">${escapeHtml(a.nombre || a.nombre_original || "archivo")}</span>
+      <span class="text-slate-400">·</span>
+      <span>${sizeStr}</span>
+    </div>`;
+  }).join("");
+}
+
+function setupAdjuntosDropzone() {
+  const dz = document.getElementById("adj-dropzone");
+  if (!dz || dz.dataset.wired === "1") return;
+  dz.dataset.wired = "1";
+  const input = dz.querySelector(".adj-file-input");
+  if (!input) return;
+
+  function addFiles(fileList) {
+    if (!currentTicket) return;
+    if (!currentTicket.adjuntos) currentTicket.adjuntos = [];
+    let added = 0;
+    Array.from(fileList).forEach(f => {
+      if (f.size > 25 * 1024 * 1024) {
+        showToast(`"${f.name}" excede 25 MB`, "error");
+        return;
+      }
+      const newId = Math.max(...tickets.flatMap(t => t.adjuntos.map(a => a.id)), 0) + 1 + added;
+      currentTicket.adjuntos.push({
+        id: newId,
+        nombre: f.name,
+        nombre_original: f.name,
+        tamano_bytes: f.size,
+        tamaño: f.size,
+        mime: f.type,
+        autor: "Carlos R.",
+        fecha: new Date().toISOString().split("T")[0],
+      });
+      added++;
+    });
+    if (added > 0) {
+      renderDetailContent();
+      persistTickets();
+      showToast(`📎 ${added} archivo(s) adjuntado(s)`, "success");
+    }
+  }
+
+  // Click en dropzone abre el file picker
+  dz.addEventListener("click", e => { e.preventDefault(); input.click(); });
+  input.addEventListener("change", e => { if (e.target.files.length) addFiles(e.target.files); input.value = ""; });
+
+  // Drag & drop
+  ["dragenter", "dragover"].forEach(ev => {
+    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add("border-indigo-500", "bg-indigo-50"); });
+  });
+  ["dragleave", "drop"].forEach(ev => {
+    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove("border-indigo-500", "bg-indigo-50"); });
+  });
+  dz.addEventListener("drop", e => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) addFiles(files);
+  });
+}
+
+function downloadAdjunto(id) {
+  if (!currentTicket || !currentTicket.adjuntos) return;
+  const a = currentTicket.adjuntos.find(x => x.id === id);
+  if (!a) return;
+  // En el demo no almacenamos bytes; mostramos un toast informativo
+  showToast(`Descarga simulada: ${a.nombre || a.nombre_original}`, "info", 2500);
+}
+
+function deleteAdjunto(id) {
+  if (!currentTicket || !currentTicket.adjuntos) return;
+  const a = currentTicket.adjuntos.find(x => x.id === id);
+  if (!a) return;
+  if (!confirm(`¿Eliminar "${a.nombre || a.nombre_original}"?`)) return;
+  currentTicket.adjuntos = currentTicket.adjuntos.filter(x => x.id !== id);
   renderDetailContent();
-  showToast(`📎 ${nombre} subido`, "success");
+  persistTickets();
+  showToast("Adjunto eliminado", "info", 1500);
 }
 
 // ============================================================
@@ -1272,18 +1648,47 @@ function fakeUpload() {
 // ============================================================
 let newTicketLabels = new Set();
 
+// Estado temporal para el nuevo ticket
+let newTicketFiles = [];
+
 function openNewTicketModal() {
   document.getElementById("new-ticket-modal").classList.remove("hidden");
   const container = document.getElementById("new-etiquetas");
   container.innerHTML = ETIQUETAS.map(l => `
     <button type="button" class="label-chip cursor-pointer opacity-30 hover:opacity-100" style="background:${l.color}" data-label-id="${l.id}" onclick="toggleNewLabel(${l.id})">${l.nombre}</button>
   `).join("");
+  // Resetear estado temporal
+  newTicketFiles = [];
+  renderNewFilesPreview();
+  const chk = document.getElementById("new-checklist-enable");
+  if (chk) chk.checked = false;
+  const fields = document.getElementById("new-checklist-fields");
+  if (fields) fields.classList.add("hidden");
+  const due = document.getElementById("new-due");
+  if (due) due.value = "";
+  setupNewTicketDropzone();
+  setupNewChecklistToggle();
 }
 
 function closeNewTicketModal() {
   document.getElementById("new-ticket-modal").classList.add("hidden");
   document.getElementById("new-titulo").value = "";
   document.getElementById("new-desc").value = "";
+  const due = document.getElementById("new-due");
+  if (due) due.value = "";
+  const chk = document.getElementById("new-checklist-enable");
+  if (chk) chk.checked = false;
+  const fields = document.getElementById("new-checklist-fields");
+  if (fields) fields.classList.add("hidden");
+  const ct = document.getElementById("new-checklist-titulo");
+  if (ct) ct.value = "";
+  const ci = document.getElementById("new-checklist-items");
+  if (ci) ci.value = "";
+  const preview = document.getElementById("new-files-preview");
+  if (preview) preview.innerHTML = "";
+  const fileInput = document.getElementById("new-files");
+  if (fileInput) fileInput.value = "";
+  newTicketFiles = [];
   newTicketLabels.clear();
 }
 
@@ -1295,11 +1700,75 @@ function toggleNewLabel(id) {
   });
 }
 
+function setupNewChecklistToggle() {
+  const chk = document.getElementById("new-checklist-enable");
+  if (!chk || chk.dataset.wired === "1") return;
+  chk.dataset.wired = "1";
+  chk.addEventListener("change", e => {
+    const fields = document.getElementById("new-checklist-fields");
+    if (!fields) return;
+    fields.classList.toggle("hidden", !e.target.checked);
+  });
+}
+
+function renderNewFilesPreview() {
+  const preview = document.getElementById("new-files-preview");
+  if (!preview) return;
+  if (!newTicketFiles.length) { preview.innerHTML = ""; return; }
+  preview.innerHTML = newTicketFiles.map((f, i) => `
+    <div class="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 flex items-center gap-2">
+      <svg class="w-3 h-3 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+      <span class="truncate flex-1">${escapeHtml(f.name)}</span>
+      <span class="text-slate-400">${bytesToReadable(f.size)}</span>
+      <button type="button" class="text-red-500 hover:text-red-700" onclick="removeNewFile(${i})" title="Quitar">×</button>
+    </div>`).join("");
+}
+
+function removeNewFile(idx) {
+  newTicketFiles.splice(idx, 1);
+  renderNewFilesPreview();
+}
+
+function setupNewTicketDropzone() {
+  const dz = document.getElementById("new-dropzone");
+  if (!dz || dz.dataset.wired === "1") return;
+  dz.dataset.wired = "1";
+  const input = document.getElementById("new-files");
+  if (!input) return;
+
+  function addFiles(fileList) {
+    Array.from(fileList).forEach(f => {
+      if (f.size > 25 * 1024 * 1024) {
+        showToast(`"${f.name}" excede 25 MB`, "error");
+        return;
+      }
+      newTicketFiles.push(f);
+    });
+    renderNewFilesPreview();
+  }
+
+  dz.addEventListener("click", e => { e.preventDefault(); input.click(); });
+  input.addEventListener("change", e => { if (e.target.files.length) addFiles(e.target.files); input.value = ""; });
+
+  ["dragenter", "dragover"].forEach(ev => {
+    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add("border-indigo-500", "bg-indigo-50"); });
+  });
+  ["dragleave", "drop"].forEach(ev => {
+    dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove("border-indigo-500", "bg-indigo-50"); });
+  });
+  dz.addEventListener("drop", e => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) addFiles(files);
+  });
+}
+
 function createNewTicket() {
   const titulo = document.getElementById("new-titulo").value.trim();
   if (!titulo) { showToast("El título es obligatorio", "error"); return; }
   const desc = document.getElementById("new-desc").value.trim();
   const prio = document.getElementById("new-prio").value;
+  const dueEl = document.getElementById("new-due");
+  const dueVal = dueEl && dueEl.value ? dueEl.value : new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
   const newId = Math.max(...tickets.map(t => t.id)) + 1;
   const t = {
     id: newId,
@@ -1307,15 +1776,48 @@ function createNewTicket() {
     titulo, descripcion: desc || "(sin descripción)",
     prioridad: prio, estado_id: 1, asignado: null, sla_vencido: false,
     created_at: new Date().toISOString().split("T")[0],
-    due_date: new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0],
+    due_date: dueVal,
     etiquetas: Array.from(newTicketLabels),
     checklists: [], comentarios: [], adjuntos: [],
   };
+  // Bug 6: Adjuntar archivos al nuevo ticket (solo metadatos en demo)
+  if (newTicketFiles.length) {
+    newTicketFiles.forEach(f => {
+      const newAdjId = Math.max(...t.adjuntos.map(a => a.id), 0) + 1;
+      t.adjuntos.push({
+        id: newAdjId,
+        nombre: f.name,
+        nombre_original: f.name,
+        tamano_bytes: f.size,
+        tamaño: f.size,
+        mime: f.type,
+        autor: "Carlos R.",
+        fecha: new Date().toISOString().split("T")[0],
+      });
+    });
+  }
+  // Bug 6: Checklist inicial opcional
+  const chk = document.getElementById("new-checklist-enable");
+  if (chk && chk.checked) {
+    const tituloCl = (document.getElementById("new-checklist-titulo").value || "Tareas").trim();
+    const itemsRaw = (document.getElementById("new-checklist-items").value || "").trim();
+    const lineas = itemsRaw.split(/\r?\n/).map(s => s.replace(/^[\s\-\*]+/, "").trim()).filter(Boolean);
+    if (lineas.length) {
+      t.checklists.push({
+        id: 1,
+        titulo: tituloCl,
+        items: lineas.map((txt, i) => ({ id: i + 1, texto: txt, completado: false })),
+      });
+    } else {
+      t.checklists.push({ id: 1, titulo: tituloCl, items: [] });
+    }
+  }
   tickets.unshift(t);
   closeNewTicketModal();
   renderBoard();
   updateStats();
-  showToast(`✓ ${t.codigo} creado`, "success");
+  persistTickets();
+  showToast(`✓ ${t.codigo} creado${newTicketFiles.length ? ` (${newTicketFiles.length} archivo${newTicketFiles.length > 1 ? "s" : ""})` : ""}`, "success");
   // Trigger Butler
   if (prio === "critica") {
     const r1 = REGLAS_BUTLER.find(r => r.id === 1);
@@ -1328,6 +1830,7 @@ function createNewTicket() {
   }
   renderBoard();
   updateStats();
+  persistTickets();
 }
 
 // ============================================================
@@ -1349,6 +1852,13 @@ function updateStats() {
 // INIT
 // ============================================================
 document.addEventListener("DOMContentLoaded", () => {
+  // Hidratar desde localStorage si hay cambios del usuario
+  const persisted = loadTickets();
+  if (persisted) {
+    // Mezclar: tomar versiones persistidas para tickets con el mismo id
+    const map = new Map(persisted.map(t => [t.id, t]));
+    tickets = tickets.map(t => map.get(t.id) || t);
+  }
   renderBoard();
   updateStats();
 
@@ -1358,6 +1868,24 @@ document.addEventListener("DOMContentLoaded", () => {
     showToast(`Rol cambiado a: ${ROL_ACTUAL}`, "info", 2000);
   });
 
+  // Bug 8: Event delegation para botones [data-close-modal] (Cerrar X y Cancelar)
+  document.addEventListener("click", e => {
+    const btn = e.target.closest("[data-close-modal]");
+    if (!btn) return;
+    const which = btn.dataset.closeModal;
+    if (which === "ticket") closeTicketModal();
+    else if (which === "new-ticket") closeNewTicketModal();
+  });
+
+  // Click en el backdrop también cierra (compatible con el onclick inline)
+  document.querySelectorAll("[data-close-modal-backdrop]").forEach(el => {
+    el.addEventListener("click", e => {
+      const which = el.dataset.closeModalBackdrop;
+      if (which === "ticket") closeTicketModal();
+      else if (which === "new-ticket") closeNewTicketModal();
+    });
+  });
+
   // ESC to close modals
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
@@ -1365,483 +1893,10 @@ document.addEventListener("DOMContentLoaded", () => {
       closeNewTicketModal();
     }
   });
+
+  // Inicializar el toggle de checklist del modal "nuevo ticket"
+  setupNewChecklistToggle();
 });
-</script>
-
-<script>
-/**
- * Iframe 元素高亮注入脚本
- * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
- *
- * 使用方法：
- * 1. 将此脚本添加到目标网站的 HTML 中
- * 2. 或通过浏览器扩展、用户脚本等方式注入
- */
-
-(function () {
-  "use strict";
-
-  // 检查是否在 iframe 中
-  if (window.self === window.top) {
-    return; // 不在 iframe 中，不执行
-  }
-
-  // 检查是否已经初始化过
-  if (window.__iframeHighlightInitialized) {
-    return;
-  }
-  window.__iframeHighlightInitialized = true;
-  console.log("Iframe 高亮脚本已加载");
-
-  // 创建高亮覆盖层
-  var overlay = document.createElement("div");
-  overlay.id = "iframe-highlight-overlay";
-  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
-
-  // 创建悬停高亮框（虚线边框）
-  var highlightBox = document.createElement("div");
-  highlightBox.id = "iframe-highlight-box";
-  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
-
-  // 创建选中节点的常驻高亮框（实线边框）
-  var selectedBox = document.createElement("div");
-  selectedBox.id = "iframe-selected-box";
-  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
-
-  // 创建悬停标签显示
-  var tagLabel = document.createElement("div");
-  tagLabel.id = "iframe-tag-label";
-  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
-
-  // 创建选中节点标签
-  var selectedLabel = document.createElement("div");
-  selectedLabel.id = "iframe-selected-label";
-  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
-  overlay.appendChild(highlightBox);
-  overlay.appendChild(selectedBox);
-  overlay.appendChild(tagLabel);
-  overlay.appendChild(selectedLabel);
-  document.body.appendChild(overlay);
-
-  // 存储当前选中的元素
-  var selectedElement = null;
-  var highlightEnabled = false;
-
-  // 更新选中元素的高亮显示
-  function updateSelectedHighlight(element) {
-    console.log("updateSelectedHighlight called with:", element);
-    if (!element) {
-      selectedBox.style.display = "none";
-      selectedLabel.style.display = "none";
-      selectedElement = null;
-      console.log("Cleared selected highlight");
-      return;
-    }
-    selectedElement = element;
-    var rect = element.getBoundingClientRect();
-    console.log("Selected element rect:", rect);
-
-    // 更新选中高亮框位置
-    selectedBox.style.display = "block";
-    selectedBox.style.left = "".concat(rect.left - 2, "px");
-    selectedBox.style.top = "".concat(rect.top - 2, "px");
-    selectedBox.style.width = "".concat(rect.width + 4, "px");
-    selectedBox.style.height = "".concat(rect.height + 4, "px");
-
-    // 更新选中标签位置和内容
-    selectedLabel.style.display = "block";
-    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
-
-    // 计算标签位置，确保不超出视窗
-    var labelTop = rect.top - 28;
-    var labelLeft = rect.left;
-
-    // 如果标签会超出顶部，显示在元素下方
-    if (labelTop < 5) {
-      labelTop = rect.bottom + 5;
-    }
-
-    // 如果标签会超出右侧，向左调整
-    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
-    if (labelLeft + labelWidth > window.innerWidth - 10) {
-      labelLeft = window.innerWidth - labelWidth - 10;
-    }
-    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
-    selectedLabel.style.top = "".concat(labelTop, "px");
-    console.log("Selected highlight positioned at:", {
-      left: selectedBox.style.left,
-      top: selectedBox.style.top,
-      width: selectedBox.style.width,
-      height: selectedBox.style.height
-    });
-  }
-  function getElementSelector(element) {
-    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
-    var segments = [];
-    var current = element;
-    while (current !== document.documentElement) {
-      var selector = '';
-      // 优先检查唯一ID
-      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
-        segments.unshift("#".concat(current.id));
-        break; // ID唯一，无需继续向上
-      }
-
-      // 生成类名选择器（取第一个有效类名）
-      var classes = Array.from(current.classList).filter(function (c) {
-        return !c.startsWith('js-');
-      });
-      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
-
-      // 生成位置索引（nth-child）
-      var tag = current.tagName.toLowerCase();
-      if (!className) {
-        var siblings = Array.from(current.parentNode.children);
-        var index = siblings.findIndex(function (el) {
-          return el === current;
-        }) + 1;
-        selector = "".concat(tag, ":nth-child(").concat(index, ")");
-      } else {
-        selector = className;
-      }
-      segments.unshift(selector);
-      current = current.parentElement;
-    }
-
-    // 处理根元素
-    if (current === document.documentElement) {
-      segments.unshift('html');
-    }
-    return segments.join(' > ');
-  }
-
-  // 获取元素文本内容
-  function getElementText(element) {
-    var _element$textContent;
-    if (element.tagName === "INPUT") {
-      return element.value || element.placeholder || "";
-    }
-    if (element.tagName === "TEXTAREA") {
-      return element.value || element.placeholder || "";
-    }
-    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
-    return text.length > 50 ? text.substring(0, 50) + "..." : text;
-  }
-
-  // 获取元素属性信息
-  function getElementAttributes(element) {
-    var attrs = {};
-    for (var i = 0; i < element.attributes.length; i++) {
-      var attr = element.attributes[i];
-      attrs[attr.name] = attr.value;
-    }
-    return attrs;
-  }
-
-  // 鼠标悬停事件处理
-  function handleMouseOver(e) {
-    if (!highlightEnabled) return;
-    var target = e.target;
-    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
-      return;
-    }
-
-    // 避免高亮 html 和 body 元素
-    if (target === document.documentElement || target === document.body) {
-      return;
-    }
-
-    // 如果是已选中的元素，不显示悬停高亮
-    if (target === selectedElement) {
-      highlightBox.style.display = "none";
-      tagLabel.style.display = "none";
-      return;
-    }
-    var rect = target.getBoundingClientRect();
-    var selector = getElementSelector(target);
-    var text = getElementText(target);
-    var attributes = getElementAttributes(target);
-
-    // 更新悬停高亮框位置
-    highlightBox.style.display = "block";
-    highlightBox.style.left = "".concat(rect.left - 2, "px");
-    highlightBox.style.top = "".concat(rect.top - 2, "px");
-    highlightBox.style.width = "".concat(rect.width + 4, "px");
-    highlightBox.style.height = "".concat(rect.height + 4, "px");
-
-    // 更新标签位置和内容
-    tagLabel.style.display = "block";
-    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
-
-    // 计算标签位置，确保不超出视窗
-    var labelTop = rect.top - 22;
-    var labelLeft = rect.left;
-
-    // 如果标签会超出顶部，显示在元素下方
-    if (labelTop < 0) {
-      labelTop = rect.bottom + 5;
-    }
-
-    // 如果标签会超出右侧，向左调整
-    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
-      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
-    }
-    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
-    tagLabel.style.top = "".concat(labelTop, "px");
-
-    // 发送消息到父窗口
-    var elementInfo = {
-      tagName: target.tagName.toLowerCase(),
-      rect: {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        width: rect.width,
-        height: rect.height,
-        x: rect.x,
-        y: rect.y
-      },
-      selector: selector,
-      text: text,
-      attributes: attributes,
-      url: window.location.href,
-      path: window.location.pathname,
-      timestamp: Date.now()
-    };
-    try {
-      window.parent.postMessage({
-        type: "iframe-element-hover",
-        data: elementInfo,
-        source: "iframe-highlight-injector"
-      }, "*");
-    } catch (error) {
-      console.warn("无法发送消息到父窗口:", error);
-    }
-  }
-
-  // 鼠标离开事件处理
-  function handleMouseOut(e) {
-    if (!highlightEnabled) return;
-    var relatedTarget = e.relatedTarget;
-
-    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
-    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
-      return;
-    }
-    highlightBox.style.display = "none";
-    tagLabel.style.display = "none";
-    try {
-      window.parent.postMessage({
-        type: "iframe-element-hover",
-        data: null,
-        source: "iframe-highlight-injector"
-      }, "*");
-    } catch (error) {
-      console.warn("无法发送消息到父窗口:", error);
-    }
-  }
-
-  // 点击事件处理
-  function handleClick(e) {
-    var target = e.target;
-    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
-      return;
-    }
-
-    // 避免处理 html 和 body 元素
-    if (target === document.documentElement || target === document.body) {
-      return;
-    }
-
-    // 检查是否是交互元素，这些元素需要保留默认行为
-    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
-
-    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
-    if (highlightEnabled) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    var rect = target.getBoundingClientRect();
-    var selector = getElementSelector(target);
-    var text = getElementText(target);
-    var attributes = getElementAttributes(target);
-    console.log("Element clicked:", {
-      tagName: target.tagName,
-      selector: selector,
-      rect: rect
-    });
-
-    // 立即更新选中高亮
-    updateSelectedHighlight(target);
-
-    // 隐藏悬停高亮，因为现在是选中状态
-    highlightBox.style.display = "none";
-    tagLabel.style.display = "none";
-    var elementInfo = {
-      tagName: target.tagName.toLowerCase(),
-      rect: {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        width: rect.width,
-        height: rect.height,
-        x: rect.x,
-        y: rect.y
-      },
-      selector: selector,
-      text: text,
-      attributes: attributes,
-      url: window.location.href,
-      path: window.location.pathname,
-      timestamp: Date.now()
-    };
-    try {
-      window.parent.postMessage({
-        type: "iframe-element-click",
-        data: elementInfo,
-        source: "iframe-highlight-injector"
-      }, "*");
-    } catch (error) {
-      console.warn("无法发送消息到父窗口:", error);
-    }
-  }
-
-  // 监听来自父窗口的消息
-  function handleParentMessage(event) {
-    console.log("Received message from parent:", event.data);
-    if (event.data.type === "iframe-highlight-toggle") {
-      var enabled = event.data.enabled;
-      console.log("Highlight toggle:", enabled);
-      if (enabled) {
-        enableHighlight();
-      } else {
-        disableHighlight();
-      }
-    } else if (event.data.type === "enable-iframe-highlight") {
-      console.log("Enable iframe highlight");
-      enableHighlight();
-    } else if (event.data.type === "disable-iframe-highlight") {
-      console.log("Disable iframe highlight");
-      disableHighlight();
-    } else if (event.data.type === "toggle-iframe-highlight") {
-      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
-      console.log("Toggle iframe highlight to:", _enabled);
-      if (_enabled) {
-        enableHighlight();
-      } else {
-        disableHighlight();
-      }
-    } else if (event.data.type === "update-selected-element") {
-      var selector = event.data.selector;
-      console.log("Update selected element with selector:", selector);
-      if (selector) {
-        try {
-          var element = document.querySelector(selector);
-          console.log("Found element by selector:", element);
-          updateSelectedHighlight(element);
-        } catch (error) {
-          console.warn("Failed to select element:", error);
-          updateSelectedHighlight(null);
-        }
-      } else {
-        updateSelectedHighlight(null);
-      }
-    } else if (event.data.type === "clear-selected-element") {
-      console.log("Clear selected element");
-      updateSelectedHighlight(null);
-    }
-  }
-
-  // 启用高亮功能
-  function enableHighlight() {
-    console.log("Enabling highlight");
-    document.addEventListener("mouseover", handleMouseOver, true);
-    document.addEventListener("mouseout", handleMouseOut, true);
-    document.addEventListener("click", handleClick, true);
-    highlightEnabled = true;
-    overlay.style.display = "block";
-  }
-
-  // 禁用高亮功能
-  function disableHighlight() {
-    console.log("Disabling highlight");
-    highlightEnabled = false;
-    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
-    // 这样可以保留选中状态的显示
-    highlightBox.style.display = "none";
-    tagLabel.style.display = "none";
-    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
-  }
-
-  // 完全禁用高亮功能（移除所有监听器）
-  function fullyDisableHighlight() {
-    console.log("Fully disabling highlight");
-    highlightEnabled = false;
-    document.removeEventListener("mouseover", handleMouseOver, true);
-    document.removeEventListener("mouseout", handleMouseOut, true);
-    document.removeEventListener("click", handleClick, true);
-    overlay.style.display = "none";
-    highlightBox.style.display = "none";
-    tagLabel.style.display = "none";
-    selectedBox.style.display = "none";
-    selectedLabel.style.display = "none";
-  }
-
-  // 添加事件监听
-  enableHighlight();
-  window.addEventListener("message", handleParentMessage);
-
-  // 暴露全局函数供外部调用
-  window.__iframeHighlightControl = {
-    enable: enableHighlight,
-    disable: disableHighlight,
-    fullyDisable: fullyDisableHighlight,
-    isEnabled: function isEnabled() {
-      return highlightEnabled;
-    },
-    getSelectedElement: function getSelectedElement() {
-      return selectedElement;
-    },
-    updateSelected: updateSelectedHighlight,
-    // 通过消息发送开关控制
-    sendToggleMessage: function sendToggleMessage(enabled) {
-      window.parent.postMessage({
-        type: 'iframe-highlight-status',
-        enabled: enabled || highlightEnabled,
-        source: 'iframe-highlight-injector'
-      }, '*');
-    }
-  };
-
-  // 通知父窗口脚本已加载
-  try {
-    window.parent.postMessage({
-      type: "iframe-highlight-ready",
-      data: {
-        url: window.location.href,
-        userAgent: navigator.userAgent,
-        timestamp: Date.now()
-      },
-      source: "iframe-highlight-injector"
-    }, "*");
-  } catch (error) {
-    console.warn("无法发送就绪消息到父窗口:", error);
-  }
-
-  // 清理函数
-  window.__iframeHighlightCleanup = function () {
-    fullyDisableHighlight();
-    window.removeEventListener("message", handleParentMessage);
-    if (overlay.parentElement) {
-      overlay.parentElement.removeChild(overlay);
-    }
-    delete window.__iframeHighlightInitialized;
-    delete window.__iframeHighlightCleanup;
-  };
-})();
-
 </script>
 </body>
 </html>
