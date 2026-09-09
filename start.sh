@@ -35,9 +35,16 @@ else:
 fi
 
 # 3) Inicializar base de datos (modo demo/dev)
-if [[ "${AUTO_INIT_DB:-false}" == "true" ]]; then
-    echo "[start.sh] Inicializando base de datos..."
-    python -m app.db.init_db || echo "[start.sh] Aviso: init_db falló, continuando..."
+# AUTO_INIT_DB=true activa el seed completo (usuarios, tickets demo, etc.)
+# En producción real no es necesario: el lifespan de FastAPI ya aplica
+# migraciones idempotentes en cada arranque.
+if [[ "${AUTO_INIT_DB:-true}" == "true" ]]; then
+    echo "[start.sh] Verificando/Aplicando migraciones..."
+    python -m app.db.migrations || echo "[start.sh] Aviso: migraciones fallaron, continuando..."
+    if [[ "${SEED_DATA:-false}" == "true" ]]; then
+        echo "[start.sh] Inicializando base de datos (datos semilla)..."
+        python -m app.db.init_db || echo "[start.sh] Aviso: init_db falló, continuando..."
+    fi
 fi
 
 # 4) Lanzar el proceso correspondiente

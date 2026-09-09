@@ -32,13 +32,32 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Inicialización al arranque (crear tablas si no existen)."""
+    """Inicialización al arranque.
+
+    1) SIEMPRE: aplicar migraciones pendientes (idempotente, rápido, seguro).
+       Esto alinea el esquema de la BD con los modelos SQLAlchemy sin
+       necesidad de Alembic. Se ejecuta en cada arranque para que un
+       deploy que añada columnas no rompa la app en producción.
+
+    2) SOLO SI AUTO_INIT_DB=true o DEBUG: ejecutar init_database() que crea
+       tablas faltantes y carga datos semilla. En producción NO es
+       necesario porque las migraciones del paso 1 ya garantizan el
+       esquema; AUTO_INIT_DB solo se activa explícitamente.
+    """
+    # Paso 1: migraciones idempotentes (SIEMPRE)
+    try:
+        from app.db.migrations import apply_migrations
+        apply_migrations()
+    except Exception as e:
+        logger.warning(f"[startup] No se pudieron aplicar migraciones: {e}")
+
+    # Paso 2: init completo solo si está activado
     if settings.DEBUG or os.getenv("AUTO_INIT_DB", "false").lower() == "true":
         try:
             from app.db.init_db import init_database
             init_database()
         except Exception as e:
-            logger.warning(f"No se pudo inicializar la BD automáticamente: {e}")
+            logger.warning(f"[startup] No se pudo inicializar la BD automáticamente: {e}")
     yield
 
 

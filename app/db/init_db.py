@@ -34,14 +34,23 @@ logger = logging.getLogger(__name__)
 
 
 def init_database():
-    """Crea todas las tablas y carga los datos iniciales."""
+    """Crea todas las tablas, aplica migraciones pendientes y carga los datos iniciales."""
     print("=" * 60)
     print(f"Inicializando BD: {settings.get_database_url()}")
     print("=" * 60)
 
-    # Crear todas las tablas
+    # 1) Aplicar migraciones idempotentes (alinea columnas nuevas)
+    try:
+        from app.db.migrations import apply_migrations
+        stats = apply_migrations()
+        print(f"✓ Migraciones aplicadas (added={stats['applied']}, "
+              f"skipped={stats['skipped']}, errors={stats['errors']})")
+    except Exception as e:
+        print(f"⚠ Migraciones: {e}")
+
+    # 2) Crear todas las tablas (no-op si existen)
     Base.metadata.create_all(bind=engine)
-    print("✓ Tablas creadas")
+    print("✓ Tablas verificadas")
 
     db = SessionLocal()
     try:

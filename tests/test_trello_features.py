@@ -598,6 +598,43 @@ def t46():
     assert r.status_code == 200
 
 # ============================================================
+# REGRESIÓN: módulo de migraciones idempotente
+# Bug: "column estados.tablero_id does not exist" en producción porque
+# el esquema de la BD no se migró cuando se añadieron las columnas de
+# las features estilo Trello. El módulo app.db.migrations detecta y
+# añade las columnas faltantes de forma idempotente.
+# ============================================================
+print("\n[REGRESIÓN - MIGRACIONES DE ESQUEMA]")
+
+@test("apply_migrations() es idempotente y completa el esquema")
+def t47():
+    """Verifica que apply_migrations() puede ejecutarse múltiples veces
+    sin errores y deja todas las columnas requeridas presentes."""
+    from app.db.migrations import apply_migrations, COLUMNS_TO_ADD
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    # 1) Primera ejecución: debe añadir las columnas que falten
+    stats1 = apply_migrations()
+    assert stats1["errors"] == 0, f"errores en primera ejecución: {stats1}"
+    # 2) Verificar que las columnas requeridas ahora existen
+    for table, columns in COLUMNS_TO_ADD.items():
+        existing = {c["name"] for c in insp.get_columns(table)}
+        for col in columns:
+            assert col in existing, (
+                f"BUG REGRESIÓN: columna {table}.{col} no fue añadida. "
+                f"Existentes: {sorted(existing)}"
+            )
+    # 3) Segunda ejecución: debe ser NO-OP (idempotencia)
+    stats2 = apply_migrations()
+    assert stats2["applied"] == 0, (
+        f"idempotencia rota: 2ª ejecución añadió {stats2['applied']} columnas, "
+        f"esperaba 0"
+    )
+    assert stats2["skipped"] >= len(COLUMNS_TO_ADD["estados"]) + len(
+        COLUMNS_TO_ADD["tickets"]
+    ), f"2ª ejecución debería saltar las columnas existentes: {stats2}"
+
+# ============================================================
 # RESUMEN
 # ============================================================
 print("\n" + "="*60)
