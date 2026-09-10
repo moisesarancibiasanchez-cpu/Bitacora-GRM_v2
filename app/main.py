@@ -176,22 +176,153 @@ async def kanban_page(request: Request):
         db.close()
 
 
+def _build_tickets_query(
+    db,
+    q: str = "",
+    estado_id: str = "",
+    prioridad: str = "",
+    asignado_id: str = "",
+    archivado: str = "0",
+):
+    """Construye la query de tickets aplicando los filtros del listado.
+    Por defecto muestra solo los tickets activos (archivado=0)."""
+    from app.models.ticket import Ticket
+    from sqlalchemy import or_
+
+    query = db.query(Ticket)
+    # Filtro por texto (título, código o descripción)
+    if q:
+        patron = f"%{q}%"
+        query = query.filter(or_(
+            Ticket.codigo.ilike(patron),
+            Ticket.titulo.ilike(patron),
+            Ticket.descripcion.ilike(patron),
+        ))
+    # Filtro por estado
+    if estado_id:
+        try:
+            query = query.filter(Ticket.estado_id == int(estado_id))
+        except (ValueError, TypeError):
+            pass
+    # Filtro por prioridad
+    if prioridad:
+        from app.models.ticket import Prioridad
+        try:
+            query = query.filter(Ticket.prioridad == Prioridad(prioridad))
+        except ValueError:
+            pass
+    # Filtro por asignado (incluye "sin asignar" cuando asignado_id == -1)
+    if asignado_id:
+        if asignado_id == "-1":
+            query = query.filter(Ticket.asignado_id.is_(None))
+        else:
+            try:
+                query = query.filter(Ticket.asignado_id == int(asignado_id))
+            except (ValueError, TypeError):
+                pass
+    # Filtro por archivado (0=activos, 1=archivados, ""=todos)
+    if archivado == "0":
+        query = query.filter(Ticket.archivado == False)  # noqa: E712
+    elif archivado == "1":
+        query = query.filter(Ticket.archivado == True)  # noqa: E712
+    # Si archivado == "" (Todos) no aplicamos filtro
+    return query
+
+
 @app.get("/tickets", response_class=HTMLResponse)
-async def tickets_page(request: Request):
-    """Página de listado de tickets (tabla)."""
+async def tickets_page(
+    request: Request,
+    q: str = "",
+    estado_id: str = "",
+    prioridad: str = "",
+    asignado_id: str = "",
+    archivado: str = "0",
+):
+    """Página de listado de tickets (tabla) con filtros por HTMX."""
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket
     from app.models.usuario import Usuario, RolUsuario
+    from app.models.estado import Estado
 
     db = SessionLocal()
     try:
-        usuario = db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first() \
-                or db.query(Usuario).first()
-        tickets = db.query(Ticket).order_by(Ticket.created_at.desc()).limit(50).all()
+        usuario = (
+            db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
+            or db.query(Usuario).first()
+        )
+        tickets = (
+            _build_tickets_query(
+                db, q=q, estado_id=estado_id, prioridad=prioridad,
+                asignado_id=asignado_id, archivado=archivado,
+            )
+            .order_by(Ticket.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        estados = db.query(Estado).order_by(Estado.orden.asc()).all()
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
         return templates.TemplateResponse(
             "tickets/list.html",
-            {"request": request, "usuario": usuario, "tickets": tickets},
+            {
+                "request": request, "usuario": usuario, "tickets": tickets,
+                "estados": estados, "usuarios": usuarios,
+                "q": q, "estado_id": estado_id, "prioridad": prioridad,
+                "asignado_id": asignado_id, "archivado": archivado,
+            },
         )
+    finally:
+        db.close()
+
+
+@app.get("/tickets/tabla", response_class=HTMLResponse)
+async def tickets_tabla_partial(
+    request: Request,
+    q: str = "",
+    estado_id: str = "",
+    prioridad: str = "",
+    asignado_id: str = "",
+    archivado: str = "0",
+):
+    """Partial HTMX: devuelve solo el <tbody> filtrado más un OOB con el
+    contador actualizado. Usado por el formulario de filtros del listado."""
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+
+    db = SessionLocal()
+    try:
+        tickets = (
+            _build_tickets_query(
+                db, q=q, estado_id=estado_id, prioridad=prioridad,
+                asignado_id=asignado_id, archivado=archivado,
+            )
+            .order_by(Ticket.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        # Renderizamos la misma plantilla y extraemos solo el contenido del <tbody>
+        rendered = templates.get_template("tickets/list.html").render(
+            request=request, usuario=request.state.usuario if hasattr(request.state, "usuario") else None,
+            tickets=tickets, estados=[], usuarios=[],
+            q=q, estado_id=estado_id, prioridad=prioridad,
+            asignado_id=asignado_id, archivado=archivado,
+        )
+        # Extraer el <tbody>...</tbody> del HTML renderizado
+        import re
+        m = re.search(r'<tbody[^>]*id="tickets-tbody"[^>]*>(.*?)</tbody>', rendered, re.DOTALL)
+        tbody_inner = m.group(1) if m else ""
+        total = len(tickets)
+        # OOB: actualizar el contador
+        oob_count = (
+            f'<p id="tickets-count" hx-swap-oob="true" class="text-sm text-slate-500">'
+            f"{total} incidencia(s) encontrada(s)"
+            f"</p>"
+        )
+        return HTMLResponse(content=oob_count + tbody_inner)
     finally:
         db.close()
 
