@@ -19,6 +19,17 @@
         Filtros
         <span id="filtros-activos" class="hidden ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold">0</span>
       </button>
+      <button id="btn-ver-archivados" type="button"
+              hx-get="/api/v1/tickets/archivados"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              class="px-3 py-1.5 text-xs font-medium rounded-md border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+        </svg>
+        Archivados
+        <span id="count-archivados" class="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-200 text-amber-800 text-[10px] font-bold">…</span>
+      </button>
       <button id="btn-nuevo-ticket" type="button"
               class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white"
               hx-get="/tickets/nuevo" hx-target="#modal-root" hx-swap="innerHTML">

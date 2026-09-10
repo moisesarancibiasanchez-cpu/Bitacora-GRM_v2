@@ -202,15 +202,50 @@ DETALLE_TEMPLATE = Template(r"""
             </div>
           </div>
 
-          {# ----- Botón único "Guardar cambios" ----- #}
-          <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
-            <span class="text-[10px] text-slate-400 italic flex items-center gap-1">
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-              Todos los cambios se aplican en una sola transacción.
-            </span>
+          {# ----- Botón único "Guardar cambios" + "Archivar" ----- #}
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-2">
+              {# Botón archivar / desarchivar (soft-delete ITSM) #}
+              {% if ticket.archivado %}
+                <button type="button"
+                        hx-post="/api/v1/tickets/{{ ticket.id }}/desarchivar"
+                        hx-target="#modal-root" hx-swap="innerHTML"
+                        hx-confirm="¿Restaurar el ticket {{ ticket.codigo }} al tablero? Volverá a aparecer entre las tarjetas activas."
+                        class="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 inline-flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M3 10h11M9 21V3l11 9-11 9z"></path>
+                  </svg>
+                  Restaurar
+                </button>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                  </svg>
+                  Archivado
+                </span>
+              {% else %}
+                <button type="button"
+                        hx-post="/api/v1/tickets/{{ ticket.id }}/archivar"
+                        hx-target="#modal-root" hx-swap="innerHTML"
+                        hx-confirm="¿Archivar el ticket {{ ticket.codigo }}?\\n\\nEl ticket NO se eliminará de la base de datos, solo dejará de mostrarse en el tablero Kanban.\\nPodrás restaurarlo después desde la vista de Archivados."
+                        class="px-3 py-1.5 text-xs font-medium rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 inline-flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                  </svg>
+                  Archivar
+                </button>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-slate-400 italic flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Todos los cambios se aplican en una sola transacción.
+              </span>
               <span id="guardar-spinner-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></span>
               <button type="button"
                       data-action="descartar-cambios"

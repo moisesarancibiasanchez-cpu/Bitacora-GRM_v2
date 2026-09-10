@@ -1064,6 +1064,122 @@ def duplicar_ticket(
 
 
 # ===========================================================================
+#  Archivar / Desarchivar (soft-delete desde el tablero Kanban)
+# ===========================================================================
+@router.post("/{ticket_id}/archivar", response_class=HTMLResponse)
+def archivar_ticket(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Marca un ticket como archivado (soft-delete).
+
+    - El ticket desaparece del Kanban por defecto.
+    - Se inserta registro obligatorio en la tabla ``auditoria``.
+    - Solo ``agente_senior`` o ``administrador`` pueden archivar.
+    - Responde HTML para integrarse con HTMX (cierra el modal y la tarjeta
+      se quita del tablero con un swap OOB).
+    """
+    service = TicketService(db)
+    ticket, error = service.archivar(
+        ticket_id=ticket_id,
+        usuario=usuario,
+        ip_origen=request.client.host if request.client else None,
+    )
+    if error and not ticket:
+        # 404 si no existe el ticket, 403 si no tiene permisos
+        code = 404 if "no encontrado" in error.lower() else 403
+        return HTMLResponse(
+            content=f'<div class="text-rose-600 text-sm">{error}</div>',
+            status_code=code,
+        )
+    if error:
+        # Idempotente: ya estaba archivado, responder OK
+        pass
+
+    # HTMX response: devolver un script que cierre el modal y elimine la
+    # tarjeta del DOM via OOB swap.
+    return HTMLResponse(content=f"""
+<div id="archive-feedback" hx-swap-oob="true"></div>
+<script>
+  (function() {{
+    // Cerrar el modal
+    const modal = document.querySelector('[data-modal="detalle-ticket"]');
+    if (modal) modal.remove();
+    // Quitar la tarjeta del tablero con animación
+    const card = document.getElementById('ticket-{ticket_id}');
+    if (card) {{
+      card.style.transition = 'opacity 250ms, transform 250ms';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.9)';
+      setTimeout(() => card.remove(), 250);
+    }}
+    // Toast
+    showToast && showToast('Ticket {ticket.codigo} archivado', 'success');
+  }})();
+</script>
+""")
+
+
+@router.post("/{ticket_id}/desarchivar", response_class=HTMLResponse)
+def desarchivar_ticket(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Restaura un ticket archivado (aparece nuevamente en el Kanban)."""
+    service = TicketService(db)
+    ticket, error = service.desarchivar(
+        ticket_id=ticket_id,
+        usuario=usuario,
+        ip_origen=request.client.host if request.client else None,
+    )
+    if error and not ticket:
+        code = 404 if "no encontrado" in error.lower() else 403
+        return HTMLResponse(
+            content=f'<div class="text-rose-600 text-sm">{error}</div>',
+            status_code=code,
+        )
+    return HTMLResponse(content=f"""
+<div id="archive-feedback" hx-swap-oob="true"></div>
+<script>
+  (function() {{
+    showToast && showToast('Ticket {ticket.codigo} restaurado al tablero', 'success');
+    // Recargar el tablero para mostrar el ticket
+    setTimeout(() => window.location.reload(), 600);
+  }})();
+</script>
+""")
+
+
+@router.get("/archivados", response_class=HTMLResponse)
+def listar_archivados(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Devuelve la lista de tickets archivados como fragmento HTML
+    (usado por el modal/filtro 'Mostrar archivados')."""
+    from app.templates.kanban.partials.tarjeta import render_tarjeta_completa
+
+    tickets = (
+        db.query(Ticket)
+        .filter(Ticket.archivado == True)  # noqa: E712
+        .order_by(Ticket.updated_at.desc())
+        .all()
+    )
+    items = "".join(render_tarjeta_completa(t) for t in tickets)
+    if not items:
+        items = (
+            '<div class="col-span-full text-center text-slate-400 italic py-12">'
+            "No hay tickets archivados."
+            "</div>"
+        )
+    return HTMLResponse(content=items)
+
+
+# ===========================================================================
 #  Exportar tickets a CSV (Sprint 1 - Feature Trello)
 # ===========================================================================
 @router.get("/exportar/csv")

@@ -345,6 +345,121 @@ class TicketService:
         return self.db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
     # ----------------------------------------------------------------------
+    #  Archivado / Desarchivado (soft-delete para tablero Kanban)
+    # ----------------------------------------------------------------------
+    def archivar(
+        self,
+        ticket_id: int,
+        usuario: Usuario,
+        ip_origen: Optional[str] = None,
+        comentario: Optional[str] = None,
+    ) -> Tuple[Optional[Ticket], Optional[str]]:
+        """Marca un ticket como archivado (soft-delete).
+
+        - El ticket **no** se elimina de la base de datos.
+        - Desaparece de la vista Kanban por defecto.
+        - Se inserta registro obligatorio en ``auditoria`` con la acción
+          ``TICKET_ARCHIVADO``.
+        - Solo roles ``agente_senior`` o ``administrador`` pueden archivar.
+        """
+        ticket = self.obtener_ticket(ticket_id)
+        if not ticket:
+            return None, "Ticket no encontrado"
+
+        # Permisos: agente_senior (4) o administrador (5)
+        if not self._usuario_tiene_rol(usuario, "agente_senior"):
+            rol = usuario.rol.value if hasattr(usuario.rol, "value") else usuario.rol
+            return None, (
+                f"El rol '{rol}' no puede archivar tickets. "
+                "Se requiere 'agente_senior' o 'administrador'."
+            )
+
+        if ticket.archivado:
+            return ticket, "El ticket ya estaba archivado"
+
+        valor_anterior = {"archivado": False}
+        ticket.archivado = True
+        ticket.updated_at = datetime.utcnow()
+
+        # Auditoría obligatoria
+        registrar_auditoria(
+            db=self.db,
+            ticket_id=ticket.id,
+            usuario_id=usuario.id,
+            accion="TICKET_ARCHIVADO",
+            valor_anterior=valor_anterior,
+            valor_nuevo={"archivado": True},
+            comentario=comentario or "Ticket archivado desde el tablero",
+            ip_origen=ip_origen,
+            commit=False,
+        )
+
+        try:
+            self.db.commit()
+            self.db.refresh(ticket)
+        except Exception as exc:
+            self.db.rollback()
+            return None, f"Error al archivar: {exc}"
+
+        # Notificar a watchers en segundo plano (no bloquea)
+        try:
+            from app.tasks.notification_tasks import notificar_ticket_archivado
+            notificar_ticket_archivado.delay(ticket.id, usuario.id)
+        except Exception:
+            pass
+
+        return ticket, None
+
+    def desarchivar(
+        self,
+        ticket_id: int,
+        usuario: Usuario,
+        ip_origen: Optional[str] = None,
+        comentario: Optional[str] = None,
+    ) -> Tuple[Optional[Ticket], Optional[str]]:
+        """Restaura un ticket archivado para que vuelva a aparecer en el Kanban."""
+        ticket = self.obtener_ticket(ticket_id)
+        if not ticket:
+            return None, "Ticket no encontrado"
+
+        # Permisos: agente_senior o administrador
+        if not self._usuario_tiene_rol(usuario, "agente_senior"):
+            rol = usuario.rol.value if hasattr(usuario.rol, "value") else usuario.rol
+            return None, (
+                f"El rol '{rol}' no puede desarchivar tickets. "
+                "Se requiere 'agente_senior' o 'administrador'."
+            )
+
+        if not ticket.archivado:
+            return ticket, "El ticket no estaba archivado"
+
+        valor_anterior = {"archivado": True}
+        ticket.archivado = False
+        ticket.updated_at = datetime.utcnow()
+
+        # Auditoría obligatoria
+        registrar_auditoria(
+            db=self.db,
+            ticket_id=ticket.id,
+            usuario_id=usuario.id,
+            accion="TICKET_DESAARCHIVADO",
+            valor_anterior=valor_anterior,
+            valor_nuevo={"archivado": False},
+            comentario=comentario or "Ticket restaurado al tablero",
+            ip_origen=ip_origen,
+            commit=False,
+        )
+
+        try:
+            self.db.commit()
+            self.db.refresh(ticket)
+        except Exception as exc:
+            self.db.rollback()
+            return None, f"Error al desarchivar: {exc}"
+
+        return ticket, None
+
+    # ----------------------------------------------------------------------
     #  Actualización de campos editables (modal de detalle)
     # ----------------------------------------------------------------------
     CAMPOS_EDITABLES = {
