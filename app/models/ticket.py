@@ -34,6 +34,31 @@ class TipoIncidencia(str, enum.Enum):
     PROBLEMA = "problema"
 
 
+# LOV de módulos del sistema (visible en Nueva Incidencia y Detalle Incidencia)
+MODULOS_LOV = (
+    "Control ERM",
+    "Gobierno",
+    "Incidencias",
+    "Validación",
+    "Auditoria",
+    "Filiales",
+    "Información Inventario",
+    "Registro de Información",
+    "Documentación",
+    "Mejoras Transversales",
+    "Seguimiento y Control",
+)
+
+# LOV de resultado de pruebas (5 valores según imagen de referencia)
+RESULTADO_PRUEBAS_LOV = (
+    "OK",
+    "N/A",
+    "OK CON OBS.",
+    "POSTERGADA A GARANTÍA",
+    "NOK",
+)
+
+
 class Ticket(Base, TimestampMixin):
     """Incidencia del sistema (Tarjeta del Kanban)."""
     __tablename__ = "tickets"
@@ -100,6 +125,18 @@ class Ticket(Base, TimestampMixin):
     posicion = Column(Integer, default=0, nullable=False, index=True)
     # Si la tarjeta está archivada
     archivado = Column(Boolean, default=False, nullable=False, index=True)
+
+    # === Campos extendidos del módulo de Incidencias (LOVs) ===
+    # Módulo al que pertenece la incidencia (LOV fijo, validado en schema)
+    modulo = Column(String(80), nullable=True, index=True)
+    # Vista o pantalla específica (texto libre)
+    vista = Column(String(200), nullable=True)
+    # Historia de usuario o caso de prueba asociado
+    hu_o_caso_prueba = Column(String(200), nullable=True)
+    # Nota u observación libre del agente o solicitante
+    nota_observacion = Column(Text, nullable=True)
+    # Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA A GARANTÍA, NOK)
+    resultado_pruebas = Column(String(40), nullable=True, index=True)
 
     # Relaciones
     estado = relationship("Estado", back_populates="tickets", lazy="joined")

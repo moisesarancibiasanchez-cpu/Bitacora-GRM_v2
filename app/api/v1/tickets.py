@@ -634,6 +634,8 @@ async def guardar_ticket_campos(
     # Mapear los campos enviados a un dict {campo: valor}
     CAMPOS_ACEPTADOS = {
         "titulo", "descripcion", "prioridad", "asignado_id", "fecha_vencimiento",
+        # === Campos extendidos del módulo de Incidencias ===
+        "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
     }
     cambios: dict = {}
     for campo in CAMPOS_ACEPTADOS:
@@ -642,6 +644,14 @@ async def guardar_ticket_campos(
             cambios[campo] = form.get(clave)
         elif campo in form:
             cambios[campo] = form.get(campo)
+
+    # Normalizar vacíos a None para los LOVs
+    LOV_NULLABLE = {"modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas"}
+    for k in list(cambios.keys()):
+        if k in LOV_NULLABLE:
+            v = cambios[k]
+            if v is None or (isinstance(v, str) and v.strip() == ""):
+                cambios[k] = None
 
     if not cambios:
         return HTMLResponse(
@@ -675,6 +685,12 @@ async def guardar_ticket_campos(
             "prioridad": "prioridad_cambiada",
             "asignado_id": "asignacion",
             "fecha_vencimiento": "vencimiento_cambiado",
+            # === Campos extendidos del módulo de Incidencias ===
+            "modulo": "modulo_editado",
+            "vista": "vista_editada",
+            "hu_o_caso_prueba": "hu_caso_prueba_editado",
+            "nota_observacion": "nota_observacion_editada",
+            "resultado_pruebas": "resultado_pruebas_editado",
         }
         campos_modificados = list(valores_nuevos.keys())
         if len(campos_modificados) == 1:

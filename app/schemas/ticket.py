@@ -3,7 +3,34 @@ Schemas Pydantic para validación de entrada/salida de la API.
 """
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+
+# LOV de módulos del sistema (sincronizado con app.models.ticket.MODULOS_LOV)
+MODULOS_PERMITIDOS = {
+    "Control ERM",
+    "Gobierno",
+    "Incidencias",
+    "Validación",
+    "Auditoria",
+    "Filiales",
+    "Información Inventario",
+    "Registro de Información",
+    "Documentación",
+    "Mejoras Transversales",
+    "Seguimiento y Control",
+    "",  # vacío permitido (no asignado)
+}
+
+# LOV de resultado de pruebas
+RESULTADO_PRUEBAS_PERMITIDOS = {
+    "OK",
+    "N/A",
+    "OK CON OBS.",
+    "POSTERGADA A GARANTÍA",
+    "NOK",
+    "",  # vacío permitido
+}
 
 
 # ============== Estado ==============
@@ -16,6 +43,22 @@ class EstadoBase(BaseModel):
     es_final: bool = False
     categoria: str = "abierto"
     sla_horas: Optional[int] = None
+
+
+class EstadoCreate(EstadoBase):
+    """Payload para crear un nuevo estado (POST /estados)."""
+    responsable_id: Optional[int] = Field(
+        default=None,
+        description="ID del usuario responsable de la columna (None = sin asignar)",
+    )
+
+    @field_validator("nombre")
+    @classmethod
+    def _check_nombre(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("nombre no puede estar vacío")
+        return v
 
 
 class EstadoRead(EstadoBase):
@@ -58,6 +101,51 @@ class TicketBase(BaseModel):
     asignado_id: Optional[int] = None
     catalogo_tipo_id: Optional[int] = None
     datos_catalogo: Optional[Dict[str, Any]] = None
+    # === Campos extendidos del módulo de Incidencias ===
+    modulo: Optional[str] = Field(
+        default=None, max_length=80,
+        description="Módulo del sistema (LOV: Control ERM, Gobierno, ...)",
+    )
+    vista: Optional[str] = Field(
+        default=None, max_length=200,
+        description="Vista o pantalla específica",
+    )
+    hu_o_caso_prueba: Optional[str] = Field(
+        default=None, max_length=200,
+        description="Historia de usuario o caso de prueba asociado",
+    )
+    nota_observacion: Optional[str] = Field(
+        default=None,
+        description="Nota u observación libre",
+    )
+    resultado_pruebas: Optional[str] = Field(
+        default=None, max_length=40,
+        description="Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA A GARANTÍA, NOK)",
+    )
+
+    @field_validator("modulo")
+    @classmethod
+    def _check_modulo(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in MODULOS_PERMITIDOS:
+            raise ValueError(
+                f"modulo debe ser uno de: {sorted(m for m in MODULOS_PERMITIDOS if m)}"
+            )
+        return v_norm or None
+
+    @field_validator("resultado_pruebas")
+    @classmethod
+    def _check_resultado(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in RESULTADO_PRUEBAS_PERMITIDOS:
+            raise ValueError(
+                f"resultado_pruebas debe ser uno de: {sorted(r for r in RESULTADO_PRUEBAS_PERMITIDOS if r)}"
+            )
+        return v_norm or None
 
 
 class TicketCreate(TicketBase):
@@ -70,6 +158,36 @@ class TicketUpdate(BaseModel):
     prioridad: Optional[str] = None
     asignado_id: Optional[int] = None
     datos_catalogo: Optional[Dict[str, Any]] = None
+    # === Campos extendidos del módulo de Incidencias ===
+    modulo: Optional[str] = Field(default=None, max_length=80)
+    vista: Optional[str] = Field(default=None, max_length=200)
+    hu_o_caso_prueba: Optional[str] = Field(default=None, max_length=200)
+    nota_observacion: Optional[str] = None
+    resultado_pruebas: Optional[str] = Field(default=None, max_length=40)
+
+    @field_validator("modulo")
+    @classmethod
+    def _check_modulo(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in MODULOS_PERMITIDOS:
+            raise ValueError(
+                f"modulo debe ser uno de: {sorted(m for m in MODULOS_PERMITIDOS if m)}"
+            )
+        return v_norm or None
+
+    @field_validator("resultado_pruebas")
+    @classmethod
+    def _check_resultado(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in RESULTADO_PRUEBAS_PERMITIDOS:
+            raise ValueError(
+                f"resultado_pruebas debe ser uno de: {sorted(r for r in RESULTADO_PRUEBAS_PERMITIDOS if r)}"
+            )
+        return v_norm or None
 
 
 class TicketRead(TicketBase):

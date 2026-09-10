@@ -76,6 +76,12 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
         "descripcion_md": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
         "posicion": ("INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0"),
         "archivado": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
+        # Campos extendidos del módulo de Incidencias (LOVs)
+        "modulo": "VARCHAR(80)",
+        "vista": "VARCHAR(200)",
+        "hu_o_caso_prueba": "VARCHAR(200)",
+        "nota_observacion": "TEXT",
+        "resultado_pruebas": "VARCHAR(40)",
     },
 }
 

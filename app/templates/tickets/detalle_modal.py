@@ -202,6 +202,78 @@ DETALLE_TEMPLATE = Template(r"""
             </div>
           </div>
 
+          {# ----- Campos extendidos del módulo de Incidencias (LOVs) ----- #}
+          <div class="pt-3 border-t border-slate-100">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+              Clasificación y pruebas
+            </h4>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+
+              {# Módulo (LOV fijo) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Módulo</span>
+                <select name="valor_modulo"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin módulo —</option>
+                  <option value="Control ERM" {% if ticket.modulo == 'Control ERM' %}selected{% endif %}>Control ERM</option>
+                  <option value="Gobierno" {% if ticket.modulo == 'Gobierno' %}selected{% endif %}>Gobierno</option>
+                  <option value="Incidencias" {% if ticket.modulo == 'Incidencias' %}selected{% endif %}>Incidencias</option>
+                  <option value="Validación" {% if ticket.modulo == 'Validación' %}selected{% endif %}>Validación</option>
+                  <option value="Auditoria" {% if ticket.modulo == 'Auditoria' %}selected{% endif %}>Auditoria</option>
+                  <option value="Filiales" {% if ticket.modulo == 'Filiales' %}selected{% endif %}>Filiales</option>
+                  <option value="Información Inventario" {% if ticket.modulo == 'Información Inventario' %}selected{% endif %}>Información Inventario</option>
+                  <option value="Registro de Información" {% if ticket.modulo == 'Registro de Información' %}selected{% endif %}>Registro de Información</option>
+                  <option value="Documentación" {% if ticket.modulo == 'Documentación' %}selected{% endif %}>Documentación</option>
+                  <option value="Mejoras Transversales" {% if ticket.modulo == 'Mejoras Transversales' %}selected{% endif %}>Mejoras Transversales</option>
+                  <option value="Seguimiento y Control" {% if ticket.modulo == 'Seguimiento y Control' %}selected{% endif %}>Seguimiento y Control</option>
+                </select>
+              </div>
+
+              {# Vista (texto libre) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Vista</span>
+                <input type="text" name="valor_vista" value="{{ ticket.vista or '' }}" maxlength="200"
+                       placeholder="Pantalla o vista donde ocurre"
+                       oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                       class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+              </div>
+
+              {# HU o caso de prueba (texto libre) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">HU o Caso de Prueba Asociado</span>
+                <input type="text" name="valor_hu_o_caso_prueba" value="{{ ticket.hu_o_caso_prueba or '' }}" maxlength="200"
+                       placeholder="Identificador de HU o caso de prueba"
+                       oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                       class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+              </div>
+
+              {# Resultado de pruebas (LOV fijo) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Resultado Pruebas</span>
+                <select name="valor_resultado_pruebas"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin resultado —</option>
+                  <option value="OK" {% if ticket.resultado_pruebas == 'OK' %}selected{% endif %}>OK</option>
+                  <option value="N/A" {% if ticket.resultado_pruebas == 'N/A' %}selected{% endif %}>N/A</option>
+                  <option value="OK CON OBS." {% if ticket.resultado_pruebas == 'OK CON OBS.' %}selected{% endif %}>OK CON OBS.</option>
+                  <option value="POSTERGADA A GARANTÍA" {% if ticket.resultado_pruebas == 'POSTERGADA A GARANTÍA' %}selected{% endif %}>POSTERGADA A GARANTÍA</option>
+                  <option value="NOK" {% if ticket.resultado_pruebas == 'NOK' %}selected{% endif %}>NOK</option>
+                </select>
+              </div>
+
+              {# Nota u Observación (texto largo) - ocupa fila completa #}
+              <div class="col-span-2">
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Nota u Observación</span>
+                <textarea name="valor_nota_observacion" rows="2"
+                          placeholder="Comentarios, contexto adicional o detalles relevantes…"
+                          oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                          class="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 resize-y">{{ ticket.nota_observacion or '' }}</textarea>
+              </div>
+            </div>
+          </div>
+
           {# ----- Botón único "Guardar cambios" + "Archivar" ----- #}
           <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-2">

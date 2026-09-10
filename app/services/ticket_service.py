@@ -492,6 +492,8 @@ class TicketService:
     CAMPOS_EDITABLES = {
         "titulo", "descripcion", "prioridad", "asignado_id",
         "fecha_vencimiento", "catalogo_tipo_id", "datos_catalogo",
+        # === Campos extendidos del módulo de Incidencias (LOVs) ===
+        "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
     }
 
     def actualizar_campos(

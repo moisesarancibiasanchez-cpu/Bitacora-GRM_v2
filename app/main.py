@@ -416,6 +416,36 @@ async def ticket_crear(request: Request):
         descripcion_md_raw = (form.get("descripcion_md") or "false").strip().lower()
         descripcion_md = descripcion_md_raw in ("true", "on", "1", "yes")
 
+        # === Campos extendidos del módulo de Incidencias (LOVs) ===
+        modulo = (form.get("modulo") or "").strip() or None
+        vista = (form.get("vista") or "").strip() or None
+        hu_o_caso_prueba = (form.get("hu_o_caso_prueba") or "").strip() or None
+        nota_observacion = (form.get("nota_observacion") or "").strip() or None
+        resultado_pruebas = (form.get("resultado_pruebas") or "").strip() or None
+
+        # Validar LOVs (defensivo: el frontend solo envía valores válidos)
+        from app.models.ticket import MODULOS_LOV, RESULTADO_PRUEBAS_LOV
+        if modulo and modulo not in MODULOS_LOV:
+            return HTMLResponse(
+                f'<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">'
+                f'<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">'
+                f'<h3 class="text-lg font-semibold text-red-700 mb-2">Módulo inválido</h3>'
+                f'<p class="text-sm text-slate-600 mb-4">El módulo «{modulo}» no está en el catálogo.</p>'
+                f'<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>'
+                f'</div></div>',
+                status_code=400,
+            )
+        if resultado_pruebas and resultado_pruebas not in RESULTADO_PRUEBAS_LOV:
+            return HTMLResponse(
+                f'<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">'
+                f'<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">'
+                f'<h3 class="text-lg font-semibold text-red-700 mb-2">Resultado de pruebas inválido</h3>'
+                f'<p class="text-sm text-slate-600 mb-4">El valor «{resultado_pruebas}» no está en el catálogo.</p>'
+                f'<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>'
+                f'</div></div>',
+                status_code=400,
+            )
+
         def _to_int(value, default=None):
             if value is None or str(value).strip() == "":
                 return default
@@ -494,6 +524,12 @@ async def ticket_crear(request: Request):
             fecha_vencimiento_sla=fecha_sla,
             sla_cumplido=-1,
             descripcion_md=descripcion_md,
+            # === Campos extendidos del módulo de Incidencias (LOVs) ===
+            modulo=modulo,
+            vista=vista,
+            hu_o_caso_prueba=hu_o_caso_prueba,
+            nota_observacion=nota_observacion,
+            resultado_pruebas=resultado_pruebas,
         )
         db.add(ticket)
         db.flush()
@@ -668,6 +704,143 @@ async def usuarios_index_page(request: Request):
     return templates.TemplateResponse(
         "usuarios/index.html",
         {"request": request, "usuario": usuario},
+    )
+
+
+# === Página de Roles y Funciones (visible para todos los roles) ===
+@app.get("/roles-funciones", response_class=HTMLResponse)
+async def roles_funciones_page(request: Request):
+    """Matriz de roles y funciones disponibles.
+
+    Muestra una tabla con:
+    - Cada rol del sistema y sus funciones habilitadas.
+    - La cantidad de usuarios activos en cada rol.
+    - Una descripción legible de cada función.
+
+    Visible para cualquier usuario con sesión activa (es una página
+    de referencia sobre los permisos del sistema).
+    """
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+    from sqlalchemy import func
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    # Catálogo de funciones y su descripción legible
+    catalogo_funciones = {
+        # === Globales (todos los autenticados) ===
+        "ver_kanban":       ("Ver tablero Kanban",                          "Consultar las columnas y tarjetas del tablero."),
+        "ver_detalle":      ("Ver detalle de incidencia",                   "Abrir el modal con información completa de un ticket."),
+        "ver_auditoria":    ("Ver trazabilidad de un ticket",               "Consultar el historial de cambios de un ticket."),
+        # === Acciones sobre tickets ===
+        "crear_ticket":     ("Crear nueva incidencia",                      "Registrar un nuevo ticket en el sistema."),
+        "agregar_comentario":("Agregar comentarios",                         "Comentar en un ticket propio o asignado."),
+        "cambiar_estado":   ("Cambiar estado de un ticket",                 "Mover el ticket entre columnas del Kanban."),
+        "reasignar":        ("Reasignar ticket a otro agente",              "Cambiar el responsable de un ticket."),
+        "editar_ticket":    ("Editar campos de un ticket",                  "Modificar título, descripción, prioridad, etc."),
+        "cerrar_ticket":    ("Cerrar / resolver un ticket",                 "Marcar el ticket como cerrado o resuelto."),
+        "archivar_ticket":  ("Archivar / restaurar un ticket",              "Mover tickets activos al archivo (soft-delete)."),
+        # === Administración ===
+        "administrar_usuarios": ("Gestionar usuarios y roles",              "Crear, editar y desactivar cuentas; asignar roles."),
+        "administrar_estados":  ("Administrar catálogo de estados",         "Crear, renombrar y asignar responsables a columnas."),
+        "administrar_catalogos":("Administrar catálogos dinámicos",         "Gestionar tipos e ítems del catálogo."),
+        "administrar_etiquetas":("Administrar etiquetas",                   "Crear, editar y eliminar etiquetas del sistema."),
+        "administrar_tableros": ("Administrar tableros y espacios",         "Crear y configurar tableros, espacios y miembros."),
+        "importar_exportar":    ("Importar / exportar datos",               "Carga masiva desde CSV y exportación de listados."),
+        "ver_dashboard":        ("Ver dashboard de KPIs",                   "Acceder al panel de métricas e indicadores."),
+        "configurar_butler":    ("Configurar automatizaciones Butler",      "Crear reglas, botones y comandos programados."),
+    }
+
+    # Matriz de permisos por rol (alineada con Usuario.tiene_permiso_para).
+    # Usamos listas (no sets) porque Jinja2 no expone el builtin set().
+    matriz_permisos = {
+        RolUsuario.ADMINISTRADOR: [
+            "ver_kanban", "ver_detalle", "ver_auditoria",
+            "crear_ticket", "agregar_comentario",
+            "cambiar_estado", "reasignar", "editar_ticket", "cerrar_ticket", "archivar_ticket",
+            "administrar_usuarios", "administrar_estados", "administrar_catalogos",
+            "administrar_etiquetas", "administrar_tableros",
+            "importar_exportar", "ver_dashboard", "configurar_butler",
+        ],
+        RolUsuario.AGENTE_SENIOR: [
+            "ver_kanban", "ver_detalle", "ver_auditoria",
+            "crear_ticket", "agregar_comentario",
+            "cambiar_estado", "reasignar", "editar_ticket", "cerrar_ticket", "archivar_ticket",
+            "ver_dashboard",
+        ],
+        RolUsuario.AGENTE: [
+            "ver_kanban", "ver_detalle", "ver_auditoria",
+            "crear_ticket", "agregar_comentario",
+            "cambiar_estado", "editar_ticket",
+        ],
+        RolUsuario.SOLICITANTE: [
+            "ver_kanban", "ver_detalle", "ver_auditoria",
+            "crear_ticket", "agregar_comentario",
+        ],
+        RolUsuario.OBSERVADOR: [
+            "ver_kanban", "ver_detalle", "ver_auditoria",
+        ],
+    }
+
+    # Conteo de usuarios activos por rol y lista de usuarios por rol
+    db = SessionLocal()
+    try:
+        conteo_por_rol = dict(
+            db.query(Usuario.rol, func.count(Usuario.id))
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .group_by(Usuario.rol)
+            .all()
+        )
+        # Total de usuarios activos
+        total_usuarios = db.query(func.count(Usuario.id)).filter(
+            Usuario.is_active == True  # noqa: E712
+        ).scalar() or 0
+        # Orden de visualización (necesario para la query de abajo)
+        orden_roles = [
+            RolUsuario.ADMINISTRADOR,
+            RolUsuario.AGENTE_SENIOR,
+            RolUsuario.AGENTE,
+            RolUsuario.SOLICITANTE,
+            RolUsuario.OBSERVADOR,
+        ]
+        # Lista de usuarios activos por rol (para mostrarlos en cada bloque)
+        usuarios_por_rol = {}
+        for rol_enum in orden_roles:
+            usuarios_por_rol[rol_enum] = (
+                db.query(Usuario)
+                .filter(
+                    Usuario.rol == rol_enum,
+                    Usuario.is_active == True,  # noqa: E712
+                )
+                .order_by(Usuario.nombre_completo.asc())
+                .all()
+            )
+    finally:
+        db.close()
+
+    # Descripciones legibles de los roles
+    descripciones_roles = {
+        RolUsuario.ADMINISTRADOR: "Control total del sistema. Gestiona usuarios, catálogos, estados y configuración.",
+        RolUsuario.AGENTE_SENIOR: "Atiende y resuelve incidencias. Puede cerrar, reasignar y editar cualquier ticket.",
+        RolUsuario.AGENTE: "Atiende incidencias. Puede cambiar estado y editar tickets.",
+        RolUsuario.SOLICITANTE: "Crea y da seguimiento a sus propias incidencias.",
+        RolUsuario.OBSERVADOR: "Solo consulta. No puede crear ni modificar información.",
+    }
+
+    return templates.TemplateResponse(
+        "roles_funciones/index.html",
+        {
+            "request": request, "usuario": usuario,
+            "matriz_permisos": matriz_permisos,
+            "catalogo_funciones": catalogo_funciones,
+            "conteo_por_rol": conteo_por_rol,
+            "usuarios_por_rol": usuarios_por_rol,
+            "total_usuarios": total_usuarios,
+            "descripciones_roles": descripciones_roles,
+            "orden_roles": orden_roles,
+        },
     )
 
 
