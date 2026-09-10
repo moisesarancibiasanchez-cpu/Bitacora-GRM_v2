@@ -431,7 +431,12 @@
       credentials: 'same-origin',
     })
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          if (r.status === 401) {
+            throw new Error('401 No autenticado. El header X-User-Id no llegó al backend.');
+          }
+          throw new Error(`HTTP ${r.status}`);
+        }
         return r.text();
       })
       .then((html) => {
@@ -449,7 +454,20 @@
       })
       .catch((err) => {
         console.error('[kanban] Error al cargar detalle:', err);
-        root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop"><div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center"><h3 class="text-lg font-semibold text-red-700 mb-2">Error</h3><p class="text-sm text-slate-600 mb-4">No se pudo cargar el detalle del ticket.</p><button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button></div></div>';
+        const isAuth = /401|No autenticado/.test(err.message || '');
+        root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">' +
+          '<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">' +
+          (isAuth
+            ? '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">' +
+              '<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg></div>' +
+              '<h3 class="text-lg font-semibold text-red-700 mb-1">Sesión expirada</h3>' +
+              '<p class="text-sm text-slate-600 mb-4">Recarga la página para continuar.</p>'
+            : '<h3 class="text-lg font-semibold text-red-700 mb-2">Error</h3>' +
+              '<p class="text-sm text-slate-600 mb-4">No se pudo cargar el detalle del ticket.</p>'
+          ) +
+          '<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md ' +
+          (isAuth ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100') +
+          '">Cerrar</button></div></div>';
       });
   }
 
