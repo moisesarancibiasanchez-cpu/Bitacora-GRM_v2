@@ -78,8 +78,13 @@ class TicketService:
 
         # 3. Validar permisos por rol
         if not self._usuario_tiene_rol(usuario, transicion.rol_requerido):
+            rol_legible = (
+                usuario.rol.value
+                if hasattr(usuario.rol, "value")
+                else usuario.rol
+            )
             raise PermisoInsuficienteError(
-                f"El rol '{usuario.rol.value}' no puede realizar esta transición. "
+                f"El rol '{rol_legible}' no puede realizar esta transición. "
                 f"Se requiere: {transicion.rol_requerido}."
             )
 
@@ -99,7 +104,12 @@ class TicketService:
             "observador": 1, "solicitante": 2, "agente": 3,
             "agente_senior": 4, "administrador": 5,
         }
-        nivel_usuario = jerarquia.get(usuario.rol.value, 0)
+        rol_legible = (
+            usuario.rol.value
+            if hasattr(usuario.rol, "value")
+            else usuario.rol
+        )
+        nivel_usuario = jerarquia.get(rol_legible, 0)
         nivel_requerido = jerarquia.get(rol_minimo, 99)
         return nivel_usuario >= nivel_requerido
 
@@ -285,7 +295,11 @@ class TicketService:
             valor_nuevo={
                 "titulo": ticket.titulo,
                 "estado_inicial": estado_inicial.nombre,
-                "prioridad": ticket.prioridad.value,
+                "prioridad": (
+                    ticket.prioridad.value
+                    if hasattr(ticket.prioridad, "value")
+                    else ticket.prioridad
+                ),
             },
             ip_origen=ip_origen,
             commit=False,

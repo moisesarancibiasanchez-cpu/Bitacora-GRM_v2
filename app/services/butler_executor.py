@@ -35,9 +35,21 @@ def _get_ticket_field(ticket: Ticket, campo: str) -> Any:
         if campo == "estado":
             return ticket.estado.nombre if ticket.estado else None
         if campo == "prioridad":
-            return ticket.prioridad.value if ticket.prioridad else None
+            if not ticket.prioridad:
+                return None
+            return (
+                ticket.prioridad.value
+                if hasattr(ticket.prioridad, "value")
+                else ticket.prioridad
+            )
         if campo == "tipo":
-            return ticket.tipo.value if ticket.tipo else None
+            if not ticket.tipo:
+                return None
+            return (
+                ticket.tipo.value
+                if hasattr(ticket.tipo, "value")
+                else ticket.tipo
+            )
         return getattr(ticket, campo, None)
     if campo == "asignado_id":
         return ticket.asignado_id

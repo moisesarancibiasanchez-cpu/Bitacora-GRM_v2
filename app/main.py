@@ -927,6 +927,40 @@ async def notificaciones_page(request: Request):
         db.close()
 
 
+# === Vista pública de tablero (compartida por /p/{slug}) ===
+@app.get("/p/{slug}", response_class=HTMLResponse)
+async def tablero_publico(slug: str, request: Request):
+    """Vista pública (sin auth) de un tablero con visibilidad=publico."""
+    from app.db.session import SessionLocal
+    from app.models.espacio import Tablero, Estado
+    from app.models.ticket import Ticket
+    from sqlalchemy import func
+    from fastapi import HTTPException
+    db = SessionLocal()
+    try:
+        tablero = db.query(Tablero).filter(
+            Tablero.slug_publico == slug,
+            Tablero.visibilidad == "publico",
+        ).first()
+        if not tablero:
+            raise HTTPException(status_code=404, detail="Tablero no encontrado o no es público")
+        estados = db.query(Estado).filter(Estado.tablero_id == tablero.id).order_by(Estado.orden).all()
+        # Anotar tickets por estado
+        for e in estados:
+            e.tickets_list = db.query(Ticket).filter(
+                Ticket.estado_id == e.id, Ticket.archivado == False  # noqa: E712
+            ).order_by(Ticket.created_at.desc()).all()
+        return templates.TemplateResponse(
+            "tableros/publico.html",
+            {
+                "request": request, "tablero": tablero, "estados": estados,
+                "slug": slug,
+            },
+        )
+    finally:
+        db.close()
+
+
 # === Health check robusto (usado por Railway y por balanceadores) ===
 @app.get("/health")
 def health():
