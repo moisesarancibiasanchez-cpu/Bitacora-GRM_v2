@@ -186,10 +186,20 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
             except Exception as e:
                 logger.debug("[migrations] Índice %s: %s", name, e)
 
-        # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
-        #    y de valores permitidos. Se ejecutan después de asegurar que
-        #    las columnas existen.
-        stats["data_migrated"] = _apply_data_migrations(conn, eng)
+    # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
+    #    y de valores permitidos. Se ejecutan en una TRANSACCIÓN SEPARADA
+    #    para que un fallo en los datos NO haga rollback de las columnas/
+    #    índices recién creados (lo que dejaría la app sin columnas y
+    #    provocaría 500 al usarlas).
+    try:
+        with eng.begin() as conn:
+            stats["data_migrated"] = _apply_data_migrations(conn, eng)
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: transacción de datos falló, pero las columnas/índices siguen intactos: %s",
+            e,
+        )
+        stats["errors"] += 1
 
     logger.info(
         "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d data_migrated=%d",
@@ -213,8 +223,13 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     - Soft-delete de etiquetas prohibidas: ``Contabilidad``, ``software``,
       ``Ventas``, ``RRHH`` → ``activo = 0``. Esto las oculta de la UI sin
       perderlas en los tickets que ya las tengan asignadas.
+
+    Cada paso está envuelto en su propio try/except para que un fallo
+    puntual no impida que los otros pasos se ejecuten. Los errores se
+    registran en el log y el método continúa.
     """
     total = 0
+    is_pg = eng.dialect.name == "postgresql"
 
     # 4.1) Renombrar POSTERGADA A GARANTÍA → POSTERGADA
     try:
@@ -235,9 +250,8 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #      Solo afecta a los codigos que aún tengan el prefijo antiguo.
     #      El NNN se extrae del último segmento numérico (sin padding).
     try:
-        is_pg = eng.dialect.name == "postgresql"
         if is_pg:
-            # PostgreSQL: regexp_replace + cast a int para limpiar ceros
+            # PostgreSQL: SUBSTRING con regex + CAST a int para limpiar ceros
             res = conn.execute(text(
                 "UPDATE tickets "
                 "SET codigo = 'INC-' || CAST(CAST(SUBSTRING(codigo FROM '([0-9]+)$') AS INTEGER) AS TEXT) "
@@ -255,7 +269,9 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             logger.info("[migrations] data: %d tickets renombrados al formato INC-NNN", n)
             total += n
     except Exception as e:
-        logger.warning("[migrations] data: no se pudo renombrar codigos: %s", e)
+        # No es fatal: si el regex no es soportado por esta versión de PG,
+        # el código simplemente no se renombra. La app sigue funcionando.
+        logger.warning("[migrations] data: no se pudo renombrar codigos (no fatal): %s", e)
 
     # 4.3) Soft-delete de etiquetas prohibidas.
     #      Compara en minúsculas para tolerar variantes de mayúsculas.
@@ -270,7 +286,7 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             logger.info("[migrations] data: %d etiquetas soft-deleted (Contabilidad, software, Ventas, RRHH)", n)
             total += n
     except Exception as e:
-        logger.warning("[migrations] data: no se pudieron ocultar etiquetas prohibidas: %s", e)
+        logger.warning("[migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): %s", e)
 
     return total
 
