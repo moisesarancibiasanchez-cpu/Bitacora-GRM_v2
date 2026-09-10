@@ -668,8 +668,16 @@ async def guardar_ticket_campos(
         status_code=200,
         headers={
             "HX-Trigger": json.dumps({
-                "ticket-updated": {"campos": list(valores_nuevos.keys()) if valores_nuevos else []},
-                "ticket-guardado": {"campos": list(valores_nuevos.keys()) if valores_nuevos else []},
+                "ticket-updated": {
+                    "ticket_id": ticket.id,
+                    "estado_id": ticket.estado_id,
+                    "campos": list(valores_nuevos.keys()) if valores_nuevos else [],
+                },
+                "ticket-guardado": {
+                    "ticket_id": ticket.id,
+                    "estado_id": ticket.estado_id,
+                    "campos": list(valores_nuevos.keys()) if valores_nuevos else [],
+                },
             }),
         },
     )

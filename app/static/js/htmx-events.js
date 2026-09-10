@@ -55,6 +55,107 @@
     window.showToast(nombre + ' guardado correctamente', 'success');
   });
 
+  // ===========================================================================
+  // EVENTO: ticket-guardado
+  // Se dispara desde el backend (HX-Trigger) cuando el usuario pulsa el
+  // botón "Guardar cambios" en el modal de detalle (POST /tickets/{id}/guardar).
+  // Refresca la tarjeta correspondiente en el tablero Kanban para que
+  // muestre los nuevos valores (prioridad, asignado, título, descripción, etc.)
+  // sin necesidad de recargar la página completa.
+  // ===========================================================================
+  document.body.addEventListener('ticket-guardado', async (evt) => {
+    const detail = (evt && evt.detail) || {};
+    const ticketId = detail.ticket_id;
+    const estadoId = detail.estado_id;
+    if (!ticketId) {
+      console.warn('[htmx-events] ticket-guardado sin ticket_id');
+      return;
+    }
+
+    try {
+      // 1) Obtener el HTML actualizado de la tarjeta
+      const r = await fetch(`/api/v1/tickets/${ticketId}/card-html`, {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        credentials: 'same-origin',
+      });
+      if (!r.ok) {
+        if (window.showToast) {
+          window.showToast('Cambios guardados. Recarga el tablero para verlos.', 'info', 4000);
+        }
+        return;
+      }
+      const html = await r.text();
+
+      // 2) Localizar la tarjeta actual en el DOM
+      const currentCard = document.getElementById(`ticket-${ticketId}`);
+      if (currentCard) {
+        // Construir el nuevo nodo desde el HTML recibido
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = html.trim();
+        const newCard = wrapper.firstElementChild;
+        if (newCard && newCard.id === `ticket-${ticketId}`) {
+          // Determinar la columna destino: la del estado actual del ticket
+          const targetList = estadoId != null
+            ? document.querySelector(`.kanban-list[data-estado-id="${estadoId}"]`)
+            : null;
+
+          if (targetList && currentCard.parentElement !== targetList) {
+            // El ticket cambió de columna (poco probable desde /guardar, pero
+            // se contempla por si el form incluye estado en el futuro).
+            // Quitar placeholder "Arrastra una tarjeta aquí" si existe
+            const emptyPlaceholder = targetList.querySelector('.empty-column');
+            if (emptyPlaceholder) emptyPlaceholder.remove();
+            targetList.insertBefore(newCard, targetList.firstChild);
+            currentCard.remove();
+            // Actualizar contadores
+            if (typeof window.actualizarContadores === 'function') {
+              try { window.actualizarContadores(); } catch (_) {}
+            }
+          } else {
+            // Misma columna: reemplazo in-place con animación sutil
+            try {
+              newCard.style.opacity = '0';
+              newCard.style.transition = 'opacity 250ms ease';
+            } catch (_) {}
+            currentCard.parentNode.replaceChild(newCard, currentCard);
+            // Fade-in
+            requestAnimationFrame(() => {
+              try { newCard.style.opacity = '1'; } catch (_) {}
+            });
+          }
+
+          // Procesar hx-* del nodo nuevo (HTMX + fallback)
+          if (typeof window.htmxFallbackProcess === 'function' && !window.htmxFallbackReady()) {
+            try { window.htmxFallbackProcess(newCard); } catch (_) {}
+          }
+          if (typeof htmx !== 'undefined' && htmx.process) {
+            try { htmx.process(newCard); } catch (_) {}
+          }
+        } else {
+          // Fallback: si el HTML no contiene un nodo con el id esperado,
+          // intentar reemplazo por outerHTML directo
+          const parent = currentCard.parentNode;
+          if (parent) {
+            parent.outerHTML = html;
+          }
+        }
+      } else {
+        // La tarjeta no está en el DOM (p.ej. estamos en una vista distinta
+        // al Kanban). Mostrar un toast informativo.
+        if (window.showToast) {
+          const campos = detail.campos || [];
+          const lista = campos.length ? ` (${campos.join(', ')})` : '';
+          window.showToast('Cambios guardados' + lista, 'success', 2500);
+        }
+      }
+    } catch (err) {
+      console.error('[htmx-events] Error al refrescar tarjeta:', err);
+      if (window.showToast) {
+        window.showToast('Cambios guardados. Recarga para verlos en el tablero.', 'info', 4000);
+      }
+    }
+  });
+
   document.body.addEventListener('ticket-error', (evt) => {
     if (window.showToast) {
       window.showToast(evt.detail.message || 'Operación no permitida', 'error');
