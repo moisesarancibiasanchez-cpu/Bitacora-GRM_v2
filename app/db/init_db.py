@@ -275,7 +275,7 @@ def seed_tickets_demo(db: Session):
     for titulo, desc, prio, estado_nombre, creador_un, asignado_un, et_nombres, checklists_data, comentarios_data in tickets_demo:
         estado = estados[estado_nombre]
         t = Ticket(
-            codigo=f"GRM-INC-2026-{contador:06d}",
+            codigo=f"INC-{contador:03d}",
             titulo=titulo, descripcion=desc,
             tipo=TipoIncidencia.INCIDENCIA,
             prioridad=Prioridad(prio),
@@ -721,7 +721,7 @@ def seed_notificaciones_demo(db: Session):
         Notificacion(
             usuario_id=admin.id, tipo="sla_vencimiento",
             titulo="SLA por vencer en 2h",
-            mensaje="El ticket GRM-INC-2026-000005 vence pronto",
+            mensaje="El ticket INC-005 vence pronto",
             url="/tickets", leida=False,
         ),
         Notificacion(

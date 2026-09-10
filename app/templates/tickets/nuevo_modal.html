@@ -94,31 +94,30 @@
           </div>
         </div>
 
-        <!-- Catálogo tipo / item -->
-        {% if catalogos_tipos %}
+        <!-- Ambiente / Ítem (LOVs cerrados; reemplazan al antiguo "Categoría/Ítem" de catálogo) -->
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label for="catalogo_tipo_id" class="block text-xs font-semibold text-slate-700 mb-1">Categoría</label>
-            <select id="catalogo_tipo_id" name="catalogo_tipo_id"
+            <label for="ambiente" class="block text-xs font-semibold text-slate-700 mb-1">Ambiente</label>
+            <select id="ambiente" name="ambiente"
                     class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-              <option value="">— Sin categoría —</option>
-              {% for ct in catalogos_tipos %}
-                <option value="{{ ct.id }}">{{ ct.nombre }}</option>
-              {% endfor %}
+              <option value="">— Sin ambiente —</option>
+              <option value="QA">QA</option>
+              <option value="PRODUCCION">PRODUCCION</option>
             </select>
+            <p class="text-[10px] text-slate-500 mt-0.5">Entorno donde se prueba o se presenta la incidencia.</p>
           </div>
           <div>
-            <label for="catalogo_item_id" class="block text-xs font-semibold text-slate-700 mb-1">Ítem</label>
-            <select id="catalogo_item_id" name="catalogo_item_id"
+            <label for="item" class="block text-xs font-semibold text-slate-700 mb-1">Ítem</label>
+            <select id="item" name="item"
                     class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-              <option value="">— Ninguno —</option>
-              {% for ci in catalogos_items %}
-                <option value="{{ ci.id }}">{{ ci.nombre }}</option>
-              {% endfor %}
+              <option value="">— Sin ítem —</option>
+              <option value="Portal WEB APEX">Portal WEB APEX</option>
+              <option value="Email">Email</option>
+              <option value="Base de Datos">Base de Datos</option>
             </select>
+            <p class="text-[10px] text-slate-500 mt-0.5">Subsistema o canal afectado.</p>
           </div>
         </div>
-        {% endif %}
 
         <!-- Asignado a -->
         <div>
@@ -129,8 +128,8 @@
             {% if usuario %}
               <option value="{{ usuario.id }}" selected>{{ usuario.nombre_completo }} (mismo)</option>
             {% endif %}
-            {% if usuarios %}
-              {% for u in usuarios %}
+            {% if usuarios_asignables %}
+              {% for u in usuarios_asignables %}
                 {% if not usuario or u.id != usuario.id %}
                 <option value="{{ u.id }}">{{ u.nombre_completo }}</option>
                 {% endif %}
@@ -194,7 +193,8 @@
                 <option value="OK">OK</option>
                 <option value="N/A">N/A</option>
                 <option value="OK CON OBS.">OK CON OBS.</option>
-                <option value="POSTERGADA A GARANTÍA">POSTERGADA A GARANTÍA</option>
+                <option value="POSTERGADA">POSTERGADA</option>
+                <option value="DESESTIMADA">DESESTIMADA</option>
                 <option value="NOK">NOK</option>
               </select>
             </div>

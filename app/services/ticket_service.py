@@ -344,10 +344,15 @@ class TicketService:
         return ticket
 
     def _generar_codigo_ticket(self) -> str:
-        """Genera un código legible tipo GRM-INC-000123."""
-        count = self.db.query(Ticket).count() + 1
-        anio = datetime.utcnow().year
-        return f"GRM-INC-{anio}-{count:06d}"
+        """Genera un código legible tipo ``INC-123`` (sin prefijo GRM ni año).
+
+        Formato: ``INC-{N:03d}`` donde N es el siguiente correlativo basado
+        en el ID máximo actual de la tabla. Esto reemplaza al antiguo
+        ``GRM-INC-YYYY-NNNNNN`` y alinea con el formato compacto pedido.
+        """
+        from sqlalchemy import func
+        max_id = self.db.query(func.max(Ticket.id)).scalar() or 0
+        return f"INC-{(max_id + 1):03d}"
 
     # ----------------------------------------------------------------------
     #  Listar y obtener
@@ -494,6 +499,7 @@ class TicketService:
         "fecha_vencimiento", "catalogo_tipo_id", "datos_catalogo",
         # === Campos extendidos del módulo de Incidencias (LOVs) ===
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
+        "ambiente", "item",
     }
 
     def actualizar_campos(

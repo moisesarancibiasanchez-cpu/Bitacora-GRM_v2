@@ -349,6 +349,7 @@ async def ticket_nuevo_form(request: Request):
     from app.db.session import SessionLocal
     from app.models.catalogo import CatalogoTipo, CatalogoItem
     from app.models.etiqueta import Etiqueta
+    from app.models.usuario import Usuario, RolUsuario
 
     usuario, redirect = _require_session_or_redirect(request)
     if redirect is not None:
@@ -359,6 +360,14 @@ async def ticket_nuevo_form(request: Request):
         catalogos_tipos = db.query(CatalogoTipo).all()
         catalogos_items = db.query(CatalogoItem).all()
         etiquetas = db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
+        # Solo usuarios con rol AGENTE o AGENTE_SENIOR pueden ser asignados
+        usuarios_asignables = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .filter(Usuario.rol.in_([RolUsuario.AGENTE, RolUsuario.AGENTE_SENIOR]))
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
         return templates.TemplateResponse(
             "tickets/nuevo_modal.html",
             {
@@ -367,6 +376,7 @@ async def ticket_nuevo_form(request: Request):
                 "catalogos_tipos": catalogos_tipos,
                 "catalogos_items": catalogos_items,
                 "etiquetas": etiquetas,
+                "usuarios_asignables": usuarios_asignables,
             },
         )
     finally:
@@ -422,15 +432,37 @@ async def ticket_crear(request: Request):
         hu_o_caso_prueba = (form.get("hu_o_caso_prueba") or "").strip() or None
         nota_observacion = (form.get("nota_observacion") or "").strip() or None
         resultado_pruebas = (form.get("resultado_pruebas") or "").strip() or None
+        ambiente = (form.get("ambiente") or "").strip() or None
+        item = (form.get("item") or "").strip() or None
 
         # Validar LOVs (defensivo: el frontend solo envía valores válidos)
-        from app.models.ticket import MODULOS_LOV, RESULTADO_PRUEBAS_LOV
+        from app.models.ticket import MODULOS_LOV, RESULTADO_PRUEBAS_LOV, AMBIENTE_LOV, ITEM_LOV
         if modulo and modulo not in MODULOS_LOV:
             return HTMLResponse(
                 f'<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">'
                 f'<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">'
                 f'<h3 class="text-lg font-semibold text-red-700 mb-2">Módulo inválido</h3>'
                 f'<p class="text-sm text-slate-600 mb-4">El módulo «{modulo}» no está en el catálogo.</p>'
+                f'<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>'
+                f'</div></div>',
+                status_code=400,
+            )
+        if ambiente and ambiente not in AMBIENTE_LOV:
+            return HTMLResponse(
+                f'<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">'
+                f'<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">'
+                f'<h3 class="text-lg font-semibold text-red-700 mb-2">Ambiente inválido</h3>'
+                f'<p class="text-sm text-slate-600 mb-4">El ambiente «{ambiente}» no está en el catálogo.</p>'
+                f'<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>'
+                f'</div></div>',
+                status_code=400,
+            )
+        if item and item not in ITEM_LOV:
+            return HTMLResponse(
+                f'<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">'
+                f'<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">'
+                f'<h3 class="text-lg font-semibold text-red-700 mb-2">Ítem inválido</h3>'
+                f'<p class="text-sm text-slate-600 mb-4">El ítem «{item}» no está en el catálogo.</p>'
                 f'<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>'
                 f'</div></div>',
                 status_code=400,
@@ -481,10 +513,10 @@ async def ticket_crear(request: Request):
         if not estado_inicial:
             estado_inicial = db.query(Estado).order_by(Estado.orden).first()
 
-        # Generar código correlativo
+        # Generar código correlativo (formato compacto INC-NNN)
         from sqlalchemy import func
         ultimo = db.query(func.max(Ticket.id)).scalar() or 0
-        codigo = f"GRM-INC-2026-{(ultimo + 1):06d}"
+        codigo = f"INC-{(ultimo + 1):03d}"
 
         # Mapear tipo y prioridad
         try:
@@ -530,6 +562,8 @@ async def ticket_crear(request: Request):
             hu_o_caso_prueba=hu_o_caso_prueba,
             nota_observacion=nota_observacion,
             resultado_pruebas=resultado_pruebas,
+            ambiente=ambiente,
+            item=item,
         )
         db.add(ticket)
         db.flush()

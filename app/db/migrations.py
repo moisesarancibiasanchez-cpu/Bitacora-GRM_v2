@@ -78,6 +78,11 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
         "archivado": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
         # Campos extendidos del módulo de Incidencias (LOVs)
         "modulo": "VARCHAR(80)",
+        # Ambiente: reemplaza al campo "Categoría" del antiguo catálogo.
+        # LOV cerrado: QA / PRODUCCION.
+        "ambiente": "VARCHAR(40)",
+        # Ítem: subsistema o canal afectado. LOV cerrado: 3 valores.
+        "item": "VARCHAR(80)",
         "vista": "VARCHAR(200)",
         "hu_o_caso_prueba": "VARCHAR(200)",
         "nota_observacion": "TEXT",
@@ -130,7 +135,8 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
     eng = eng or _get_default_engine()
     is_pg = eng.dialect.name == "postgresql"
     is_sqlite = eng.dialect.name == "sqlite"
-    stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0, "tables_created": 0}
+    stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0,
+             "tables_created": 0, "data_migrated": 0}
 
     # 1) Asegurar que todas las tablas existen (no-op si ya están).
     #    Necesario porque algunas columnas tienen FKs a tablas nuevas (tableros,
@@ -180,11 +186,93 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
             except Exception as e:
                 logger.debug("[migrations] Índice %s: %s", name, e)
 
+        # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
+        #    y de valores permitidos. Se ejecutan después de asegurar que
+        #    las columnas existen.
+        stats["data_migrated"] = _apply_data_migrations(conn, eng)
+
     logger.info(
-        "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d",
+        "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d data_migrated=%d",
         stats["applied"], stats["skipped"], stats["indexes"], stats["errors"],
+        stats["data_migrated"],
     )
     return stats
+
+
+def _apply_data_migrations(conn, eng: Engine) -> int:
+    """
+    Migraciones de datos idempotentes. Se aplican en cada arranque.
+
+    - Normaliza ``resultado_pruebas``: ``POSTERGADA A GARANTÍA`` → ``POSTERGADA``
+      (mantiene el valor anterior visible en ``nota_observacion`` si era
+      relevante; en realidad el valor se renombra directamente porque solo
+      cambia la etiqueta visible, el significado es el mismo).
+    - Renombra ``codigo`` de tickets existentes al nuevo formato
+      ``INC-NNN``: extrae el último segmento numérico de los codigos
+      ``GRM-INC-YYYY-NNNNNN`` y lo reescribe.
+    - Soft-delete de etiquetas prohibidas: ``Contabilidad``, ``software``,
+      ``Ventas``, ``RRHH`` → ``activo = 0``. Esto las oculta de la UI sin
+      perderlas en los tickets que ya las tengan asignadas.
+    """
+    total = 0
+
+    # 4.1) Renombrar POSTERGADA A GARANTÍA → POSTERGADA
+    try:
+        # En PostgreSQL el UPDATE retorna el número de filas afectadas;
+        # en SQLite depende del rowcount del cursor.
+        res = conn.execute(text(
+            "UPDATE tickets SET resultado_pruebas = 'POSTERGADA' "
+            "WHERE resultado_pruebas = 'POSTERGADA A GARANTÍA'"
+        ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: %d tickets 'POSTERGADA A GARANTÍA' → 'POSTERGADA'", n)
+            total += n
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudo normalizar resultado_pruebas: %s", e)
+
+    # 4.2) Renombrar codigos existentes GRM-INC-YYYY-NNNNNN → INC-NNN
+    #      Solo afecta a los codigos que aún tengan el prefijo antiguo.
+    #      El NNN se extrae del último segmento numérico (sin padding).
+    try:
+        is_pg = eng.dialect.name == "postgresql"
+        if is_pg:
+            # PostgreSQL: regexp_replace + cast a int para limpiar ceros
+            res = conn.execute(text(
+                "UPDATE tickets "
+                "SET codigo = 'INC-' || CAST(CAST(SUBSTRING(codigo FROM '([0-9]+)$') AS INTEGER) AS TEXT) "
+                "WHERE codigo ~ '^GRM-INC-[0-9]{4}-[0-9]+$'"
+            ))
+        else:
+            # SQLite: emular con SUBSTR y CAST
+            res = conn.execute(text(
+                "UPDATE tickets "
+                "SET codigo = 'INC-' || CAST(CAST(SUBSTR(codigo, -6) AS INTEGER) AS TEXT) "
+                "WHERE codigo LIKE 'GRM-INC-____-______'"
+            ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: %d tickets renombrados al formato INC-NNN", n)
+            total += n
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudo renombrar codigos: %s", e)
+
+    # 4.3) Soft-delete de etiquetas prohibidas.
+    #      Compara en minúsculas para tolerar variantes de mayúsculas.
+    try:
+        res = conn.execute(text(
+            "UPDATE etiquetas SET activo = 0 "
+            "WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') "
+            "AND activo <> 0"
+        ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: %d etiquetas soft-deleted (Contabilidad, software, Ventas, RRHH)", n)
+            total += n
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudieron ocultar etiquetas prohibidas: %s", e)
+
+    return total
 
 
 def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:

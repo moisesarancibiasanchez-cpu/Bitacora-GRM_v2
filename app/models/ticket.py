@@ -49,12 +49,30 @@ MODULOS_LOV = (
     "Seguimiento y Control",
 )
 
-# LOV de resultado de pruebas (5 valores según imagen de referencia)
+# LOV de Ambiente (entorno de la incidencia).
+# Reemplaza al antiguo campo "Categoría" (que era un catálogo dinámico).
+AMBIENTE_LOV = (
+    "QA",
+    "PRODUCCION",
+)
+
+# LOV de Ítem (subsistema o canal afectado).
+# Reemplaza al antiguo campo "Ítem" (que era un catálogo dinámico).
+ITEM_LOV = (
+    "Portal WEB APEX",
+    "Email",
+    "Base de Datos",
+)
+
+# LOV de resultado de pruebas.
+# Actualizado: "POSTERGADA A GARANTÍA" -> "POSTERGADA" y se agrega
+# "DESESTIMADA" para que el solicitante pueda descartar un ticket.
 RESULTADO_PRUEBAS_LOV = (
     "OK",
     "N/A",
     "OK CON OBS.",
-    "POSTERGADA A GARANTÍA",
+    "POSTERGADA",
+    "DESESTIMADA",
     "NOK",
 )
 
@@ -129,13 +147,20 @@ class Ticket(Base, TimestampMixin):
     # === Campos extendidos del módulo de Incidencias (LOVs) ===
     # Módulo al que pertenece la incidencia (LOV fijo, validado en schema)
     modulo = Column(String(80), nullable=True, index=True)
+    # Ambiente donde se prueba / se presenta la incidencia
+    # (LOV: QA, PRODUCCION). Reemplaza al antiguo campo "Categoría".
+    ambiente = Column(String(40), nullable=True, index=True)
+    # Ítem / subsistema / canal afectado
+    # (LOV: Portal WEB APEX, Email, Base de Datos).
+    item = Column(String(80), nullable=True, index=True)
     # Vista o pantalla específica (texto libre)
     vista = Column(String(200), nullable=True)
     # Historia de usuario o caso de prueba asociado
     hu_o_caso_prueba = Column(String(200), nullable=True)
     # Nota u observación libre del agente o solicitante
     nota_observacion = Column(Text, nullable=True)
-    # Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA A GARANTÍA, NOK)
+    # Resultado de pruebas
+    # (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)
     resultado_pruebas = Column(String(40), nullable=True, index=True)
 
     # Relaciones

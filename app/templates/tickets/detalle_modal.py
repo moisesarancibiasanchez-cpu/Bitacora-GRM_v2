@@ -230,6 +230,31 @@ DETALLE_TEMPLATE = Template(r"""
                 </select>
               </div>
 
+              {# Ambiente (LOV cerrado QA / PRODUCCION). Reemplaza al antiguo campo "Categoría". #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Ambiente</span>
+                <select name="valor_ambiente"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin ambiente —</option>
+                  <option value="QA" {% if ticket.ambiente == 'QA' %}selected{% endif %}>QA</option>
+                  <option value="PRODUCCION" {% if ticket.ambiente == 'PRODUCCION' %}selected{% endif %}>PRODUCCION</option>
+                </select>
+              </div>
+
+              {# Ítem (LOV cerrado Portal WEB APEX / Email / Base de Datos). #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Ítem</span>
+                <select name="valor_item"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin ítem —</option>
+                  <option value="Portal WEB APEX" {% if ticket.item == 'Portal WEB APEX' %}selected{% endif %}>Portal WEB APEX</option>
+                  <option value="Email" {% if ticket.item == 'Email' %}selected{% endif %}>Email</option>
+                  <option value="Base de Datos" {% if ticket.item == 'Base de Datos' %}selected{% endif %}>Base de Datos</option>
+                </select>
+              </div>
+
               {# Vista (texto libre) #}
               <div>
                 <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Vista</span>
@@ -258,7 +283,8 @@ DETALLE_TEMPLATE = Template(r"""
                   <option value="OK" {% if ticket.resultado_pruebas == 'OK' %}selected{% endif %}>OK</option>
                   <option value="N/A" {% if ticket.resultado_pruebas == 'N/A' %}selected{% endif %}>N/A</option>
                   <option value="OK CON OBS." {% if ticket.resultado_pruebas == 'OK CON OBS.' %}selected{% endif %}>OK CON OBS.</option>
-                  <option value="POSTERGADA A GARANTÍA" {% if ticket.resultado_pruebas == 'POSTERGADA A GARANTÍA' %}selected{% endif %}>POSTERGADA A GARANTÍA</option>
+                  <option value="POSTERGADA" {% if ticket.resultado_pruebas == 'POSTERGADA' %}selected{% endif %}>POSTERGADA</option>
+                  <option value="DESESTIMADA" {% if ticket.resultado_pruebas == 'DESESTIMADA' %}selected{% endif %}>DESESTIMADA</option>
                   <option value="NOK" {% if ticket.resultado_pruebas == 'NOK' %}selected{% endif %}>NOK</option>
                 </select>
               </div>

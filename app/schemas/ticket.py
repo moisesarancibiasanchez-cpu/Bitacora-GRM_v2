@@ -22,12 +22,29 @@ MODULOS_PERMITIDOS = {
     "",  # vacío permitido (no asignado)
 }
 
-# LOV de resultado de pruebas
+# LOV de Ambiente (entorno de la incidencia). Reemplaza al campo "Categoría".
+AMBIENTE_PERMITIDOS = {
+    "QA",
+    "PRODUCCION",
+    "",  # vacío permitido (no asignado)
+}
+
+# LOV de Ítem (subsistema o canal afectado).
+ITEM_PERMITIDOS = {
+    "Portal WEB APEX",
+    "Email",
+    "Base de Datos",
+    "",  # vacío permitido (no asignado)
+}
+
+# LOV de resultado de pruebas (sincronizado con app.models.ticket.RESULTADO_PRUEBAS_LOV).
+# Actualizado: "POSTERGADA A GARANTÍA" → "POSTERGADA"; se agrega "DESESTIMADA".
 RESULTADO_PRUEBAS_PERMITIDOS = {
     "OK",
     "N/A",
     "OK CON OBS.",
-    "POSTERGADA A GARANTÍA",
+    "POSTERGADA",
+    "DESESTIMADA",
     "NOK",
     "",  # vacío permitido
 }
@@ -106,6 +123,16 @@ class TicketBase(BaseModel):
         default=None, max_length=80,
         description="Módulo del sistema (LOV: Control ERM, Gobierno, ...)",
     )
+    # Ambiente: reemplaza al antiguo campo "Categoría".
+    ambiente: Optional[str] = Field(
+        default=None, max_length=40,
+        description="Ambiente de la incidencia (LOV: QA, PRODUCCION)",
+    )
+    # Ítem: subsistema o canal afectado.
+    item: Optional[str] = Field(
+        default=None, max_length=80,
+        description="Ítem o subsistema afectado (LOV: Portal WEB APEX, Email, Base de Datos)",
+    )
     vista: Optional[str] = Field(
         default=None, max_length=200,
         description="Vista o pantalla específica",
@@ -120,7 +147,7 @@ class TicketBase(BaseModel):
     )
     resultado_pruebas: Optional[str] = Field(
         default=None, max_length=40,
-        description="Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA A GARANTÍA, NOK)",
+        description="Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)",
     )
 
     @field_validator("modulo")
@@ -132,6 +159,30 @@ class TicketBase(BaseModel):
         if v_norm and v_norm not in MODULOS_PERMITIDOS:
             raise ValueError(
                 f"modulo debe ser uno de: {sorted(m for m in MODULOS_PERMITIDOS if m)}"
+            )
+        return v_norm or None
+
+    @field_validator("ambiente")
+    @classmethod
+    def _check_ambiente(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in AMBIENTE_PERMITIDOS:
+            raise ValueError(
+                f"ambiente debe ser uno de: {sorted(a for a in AMBIENTE_PERMITIDOS if a)}"
+            )
+        return v_norm or None
+
+    @field_validator("item")
+    @classmethod
+    def _check_item(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in ITEM_PERMITIDOS:
+            raise ValueError(
+                f"item debe ser uno de: {sorted(i for i in ITEM_PERMITIDOS if i)}"
             )
         return v_norm or None
 
@@ -160,6 +211,8 @@ class TicketUpdate(BaseModel):
     datos_catalogo: Optional[Dict[str, Any]] = None
     # === Campos extendidos del módulo de Incidencias ===
     modulo: Optional[str] = Field(default=None, max_length=80)
+    ambiente: Optional[str] = Field(default=None, max_length=40)
+    item: Optional[str] = Field(default=None, max_length=80)
     vista: Optional[str] = Field(default=None, max_length=200)
     hu_o_caso_prueba: Optional[str] = Field(default=None, max_length=200)
     nota_observacion: Optional[str] = None
@@ -174,6 +227,30 @@ class TicketUpdate(BaseModel):
         if v_norm and v_norm not in MODULOS_PERMITIDOS:
             raise ValueError(
                 f"modulo debe ser uno de: {sorted(m for m in MODULOS_PERMITIDOS if m)}"
+            )
+        return v_norm or None
+
+    @field_validator("ambiente")
+    @classmethod
+    def _check_ambiente(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in AMBIENTE_PERMITIDOS:
+            raise ValueError(
+                f"ambiente debe ser uno de: {sorted(a for a in AMBIENTE_PERMITIDOS if a)}"
+            )
+        return v_norm or None
+
+    @field_validator("item")
+    @classmethod
+    def _check_item(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in ITEM_PERMITIDOS:
+            raise ValueError(
+                f"item debe ser uno de: {sorted(i for i in ITEM_PERMITIDOS if i)}"
             )
         return v_norm or None
 

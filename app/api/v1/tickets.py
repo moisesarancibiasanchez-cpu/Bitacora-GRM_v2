@@ -326,7 +326,7 @@ def detalle_html(
     from app.models.adjunto import Adjunto
     from app.models.checklist import Checklist
     from app.models.auditoria import Auditoria
-    from app.models.usuario import Usuario
+    from app.models.usuario import Usuario, RolUsuario
     from app.models.etiqueta import Etiqueta
 
     # Normalizar tab: aceptar ?tab=comentarios (HTMX header HX-Current-URL etc.)
@@ -364,9 +364,11 @@ def detalle_html(
         .all()
     )
     # Usuarios activos (para select de "Asignado" en el modal)
+    # Solo AGENTE y AGENTE_SENIOR (excluye SOLICITANTE, OBSERVADOR, ADMINISTRADOR si se desea)
     usuarios = (
         db.query(Usuario)
         .filter(Usuario.is_active == True)  # noqa: E712
+        .filter(Usuario.rol.in_([RolUsuario.AGENTE, RolUsuario.AGENTE_SENIOR]))
         .order_by(Usuario.nombre_completo.asc())
         .all()
     )
@@ -625,6 +627,7 @@ async def guardar_ticket_campos(
     from app.models.checklist import Checklist
     from app.models.auditoria import Auditoria
     from app.models.etiqueta import Etiqueta
+    from app.models.usuario import RolUsuario
     from app.services.trello_service import CampoPersonalizadoService
     from app.templates.tickets.detalle_modal import render_detalle_modal
 
@@ -636,6 +639,7 @@ async def guardar_ticket_campos(
         "titulo", "descripcion", "prioridad", "asignado_id", "fecha_vencimiento",
         # === Campos extendidos del módulo de Incidencias ===
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
+        "ambiente", "item",
     }
     cambios: dict = {}
     for campo in CAMPOS_ACEPTADOS:
@@ -646,7 +650,10 @@ async def guardar_ticket_campos(
             cambios[campo] = form.get(campo)
 
     # Normalizar vacíos a None para los LOVs
-    LOV_NULLABLE = {"modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas"}
+    LOV_NULLABLE = {
+        "modulo", "vista", "hu_o_caso_prueba", "nota_observacion",
+        "resultado_pruebas", "ambiente", "item",
+    }
     for k in list(cambios.keys()):
         if k in LOV_NULLABLE:
             v = cambios[k]
@@ -691,6 +698,8 @@ async def guardar_ticket_campos(
             "hu_o_caso_prueba": "hu_caso_prueba_editado",
             "nota_observacion": "nota_observacion_editada",
             "resultado_pruebas": "resultado_pruebas_editado",
+            "ambiente": "ambiente_editado",
+            "item": "item_editado",
         }
         campos_modificados = list(valores_nuevos.keys())
         if len(campos_modificados) == 1:
@@ -739,6 +748,7 @@ async def guardar_ticket_campos(
     usuarios = (
         db.query(Usuario)
         .filter(Usuario.is_active == True)  # noqa: E712
+        .filter(Usuario.rol.in_([RolUsuario.AGENTE, RolUsuario.AGENTE_SENIOR]))
         .order_by(Usuario.nombre_completo.asc())
         .all()
     )
@@ -1114,9 +1124,9 @@ def duplicar_ticket(
         or db.query(Estado).order_by(Estado.orden).first()
     )
 
-    # Generar nuevo codigo correlativo
+    # Generar nuevo codigo correlativo (formato compacto INC-NNN)
     ultimo = db.query(sqlfunc.max(Ticket.id)).scalar() or 0
-    codigo = f"GRM-INC-2026-{(ultimo + 1):06d}"
+    codigo = f"INC-{(ultimo + 1):03d}"
 
     # Calcular nueva fecha de SLA
     fecha_sla = None

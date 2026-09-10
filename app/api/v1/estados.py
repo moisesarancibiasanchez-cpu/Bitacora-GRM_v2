@@ -539,9 +539,8 @@ def _render_column_header(estado: Estado) -> str:
 
 
 @router.patch("/{estado_id}", response_class=HTMLResponse)
-def actualizar_estado(
+async def actualizar_estado(
     estado_id: int,
-    payload: EstadoUpdate,
     request: Request,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
@@ -551,6 +550,13 @@ def actualizar_estado(
     Devuelve el fragmento HTML del encabezado de la columna (HTMX swap).
 
     Permisos: SOLO el rol Administrador puede editar columnas del catálogo.
+
+    Acepta ``application/x-www-form-urlencoded`` (HTMX envía form-data
+    desde la edición inline y desde el select de responsable). Campos
+    opcionales:
+      - ``nombre`` (str, 1-80 chars, único)
+      - ``responsable_id`` (int, o ""/"null" para desasignar)
+      - ``archivado`` (bool)
     """
     estado = db.query(Estado).filter(Estado.id == estado_id).first()
     if not estado:
@@ -574,10 +580,22 @@ def actualizar_estado(
             headers={"HX-Trigger": "ticket-error"},
         )
 
-    cambios = {}
-    if payload.nombre is not None and payload.nombre.strip() != estado.nombre:
-        nuevo = payload.nombre.strip()
-        if not nuevo:
+    # ============================================================
+    # FIX: leer form-data en lugar de un body JSON (Pydantic BaseModel).
+    # El frontend (HTMX) envía application/x-www-form-urlencoded, por
+    # lo que Pydantic no podía parsearlo y devolvía 422 que se
+    # mostraba como "Error al guardar".
+    # ============================================================
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+
+    # Parsear nombre (si viene)
+    nombre_raw = form.get("nombre")
+    if nombre_raw is not None:
+        nombre_clean = str(nombre_raw).strip()
+        if not nombre_clean:
             return HTMLResponse(
                 content=(
                     f'<div id="column-header-{estado_id}" '
@@ -588,30 +606,75 @@ def actualizar_estado(
                 status_code=400,
                 headers={"HX-Trigger": "ticket-error"},
             )
-        # Validar unicidad
-        dup = (
-            db.query(Estado)
-            .filter(Estado.nombre == nuevo, Estado.id != estado.id)
-            .first()
-        )
-        if dup:
+        if len(nombre_clean) > 80:
             return HTMLResponse(
                 content=(
                     f'<div id="column-header-{estado_id}" '
                     f'class="rounded-md border-2 border-amber-300 bg-amber-50 '
                     f'px-2 py-1 text-xs text-amber-700">'
-                    f"Ya existe otra columna con el nombre «{nuevo}».</div>"
+                    f"El nombre no puede tener más de 80 caracteres.</div>"
                 ),
                 status_code=400,
                 headers={"HX-Trigger": "ticket-error"},
             )
-        cambios["nombre"] = {"anterior": estado.nombre, "nuevo": nuevo}
-        estado.nombre = nuevo
 
-    # responsable_id: aceptar "" / null para limpiar
-    raw_resp = payload.responsable_id
-    if "responsable_id" in payload.model_fields_set:
-        if raw_resp in (None,):
+    # Parsear responsable_id (si viene)
+    responsable_id_presente = "responsable_id" in form
+    responsable_id_parsed = None
+    if responsable_id_presente:
+        resp_raw = form.get("responsable_id")
+        # Normalizar: cadena vacía, "null", "None", "false" => None (desasignar)
+        if resp_raw in (None, "", "null", "None", "false", "False", "0"):
+            responsable_id_parsed = None
+        else:
+            try:
+                responsable_id_parsed = int(resp_raw)
+            except (ValueError, TypeError):
+                return HTMLResponse(
+                    content=(
+                        f'<div id="column-header-{estado_id}" '
+                        f'class="rounded-md border-2 border-amber-300 bg-amber-50 '
+                        f'px-2 py-1 text-xs text-amber-700">'
+                        f"responsable_id inválido.</div>"
+                    ),
+                    status_code=400,
+                    headers={"HX-Trigger": "ticket-error"},
+                )
+
+    # Parsear archivado (si viene)
+    archivado_parsed = None
+    if "archivado" in form:
+        ar_raw = form.get("archivado")
+        archivado_parsed = str(ar_raw).lower() in ("true", "1", "on", "yes", "si", "sí")
+
+    # Aplicar cambios
+    cambios = {}
+
+    if nombre_raw is not None:
+        nuevo = str(nombre_raw).strip()
+        if nuevo and nuevo != estado.nombre:
+            # Validar unicidad
+            dup = (
+                db.query(Estado)
+                .filter(Estado.nombre == nuevo, Estado.id != estado.id)
+                .first()
+            )
+            if dup:
+                return HTMLResponse(
+                    content=(
+                        f'<div id="column-header-{estado_id}" '
+                        f'class="rounded-md border-2 border-amber-300 bg-amber-50 '
+                        f'px-2 py-1 text-xs text-amber-700">'
+                        f"Ya existe otra columna con el nombre «{nuevo}».</div>"
+                    ),
+                    status_code=400,
+                    headers={"HX-Trigger": "ticket-error"},
+                )
+            cambios["nombre"] = {"anterior": estado.nombre, "nuevo": nuevo}
+            estado.nombre = nuevo
+
+    if responsable_id_presente:
+        if responsable_id_parsed is None:
             if estado.responsable_id is not None:
                 cambios["responsable_id"] = {
                     "anterior": estado.responsable_id,
@@ -620,7 +683,7 @@ def actualizar_estado(
                 estado.responsable_id = None
         else:
             # validar que el usuario existe y está activo
-            u = db.query(Usuario).filter(Usuario.id == raw_resp).first()
+            u = db.query(Usuario).filter(Usuario.id == responsable_id_parsed).first()
             if not u or not u.is_active:
                 return HTMLResponse(
                     content=(
@@ -638,6 +701,13 @@ def actualizar_estado(
                     "nuevo": u.id,
                 }
                 estado.responsable_id = u.id
+
+    if archivado_parsed is not None and estado.archivado != archivado_parsed:
+        cambios["archivado"] = {
+            "anterior": estado.archivado,
+            "nuevo": archivado_parsed,
+        }
+        estado.archivado = archivado_parsed
 
     if not cambios:
         # Sin cambios: devolver el header actual
