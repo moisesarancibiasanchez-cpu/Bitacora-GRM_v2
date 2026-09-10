@@ -2,9 +2,18 @@
 Fragmento Jinja2: tarjeta individual del Kanban.
 Se devuelve al frontend cuando hay éxito (HTMX hace outerHTML swap).
 """
-from jinja2 import Template
+from jinja2 import Environment
 
-CARD_TEMPLATE = Template("""
+# Creamos un Environment propio con los filtros personalizados
+# (incluye ``truncate_text`` para limitar la descripción de la tarjeta).
+from app.core.jinja_filters import ALL_FILTERS  # noqa: E402
+
+_ENV = Environment(autoescape=True)
+for _fname, _ffunc in ALL_FILTERS.items():
+    _ENV.filters[_fname] = _ffunc
+
+
+CARD_TEMPLATE = _ENV.from_string("""
 <div id="ticket-{{ ticket.id }}"
      class="kanban-card group cursor-pointer rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2 hover:shadow-md hover:border-indigo-300 transition-all duration-150"
      data-ticket-id="{{ ticket.id }}"
@@ -36,7 +45,7 @@ CARD_TEMPLATE = Template("""
     </div>
   </div>
   <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2">{{ ticket.titulo }}</h4>
-  <p class="text-xs text-slate-500 line-clamp-2 mb-2">{{ ticket.descripcion }}</p>
+  <p class="text-xs text-slate-500 line-clamp-2 mb-2 break-words" title="{{ ticket.descripcion or '' }}">{{ ticket.descripcion | truncate_text(70) }}</p>
   <div class="flex items-center justify-between text-[11px] text-slate-500">
     <div class="flex items-center gap-1">
       {% if ticket.asignado %}

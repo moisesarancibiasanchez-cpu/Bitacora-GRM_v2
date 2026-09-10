@@ -91,6 +91,14 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # === Templates ===
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+# Registrar filtros personalizados (truncate_text, etc.).
+# Esto se hace aquí para que estén disponibles en TODAS las plantillas
+# Jinja2 (kanban, tickets, dashboard, etc.) sin necesidad de reimportar.
+from app.core.jinja_filters import ALL_FILTERS  # noqa: E402
+
+for _fname, _ffunc in ALL_FILTERS.items():
+    templates.env.filters[_fname] = _ffunc
+
 
 # === Routers API ===
 app.include_router(api_router, prefix="/api/v1")

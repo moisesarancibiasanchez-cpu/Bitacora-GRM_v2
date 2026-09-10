@@ -7,10 +7,18 @@ e incluye información SLA, asignado, etiquetas, etc.
 Existe una versión más simple en card.py que se usa para respuesta
 rápida tras drag & drop.
 """
-from jinja2 import Template
+from jinja2 import Environment
+
+# Creamos un Environment propio con los filtros personalizados
+# (incluye ``truncate_text`` para limitar la descripción de la tarjeta).
+from app.core.jinja_filters import ALL_FILTERS  # noqa: E402
+
+_ENV = Environment(autoescape=True)
+for _fname, _ffunc in ALL_FILTERS.items():
+    _ENV.filters[_fname] = _ffunc
 
 
-TARJETA_TEMPLATE = Template("""
+TARJETA_TEMPLATE = _ENV.from_string("""
 <div id="ticket-{{ ticket.id }}"
      class="kanban-card group cursor-pointer rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2 hover:shadow-md hover:border-indigo-400 hover:bg-indigo-50/30 transition-all duration-150 relative"
      data-ticket-id="{{ ticket.id }}"
@@ -18,7 +26,7 @@ TARJETA_TEMPLATE = Template("""
      data-estado="{{ ticket.estado.nombre }}"
      data-codigo="{{ ticket.codigo|lower }}"
      data-titulo="{{ ticket.titulo|lower }}"
-     data-descripcion="{{ (ticket.descripcion or '')|lower }}"
+     data-descripcion="{{ ((ticket.descripcion or '')|truncate_text(70))|lower }}"
      data-asignado-id="{{ ticket.asignado_id or '' }}"
      data-asignado-nombre="{{ (ticket.asignado.nombre_completo if ticket.asignado else '')|lower }}"
      data-etiquetas="{% for e in ticket.etiquetas %}{{ e.id }}{% if not loop.last %},{% endif %}{% endfor %}"
@@ -51,7 +59,7 @@ TARJETA_TEMPLATE = Template("""
     </div>
   </div>
   <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2 group-hover:text-indigo-700 transition-colors">{{ ticket.titulo }}</h4>
-  <p class="text-xs text-slate-500 line-clamp-2 mb-2">{{ ticket.descripcion }}</p>
+  <p class="text-xs text-slate-500 line-clamp-2 mb-2 break-words" title="{{ ticket.descripcion or '' }}">{{ ticket.descripcion | truncate_text(70) }}</p>
   <div class="flex items-center justify-between text-[11px] text-slate-500">
     <div class="flex items-center gap-1.5">
       {% if ticket.asignado %}
