@@ -9,7 +9,9 @@ Soporta dos modos:
 El JWT contiene {"sub": <user_id>, "rol": <rol_value>} y se firma con
 SECRET_KEY (configurado en app.core.config).
 """
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+import re
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, Form
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -146,3 +148,156 @@ def check_session(request: Request, usuario: Usuario = Depends(get_current_user)
         "rol": usuario.rol.value,
         "username": usuario.username,
     }
+
+
+# ============== Endpoints para formularios HTML ==============
+# Los endpoints anteriores (JSON) se mantienen para integraciones / API.
+# Los siguientes aceptan application/x-www-form-urlencoded (lo que envían
+# los formularios HTML nativos / HTMX) y devuelven HX-Redirect en éxito
+# o un fragmento HTML con el error para mostrarlo en la página.
+
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.\-]{3,64}$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _error_html(msg: str) -> HTMLResponse:
+    """Fragmento HTML para mostrar mensajes de error en el formulario."""
+    safe = (
+        msg.replace("&", "&amp;")
+           .replace("<", "&lt;")
+           .replace(">", "&gt;")
+    )
+    return HTMLResponse(
+        content=(
+            f'<div role="alert" class="text-xs text-red-700 bg-red-50 '
+            f'border border-red-200 rounded p-2 mb-2">{safe}</div>'
+        ),
+        status_code=400,
+    )
+
+
+@router.post("/login-form")
+def login_form(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Login para formularios HTML (HTMX / form-urlencoded).
+
+    En éxito: responde con cabecera HX-Redirect hacia /kanban y setea
+    la cookie de sesión. En fallo: devuelve un fragmento HTML con
+    el motivo del error para mostrarlo en #login-msg.
+    """
+    ident = (username or "").strip()
+    pwd = password or ""
+    if not ident or not pwd:
+        return _error_html("Usuario y contraseña son obligatorios.")
+
+    user = (
+        db.query(Usuario)
+        .filter((Usuario.username == ident) | (Usuario.email == ident))
+        .first()
+    )
+    if not user or not verify_password(pwd, user.hashed_password):
+        return _error_html("Credenciales inválidas.")
+    if not user.is_active:
+        return HTMLResponse(
+            content=(
+                '<div role="alert" class="text-xs text-yellow-800 bg-yellow-50 '
+                'border border-yellow-200 rounded p-2 mb-2">'
+                'Usuario inactivo. Contacta al administrador.</div>'
+            ),
+            status_code=403,
+        )
+
+    token = create_access_token({"sub": str(user.id), "rol": user.rol.value})
+    resp = Response(content="", status_code=200)
+    resp.headers["HX-Redirect"] = "/kanban"
+    resp.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=60 * 60 * 8,  # 8h
+        samesite="lax",
+        path="/",
+    )
+    return resp
+
+
+@router.post("/registro-form", status_code=200)
+def registro_form(
+    nombre_completo: str = Form(...),
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    departamento: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Registro para formularios HTML (HTMX / form-urlencoded).
+
+    En éxito: auto-login y HX-Redirect a /kanban.
+    En fallo: fragmento HTML con el motivo del error.
+    """
+    nombre = (nombre_completo or "").strip()
+    user = (username or "").strip()
+    mail = (email or "").strip()
+    pwd = password or ""
+    pwd2 = confirm_password or ""
+    depto = (departamento or "").strip() or None
+
+    # Validaciones
+    if len(nombre) < 3 or len(nombre) > 200:
+        return _error_html("El nombre completo debe tener entre 3 y 200 caracteres.")
+    if not _USERNAME_RE.match(user):
+        return _error_html(
+            "El usuario debe tener entre 3 y 64 caracteres y solo puede "
+            "contener letras, números, guion y guion bajo."
+        )
+    if not _EMAIL_RE.match(mail) or len(mail) > 120:
+        return _error_html("El email no es válido.")
+    if len(pwd) < 6 or len(pwd) > 128:
+        return _error_html("La contraseña debe tener entre 6 y 128 caracteres.")
+    if pwd != pwd2:
+        return _error_html("Las contraseñas no coinciden.")
+
+    # Unicidad
+    if db.query(Usuario).filter(Usuario.username == user).first():
+        return _error_html("El nombre de usuario ya está registrado.")
+    if db.query(Usuario).filter(Usuario.email == mail).first():
+        return _error_html("El email ya está registrado.")
+
+    # Primer usuario -> Administrador
+    es_primer_usuario = db.query(Usuario).count() == 0
+    rol_asignado = (
+        RolUsuario.ADMINISTRADOR if es_primer_usuario else RolUsuario.SOLICITANTE
+    )
+
+    nuevo = Usuario(
+        username=user,
+        email=mail,
+        nombre_completo=nombre,
+        hashed_password=hash_password(pwd),
+        departamento=depto,
+        rol=rol_asignado,
+        is_active=True,
+    )
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    # Auto-login
+    token = create_access_token({"sub": str(nuevo.id), "rol": nuevo.rol.value})
+    resp = Response(content="", status_code=200)
+    resp.headers["HX-Redirect"] = "/kanban"
+    resp.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=60 * 60 * 8,
+        samesite="lax",
+        path="/",
+    )
+    return resp
