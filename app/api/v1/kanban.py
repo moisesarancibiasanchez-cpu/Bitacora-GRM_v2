@@ -17,9 +17,12 @@ router = APIRouter(prefix="/kanban", tags=["Kanban"])
 
 
 def get_templates() -> Jinja2Templates:
-    from pathlib import Path
-    base = Path(__file__).resolve().parent.parent.parent / "templates"
-    return Jinja2Templates(directory=str(base))
+    """Reutiliza la instancia global de Jinja2Templates de ``app.main``
+    para garantizar que los filtros personalizados (p.ej. ``truncate_text``)
+    estén registrados. Crear una instancia nueva cada request rompe
+    los filtros y produce ``TemplateAssertionError``."""
+    from app.main import templates
+    return templates
 
 
 @router.get("", response_class=HTMLResponse)

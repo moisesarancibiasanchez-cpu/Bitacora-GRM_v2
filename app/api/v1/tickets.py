@@ -66,6 +66,88 @@ def crear_ticket(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ===========================================================================
+#  Listar tickets archivados (modal)  —  debe ir ANTES de /{ticket_id}
+#  para que FastAPI no lo matchee como un id numérico.
+# ===========================================================================
+@router.get("/archivados", response_class=HTMLResponse)
+def listar_archivados(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Devuelve un modal con la lista de tickets archivados. Cada tarjeta
+    incluye un botón 'Restaurar' que la devuelve al tablero principal."""
+    from app.templates.kanban.partials.tarjeta import render_tarjeta_completa
+
+    tickets = (
+        db.query(Ticket)
+        .filter(Ticket.archivado == True)  # noqa: E712
+        .order_by(Ticket.updated_at.desc())
+        .all()
+    )
+
+    if tickets:
+        # Envolvemos cada tarjeta con su botón 'Restaurar'
+        items_parts = []
+        for t in tickets:
+            tarjeta = render_tarjeta_completa(t)
+            items_parts.append(f"""
+<div class="archivado-item relative">
+  {tarjeta}
+  <button type="button"
+          hx-post="/api/v1/tickets/{t.id}/desarchivar"
+          hx-swap="none"
+          hx-on::after-request="if(window.showToast){{window.showToast('Ticket {t.codigo} restaurado al tablero','success');}}setTimeout(function(){{window.location.reload();}},500);"
+          class="mt-1 w-full px-2 py-1 text-[11px] font-medium rounded border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-400 inline-flex items-center justify-center gap-1">
+    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+    </svg>
+    Restaurar al tablero
+  </button>
+</div>
+""")
+        items = "".join(items_parts)
+    else:
+        items = (
+            '<div class="col-span-full text-center text-slate-400 italic py-12">'
+            '<svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>'
+            '</svg>'
+            "<p>No hay tickets archivados.</p>"
+            "</div>"
+        )
+
+    total = len(tickets)
+    html = f"""
+<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="archivados">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-6xl mx-4 p-6 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-200 sticky top-0 bg-white z-10">
+      <div>
+        <h3 class="text-lg font-semibold text-slate-800 inline-flex items-center gap-2">
+          <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+          </svg>
+          Tickets Archivados
+        </h3>
+        <p class="text-xs text-slate-500 mt-0.5">{total} ticket(s) en el archivo</p>
+      </div>
+      <button data-close-modal type="button"
+              class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center"
+              title="Cerrar">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {items}
+    </div>
+  </div>
+</div>
+"""
+    return HTMLResponse(content=html)
+
+
 @router.get("/{ticket_id}", response_model=TicketRead)
 def obtener_ticket(
     ticket_id: int,
@@ -1152,31 +1234,6 @@ def desarchivar_ticket(
   }})();
 </script>
 """)
-
-
-@router.get("/archivados", response_class=HTMLResponse)
-def listar_archivados(
-    db: Session = Depends(get_db),
-    usuario: Usuario = Depends(get_current_user),
-):
-    """Devuelve la lista de tickets archivados como fragmento HTML
-    (usado por el modal/filtro 'Mostrar archivados')."""
-    from app.templates.kanban.partials.tarjeta import render_tarjeta_completa
-
-    tickets = (
-        db.query(Ticket)
-        .filter(Ticket.archivado == True)  # noqa: E712
-        .order_by(Ticket.updated_at.desc())
-        .all()
-    )
-    items = "".join(render_tarjeta_completa(t) for t in tickets)
-    if not items:
-        items = (
-            '<div class="col-span-full text-center text-slate-400 italic py-12">'
-            "No hay tickets archivados."
-            "</div>"
-        )
-    return HTMLResponse(content=items)
 
 
 # ===========================================================================

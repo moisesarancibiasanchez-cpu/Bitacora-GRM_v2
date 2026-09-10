@@ -3,10 +3,10 @@
 {% block content %}
 <div class="p-6 overflow-y-auto h-full">
   <div class="max-w-7xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center justify-between mb-4">
       <div>
         <h2 class="text-xl font-semibold text-slate-800">Listado de Tickets</h2>
-        <p class="text-sm text-slate-500">{{ tickets|length }} incidencias registradas</p>
+        <p id="tickets-count" class="text-sm text-slate-500">{{ tickets|length }} incidencias registradas</p>
       </div>
       <div class="flex items-center gap-2">
         <button class="px-4 py-2 rounded-md border border-slate-300 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 inline-flex items-center gap-1.5"
@@ -24,6 +24,63 @@
         </a>
       </div>
     </div>
+
+    {# ============== Panel de filtros ============== #}
+    <form id="filtros-tickets"
+          hx-get="/tickets/tabla"
+          hx-target="#tickets-tbody"
+          hx-swap="innerHTML"
+          hx-trigger="change from:select, keyup delay:300ms from:input[name='q'], filter-reset from:body"
+          class="bg-white rounded-lg border border-slate-200 px-4 py-3 mb-3 flex flex-wrap items-end gap-3">
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Búsqueda</label>
+        <input name="q" type="text" value="{{ q or '' }}" placeholder="Título, código o descripción…"
+               class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 w-56" />
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Estado</label>
+        <select name="estado_id" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 min-w-[10rem]">
+          <option value="">Todos</option>
+          {% for e in estados %}
+            <option value="{{ e.id }}" {% if estado_id and estado_id|int == e.id %}selected{% endif %}>{{ e.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Prioridad</label>
+        <select name="prioridad" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="">Todas</option>
+          <option value="critica" {% if prioridad == 'critica' %}selected{% endif %}>Crítica</option>
+          <option value="alta" {% if prioridad == 'alta' %}selected{% endif %}>Alta</option>
+          <option value="media" {% if prioridad == 'media' %}selected{% endif %}>Media</option>
+          <option value="baja" {% if prioridad == 'baja' %}selected{% endif %}>Baja</option>
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Asignado</label>
+        <select name="asignado_id" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 min-w-[10rem]">
+          <option value="">Todos</option>
+          <option value="-1" {% if asignado_id == '-1' %}selected{% endif %}>— Sin asignar —</option>
+          {% for u in usuarios %}
+            <option value="{{ u.id }}" {% if asignado_id and asignado_id|int == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Archivo</label>
+        <select name="archivado" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="0" {% if archivado == '0' %}selected{% endif %}>Activos</option>
+          <option value="1" {% if archivado == '1' %}selected{% endif %}>Archivados</option>
+          <option value="" {% if archivado == '' or archivado is none %}selected{% endif %}>Todos</option>
+        </select>
+      </div>
+      <button type="button" id="filtros-limpiar-btn"
+              class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600">
+        Limpiar filtros
+      </button>
+    </form>
+
+    {# ============== Tabla ============== #}
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -36,10 +93,12 @@
               <th class="px-4 py-3 text-left">Asignado</th>
               <th class="px-4 py-3 text-left">Fecha Vencimiento</th>
               <th class="px-4 py-3 text-left">SLA</th>
+              <th class="px-4 py-3 text-center">Archivado</th>
+              <th class="px-4 py-3 text-center">Activo</th>
               <th class="px-4 py-3 text-center">Acción</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">
+          <tbody id="tickets-tbody" class="divide-y divide-slate-100">
             {% for t in tickets %}
             <tr class="hover:bg-slate-50">
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ t.codigo }}</td>
@@ -79,6 +138,32 @@
                 {% endif %}
               </td>
               <td class="px-4 py-3 text-center">
+                {% if t.archivado %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                    Archivado
+                  </span>
+                {% else %}
+                  <span class="text-slate-300">—</span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-3 text-center">
+                {% if t.estado and t.estado.es_final %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                    Inactivo
+                  </span>
+                {% elif t.archivado %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                    Inactivo
+                  </span>
+                {% else %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Activo
+                  </span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-3 text-center">
                 <button class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:border-indigo-300 transition-colors"
                         hx-get="/api/v1/tickets/{{ t.id }}/detalle-html"
                         hx-target="#modal-root" hx-swap="innerHTML"
@@ -94,8 +179,8 @@
             {% endfor %}
             {% if not tickets %}
             <tr>
-              <td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">
-                No hay tickets registrados todavía.
+              <td colspan="10" class="px-4 py-10 text-center text-slate-400 text-sm">
+                No hay tickets que coincidan con los filtros.
                 <a href="/kanban" class="text-indigo-600 hover:underline ml-1">Crear el primero →</a>
               </td>
             </tr>
@@ -106,4 +191,26 @@
     </div>
   </div>
 </div>
+
+{# Script para limpiar los filtros #}
+<script>
+  (function() {
+    var btn = document.getElementById('filtros-limpiar-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+      var form = document.getElementById('filtros-tickets');
+      if (!form) return;
+      form.querySelectorAll('input, select').forEach(function(el) {
+        if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else if (el.type === 'text') el.value = '';
+      });
+      // Disparar manualmente el evento HTMX para que recargue la tabla
+      form.dispatchEvent(new Event('filter-reset', { bubbles: true }));
+      // Y forzar la recarga con htmx
+      if (typeof htmx !== 'undefined') {
+        htmx.trigger(form, 'filter-reset');
+      }
+    });
+  })();
+</script>
 {% endblock %}
