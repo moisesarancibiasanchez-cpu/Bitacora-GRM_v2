@@ -1,11 +1,17 @@
 """
 Dependencias de FastAPI: autenticación y autorización.
 
-Soporta 3 modos (en orden de prioridad):
+Modos soportados (en orden de prioridad):
 1) Authorization: Bearer <jwt>
 2) Cookie 'access_token' (sesión web persistente)
-3) Header X-User-Id (modo demo / pruebas / integraciones internas)
+
+SEGURIDAD: el antiguo fallback por header ``X-User-Id`` (modo demo) está
+DESHABILITADO por defecto. Solo se activa si la variable de entorno
+``ALLOW_XUSER_HEADER=true`` está definida explícitamente. Esto evita
+que cualquier petición pueda suplantar a un usuario enviando simplemente
+``X-User-Id: 1`` en la cabecera.
 """
+import os
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -17,6 +23,10 @@ from app.models.usuario import Usuario, RolUsuario
 
 security = HTTPBearer(auto_error=False)
 
+# Solo permitir el bypass de X-User-Id si se activa EXPLÍCITAMENTE
+# mediante variable de entorno. Por defecto está cerrado.
+ALLOW_XUSER_HEADER = os.getenv("ALLOW_XUSER_HEADER", "false").lower() == "true"
+
 
 def get_current_user(
     request: Request,
@@ -27,7 +37,8 @@ def get_current_user(
     Resuelve el usuario actual siguiendo la cadena de prioridad:
       1) Authorization: Bearer <token> -> decodifica JWT
       2) Cookie 'access_token' -> decodifica JWT
-      3) Header X-User-Id (modo demo / pruebas)
+      3) Header X-User-Id SOLO si ``ALLOW_XUSER_HEADER=true``
+         (uso exclusivo de pruebas internas; NUNCA en producción).
     """
     user_id = None
 
@@ -51,8 +62,8 @@ def get_current_user(
                 except (ValueError, TypeError):
                     user_id = None
 
-    # 3) Modo demo: X-User-Id
-    if user_id is None:
+    # 3) Modo demo: X-User-Id (DESHABILITADO por defecto por seguridad)
+    if user_id is None and ALLOW_XUSER_HEADER:
         x_user = request.headers.get("X-User-Id")
         if x_user:
             try:

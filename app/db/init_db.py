@@ -3,12 +3,18 @@ Script de inicialización de la base de datos.
 Crea las tablas y carga datos semilla:
 - Estados por defecto del flujo ITSM
 - Transiciones válidas
-- Usuarios de ejemplo
+- Usuarios de ejemplo (SOLO si SEED_DEMO_USERS=true, por seguridad)
 - Catálogos base
 - Espacios, tableros, custom fields, butler (estilo Trello)
+
+NOTA DE SEGURIDAD: Los usuarios demo con contraseñas hardcodeadas
+(``admin/admin123``, etc.) SOLO se crean si la variable de entorno
+``SEED_DEMO_USERS=true`` está definida. Por defecto NO se crean
+para evitar cuentas de acceso público en producción.
 """
 import json
 import logging
+import os
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -31,6 +37,11 @@ from app.models.watch import Notificacion, Watch, Reaccion
 
 
 logger = logging.getLogger(__name__)
+
+# Bandera de seguridad: por defecto NO se crean usuarios demo con
+# contraseñas conocidas. Activar explícitamente con SEED_DEMO_USERS=true
+# SOLO en entornos de desarrollo local.
+SEED_DEMO_USERS_ENABLED = os.getenv("SEED_DEMO_USERS", "false").lower() == "true"
 
 
 def init_database():
@@ -136,8 +147,23 @@ def seed_transiciones(db: Session):
 
 
 def seed_usuarios(db: Session):
-    """Crea usuarios de ejemplo con distintos roles."""
+    """Crea usuarios de ejemplo con distintos roles.
+
+    SEGURIDAD: Esta función SOLO crea los usuarios demo (con contraseñas
+    hardcodeadas) si la variable de entorno ``SEED_DEMO_USERS=true`` está
+    definida. En cualquier otro caso, no hace nada: el primer usuario
+    debe registrarse a través del flujo de ``/auth/registro`` y será
+    automáticamente Administrador.
+    """
     if db.query(Usuario).count() > 0:
+        return
+
+    if not SEED_DEMO_USERS_ENABLED:
+        print(
+            "  · Seed de usuarios demo DESHABILITADO "
+            "(defina SEED_DEMO_USERS=true para crear admin/admin123, etc.)"
+        )
+        print("  · El primer usuario que se registre por /auth/registro será Administrador.")
         return
 
     usuarios = [
@@ -173,7 +199,7 @@ def seed_usuarios(db: Session):
     for u in usuarios:
         db.add(u)
     db.flush()
-    print(f"  ✓ {len(usuarios)} usuarios creados")
+    print(f"  ✓ {len(usuarios)} usuarios demo creados (SEED_DEMO_USERS=true)")
 
 
 def seed_catalogos(db: Session):

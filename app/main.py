@@ -106,33 +106,42 @@ app.include_router(api_router, prefix="/api/v1")
 
 # === Rutas de páginas (HTML server-rendered) ===
 def _get_usuario_actual(request: Request):
-    """Resuelve el usuario actual desde cookie/JWT o el primer admin (modo demo)."""
+    """Resuelve el usuario actual a partir ÚNICAMENTE de la cookie ``access_token``.
+
+    Retorna el ``Usuario`` autenticado o ``None`` si no hay sesión válida.
+    NO hay fallback a 'primer admin' ni a 'modo demo' por seguridad:
+    un usuario sin sesión debe ser redirigido a /auth/login.
+    """
     from app.db.session import SessionLocal
-    from app.models.usuario import Usuario, RolUsuario
+    from app.models.usuario import Usuario
     from app.core.security import decode_access_token
     db = SessionLocal()
     try:
-        # 1) Cookie
         token = request.cookies.get("access_token")
-        if token:
-            payload = decode_access_token(token)
-            if payload and "sub" in payload:
-                try:
-                    uid = int(payload["sub"])
-                    u = db.query(Usuario).filter(
-                        Usuario.id == uid, Usuario.is_active == True  # noqa: E712
-                    ).first()
-                    if u:
-                        return u
-                except (ValueError, TypeError):
-                    pass
-        # 2) Modo demo: primer admin
-        u = db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
-        if not u:
-            u = db.query(Usuario).first()
-        return u
+        if not token:
+            return None
+        payload = decode_access_token(token)
+        if not payload or "sub" not in payload:
+            return None
+        try:
+            uid = int(payload["sub"])
+        except (ValueError, TypeError):
+            return None
+        return (
+            db.query(Usuario)
+            .filter(Usuario.id == uid, Usuario.is_active == True)  # noqa: E712
+            .first()
+        )
     finally:
         db.close()
+
+
+def _require_session_or_redirect(request: Request):
+    """Devuelve (usuario, None) si hay sesión, o (None, redirect a /auth/login)."""
+    usuario = _get_usuario_actual(request)
+    if usuario is None:
+        return None, RedirectResponse(url="/auth/login", status_code=302)
+    return usuario, None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -146,18 +155,17 @@ async def root(request: Request):
 
 @app.get("/kanban", response_class=HTMLResponse)
 async def kanban_page(request: Request):
-    """Renderiza el tablero Kanban (versión demo, sin auth para visualización)."""
+    """Renderiza el tablero Kanban. Requiere sesión activa."""
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     from app.db.session import SessionLocal
     from app.models.estado import Estado
     from app.models.ticket import Ticket
-    from app.models.usuario import Usuario, RolUsuario
 
     db = SessionLocal()
     try:
-        # En modo demo, tomamos el primer administrador como "usuario actual"
-        usuario = db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
-        if not usuario:
-            usuario = db.query(Usuario).first()
         estados = db.query(Estado).order_by(Estado.orden.asc()).all()
         tickets_por_estado = {}
         for e in estados:
@@ -238,18 +246,19 @@ async def tickets_page(
     asignado_id: str = "",
     archivado: str = "0",
 ):
-    """Página de listado de tickets (tabla) con filtros por HTMX."""
+    """Página de listado de tickets (tabla) con filtros por HTMX.
+    Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket
-    from app.models.usuario import Usuario, RolUsuario
+    from app.models.usuario import Usuario
     from app.models.estado import Estado
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
 
     db = SessionLocal()
     try:
-        usuario = (
-            db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
-            or db.query(Usuario).first()
-        )
         tickets = (
             _build_tickets_query(
                 db, q=q, estado_id=estado_id, prioridad=prioridad,
@@ -289,9 +298,14 @@ async def tickets_tabla_partial(
     archivado: str = "0",
 ):
     """Partial HTMX: devuelve solo el <tbody> filtrado más un OOB con el
-    contador actualizado. Usado por el formulario de filtros del listado."""
+    contador actualizado. Usado por el formulario de filtros del listado.
+    Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
 
     db = SessionLocal()
     try:
@@ -306,7 +320,7 @@ async def tickets_tabla_partial(
         )
         # Renderizamos la misma plantilla y extraemos solo el contenido del <tbody>
         rendered = templates.get_template("tickets/list.html").render(
-            request=request, usuario=request.state.usuario if hasattr(request.state, "usuario") else None,
+            request=request, usuario=usuario,
             tickets=tickets, estados=[], usuarios=[],
             q=q, estado_id=estado_id, prioridad=prioridad,
             asignado_id=asignado_id, archivado=archivado,
@@ -330,18 +344,18 @@ async def tickets_tabla_partial(
 @app.get("/tickets/nuevo", response_class=HTMLResponse)
 async def ticket_nuevo_form(request: Request):
     """Devuelve el fragmento HTML del modal de creación de un nuevo ticket.
-    Se carga por HTMX desde el botón '+ Nueva Incidencia' del tablero Kanban."""
+    Se carga por HTMX desde el botón '+ Nueva Incidencia' del tablero Kanban.
+    Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.catalogo import CatalogoTipo, CatalogoItem
-    from app.models.usuario import Usuario, RolUsuario
     from app.models.etiqueta import Etiqueta
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
 
     db = SessionLocal()
     try:
-        usuario = (
-            db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
-            or db.query(Usuario).first()
-        )
         catalogos_tipos = db.query(CatalogoTipo).all()
         catalogos_items = db.query(CatalogoItem).all()
         etiquetas = db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
@@ -362,11 +376,11 @@ async def ticket_nuevo_form(request: Request):
 @app.post("/tickets/crear", response_class=HTMLResponse)
 async def ticket_crear(request: Request):
     """Crea un ticket con archivos adjuntos, checklist inicial, fecha de vencimiento,
-    descripción en Markdown y devuelve el modal de éxito con un enlace al detalle."""
+    descripción en Markdown y devuelve el modal de éxito con un enlace al detalle.
+    Requiere sesión activa: el creador es el usuario autenticado."""
     from fastapi import UploadFile, File, Form
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket, TipoIncidencia, Prioridad
-    from app.models.usuario import Usuario
     from app.models.estado import Estado
     from app.models.etiqueta import Etiqueta
     from app.models.adjunto import Adjunto
@@ -374,6 +388,10 @@ async def ticket_crear(request: Request):
     from app.services.features_service import AdjuntoService, ChecklistService
     from datetime import datetime, timedelta
     from typing import List, Optional
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
 
     db = SessionLocal()
     try:
@@ -423,10 +441,7 @@ async def ticket_crear(request: Request):
                 status_code=400,
             )
 
-        usuario = (
-            db.query(Usuario).filter(Usuario.rol == "administrador").first()
-            or db.query(Usuario).first()
-        )
+        usuario = usuario  # viene de _require_session_or_redirect
         # Asignar al usuario actual si no se especificó
         if not asignado_id:
             asignado_id = usuario.id if usuario else None
@@ -606,15 +621,16 @@ async def ticket_crear(request: Request):
 
 @app.get("/catalogos", response_class=HTMLResponse)
 async def catalogos_page(request: Request):
-    """Página de mantenedores de catálogos."""
+    """Página de mantenedores de catálogos. Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.catalogo import CatalogoTipo
-    from app.models.usuario import Usuario, RolUsuario
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
 
     db = SessionLocal()
     try:
-        usuario = db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first() \
-                or db.query(Usuario).first()
         tipos = db.query(CatalogoTipo).all()
         return templates.TemplateResponse(
             "catalogos/index.html",
@@ -640,21 +656,19 @@ async def auth_registro_page(request: Request):
 # === Páginas de Gestión de Usuarios (solo Administrador) ===
 @app.get("/usuarios", response_class=HTMLResponse)
 async def usuarios_index_page(request: Request):
-    """Página principal de gestión de usuarios. Solo Administrador."""
-    from app.db.session import SessionLocal
-    from app.models.usuario import Usuario, RolUsuario
+    """Página principal de gestión de usuarios. Solo Administrador.
+    Requiere sesión activa; sin sesión redirige a /auth/login."""
+    from app.models.usuario import RolUsuario
 
-    db = SessionLocal()
-    try:
-        usuario = _get_usuario_actual(request)
-        if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
-            return RedirectResponse(url="/kanban")
-        return templates.TemplateResponse(
-            "usuarios/index.html",
-            {"request": request, "usuario": usuario},
-        )
-    finally:
-        db.close()
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        return RedirectResponse(url="/kanban")
+    return templates.TemplateResponse(
+        "usuarios/index.html",
+        {"request": request, "usuario": usuario},
+    )
 
 
 @app.get("/usuarios/tabla", response_class=HTMLResponse)
@@ -664,17 +678,20 @@ async def usuarios_tabla_partial(
     rol: str = "",
     activos: str = "1",
 ):
-    """Partial HTMX: tabla de usuarios con filtros. Solo Administrador."""
+    """Partial HTMX: tabla de usuarios con filtros. Solo Administrador.
+    Requiere sesión activa; sin sesión redirige a /auth/login."""
     from app.db.session import SessionLocal
     from app.models.usuario import Usuario, RolUsuario
     from sqlalchemy import or_
 
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
+
     db = SessionLocal()
     try:
-        usuario = _get_usuario_actual(request)
-        if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
-            return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
-
         query = db.query(Usuario)
         if q:
             patron = f"%{q}%"
@@ -701,10 +718,13 @@ async def usuarios_tabla_partial(
 
 @app.get("/usuarios/nuevo", response_class=HTMLResponse)
 async def usuarios_nuevo_modal(request: Request):
-    """Modal de creación de nuevo usuario. Solo Administrador."""
+    """Modal de creación de nuevo usuario. Solo Administrador.
+    Requiere sesión activa; sin sesión redirige a /auth/login."""
     from app.models.usuario import RolUsuario
-    usuario = _get_usuario_actual(request)
-    if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
         return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
     return templates.TemplateResponse(
         "usuarios/form.html",
@@ -714,14 +734,17 @@ async def usuarios_nuevo_modal(request: Request):
 
 @app.get("/usuarios/{usuario_id}/editar", response_class=HTMLResponse)
 async def usuarios_editar_modal(request: Request, usuario_id: int):
-    """Modal de edición de usuario. Solo Administrador."""
+    """Modal de edición de usuario. Solo Administrador.
+    Requiere sesión activa; sin sesión redirige a /auth/login."""
     from app.db.session import SessionLocal
     from app.models.usuario import Usuario, RolUsuario
+    usuario_actual, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+    if usuario_actual.rol != RolUsuario.ADMINISTRADOR:
+        return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
     db = SessionLocal()
     try:
-        usuario_actual = _get_usuario_actual(request)
-        if not usuario_actual or usuario_actual.rol != RolUsuario.ADMINISTRADOR:
-            return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
         target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
         if not target:
             return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Usuario no encontrado</div>')
@@ -736,17 +759,20 @@ async def usuarios_editar_modal(request: Request, usuario_id: int):
 # === Página de Importar / Exportar (solo Administrador) ===
 @app.get("/importar-exportar", response_class=HTMLResponse)
 async def importar_exportar_page(request: Request):
-    """Página con herramientas de import/export. Solo Administrador."""
+    """Página con herramientas de import/export. Solo Administrador.
+    Requiere sesión activa; sin sesión redirige a /auth/login."""
     from app.db.session import SessionLocal
-    from app.models.usuario import Usuario, RolUsuario
     from app.models.estado import Estado
     from app.models.etiqueta import Etiqueta
 
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+    from app.models.usuario import RolUsuario
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        return RedirectResponse(url="/kanban")
     db = SessionLocal()
     try:
-        usuario = _get_usuario_actual(request)
-        if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
-            return RedirectResponse(url="/kanban")
         estados = db.query(Estado).order_by(Estado.orden).all()
         etiquetas = db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
         return templates.TemplateResponse(
@@ -765,25 +791,26 @@ async def tickets_exportar_csv(request: Request):
 
 
 # === Páginas de Workspaces / Tableros / Vistas / Butler / Notificaciones ===
-def _usuario_demo(db):
-    from app.models.usuario import Usuario, RolUsuario
-    return (
-        db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
-        or db.query(Usuario).first()
-    )
+# ELIMINADO: _usuario_demo(db) ya no existe. Era un fallback inseguro que
+# devolvía automáticamente el primer usuario administrador como sesión
+# activa cuando no había cookie. Todas las páginas ahora exigen sesión
+# real mediante _require_session_or_redirect.
 
 
 @app.get("/espacios", response_class=HTMLResponse)
 async def espacios_page(request: Request):
-    """Lista de espacios de trabajo (workspaces)."""
+    """Lista de espacios de trabajo (workspaces). Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.espacio import Espacio
     from app.models.espacio import espacio_miembros, Tablero
     from sqlalchemy import func
 
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         espacios = db.query(Espacio).order_by(Espacio.created_at.desc()).all()
         # Anotar totales (atributos transient, no las properties read-only)
         for e in espacios:
@@ -799,18 +826,21 @@ async def espacios_page(request: Request):
 
 @app.get("/tableros", response_class=HTMLResponse)
 async def tableros_page(request: Request):
-    """Lista de tableros (filtrable por espacio)."""
+    """Lista de tableros (filtrable por espacio). Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.espacio import Espacio, Tablero
     from app.models.ticket import Ticket
     from app.models.estado import Estado
     from sqlalchemy import func
 
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     espacio_id = request.query_params.get("espacio")
 
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         espacios = db.query(Espacio).order_by(Espacio.nombre).all()
         espacio_actual = None
         if espacio_id:
@@ -842,7 +872,7 @@ async def tableros_page(request: Request):
 
 @app.get("/vistas/tabla", response_class=HTMLResponse)
 async def vista_tabla_page(request: Request):
-    """Vista multidimensional: Tabla."""
+    """Vista multidimensional: Tabla. Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket
     from app.models.estado import Estado
@@ -850,10 +880,14 @@ async def vista_tabla_page(request: Request):
     from app.models.campo_personalizado import CampoPersonalizado, ValorCampo
     from app.models.etiqueta import Etiqueta
     from app.models.espacio import Espacio
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     espacio_id = request.query_params.get("espacio")
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         # Si hay espacio, filtrar; si no, mostrar todos
         q = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
         if espacio_id:
@@ -907,13 +941,17 @@ async def vista_tabla_page(request: Request):
 
 @app.get("/vistas/calendario", response_class=HTMLResponse)
 async def vista_calendario_page(request: Request):
-    """Vista multidimensional: Calendario."""
+    """Vista multidimensional: Calendario. Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     espacio_id = request.query_params.get("espacio")
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         q = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
         if espacio_id:
             try:
@@ -948,14 +986,18 @@ async def vista_calendario_page(request: Request):
 
 @app.get("/vistas/timeline", response_class=HTMLResponse)
 async def vista_timeline_page(request: Request):
-    """Vista multidimensional: Timeline (Gantt simple)."""
+    """Vista multidimensional: Timeline (Gantt simple). Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.ticket import Ticket
     from datetime import datetime
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     espacio_id = request.query_params.get("espacio")
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         q = db.query(Ticket).filter(
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_inicio.isnot(None),
@@ -1006,30 +1048,30 @@ async def vista_timeline_page(request: Request):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    """Dashboard con KPIs y métricas del módulo de incidencias."""
-    from app.db.session import SessionLocal
-    from app.models.usuario import Usuario, RolUsuario
-
-    db = SessionLocal()
-    try:
-        usuario = _usuario_demo(db)
-        return templates.TemplateResponse(
-            "dashboard/index.html",
-            {"request": request, "usuario": usuario},
-        )
-    finally:
-        db.close()
+    """Dashboard con KPIs y métricas del módulo de incidencias.
+    Requiere sesión activa."""
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        "dashboard/index.html",
+        {"request": request, "usuario": usuario},
+    )
 
 
 @app.get("/butler", response_class=HTMLResponse)
 async def butler_page(request: Request):
-    """Página de automatizaciones Butler."""
+    """Página de automatizaciones Butler. Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.automacion import ReglaAutomatizacion
     from app.models.butler_extras import BotonTarjeta, ComandoProgramado
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         reglas = db.query(ReglaAutomatizacion).order_by(ReglaAutomatizacion.nombre).all()
         botones = db.query(BotonTarjeta).order_by(BotonTarjeta.posicion).all()
         comandos = db.query(ComandoProgramado).order_by(ComandoProgramado.nombre).all()
@@ -1046,12 +1088,16 @@ async def butler_page(request: Request):
 
 @app.get("/notificaciones", response_class=HTMLResponse)
 async def notificaciones_page(request: Request):
-    """Centro de notificaciones del usuario."""
+    """Centro de notificaciones del usuario. Requiere sesión activa."""
     from app.db.session import SessionLocal
     from app.models.watch import Notificacion
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
     db = SessionLocal()
     try:
-        usuario = _usuario_demo(db)
         notifs = db.query(Notificacion).filter(
             Notificacion.usuario_id == usuario.id
         ).order_by(Notificacion.created_at.desc()).limit(100).all()
