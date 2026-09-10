@@ -97,9 +97,42 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 # === Rutas de páginas (HTML server-rendered) ===
+def _get_usuario_actual(request: Request):
+    """Resuelve el usuario actual desde cookie/JWT o el primer admin (modo demo)."""
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+    from app.core.security import decode_access_token
+    db = SessionLocal()
+    try:
+        # 1) Cookie
+        token = request.cookies.get("access_token")
+        if token:
+            payload = decode_access_token(token)
+            if payload and "sub" in payload:
+                try:
+                    uid = int(payload["sub"])
+                    u = db.query(Usuario).filter(
+                        Usuario.id == uid, Usuario.is_active == True  # noqa: E712
+                    ).first()
+                    if u:
+                        return u
+                except (ValueError, TypeError):
+                    pass
+        # 2) Modo demo: primer admin
+        u = db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).first()
+        if not u:
+            u = db.query(Usuario).first()
+        return u
+    finally:
+        db.close()
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    """Página de inicio, redirige al tablero Kanban."""
+    """Página de inicio. Si no hay sesión, redirige a /auth/login."""
+    usuario = _get_usuario_actual(request)
+    if not usuario:
+        return RedirectResponse(url="/auth/login")
     return RedirectResponse(url="/kanban")
 
 
@@ -450,6 +483,146 @@ async def catalogos_page(request: Request):
         )
     finally:
         db.close()
+
+
+# === Páginas de Autenticación ===
+@app.get("/auth/login", response_class=HTMLResponse)
+async def auth_login_page(request: Request):
+    """Página de inicio de sesión."""
+    return templates.TemplateResponse("auth/login.html", {"request": request, "usuario": None})
+
+
+@app.get("/auth/registro", response_class=HTMLResponse)
+async def auth_registro_page(request: Request):
+    """Página de registro de nuevos usuarios."""
+    return templates.TemplateResponse("auth/registro.html", {"request": request, "usuario": None})
+
+
+# === Páginas de Gestión de Usuarios (solo Administrador) ===
+@app.get("/usuarios", response_class=HTMLResponse)
+async def usuarios_index_page(request: Request):
+    """Página principal de gestión de usuarios. Solo Administrador."""
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+
+    db = SessionLocal()
+    try:
+        usuario = _get_usuario_actual(request)
+        if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
+            return RedirectResponse(url="/kanban")
+        return templates.TemplateResponse(
+            "usuarios/index.html",
+            {"request": request, "usuario": usuario},
+        )
+    finally:
+        db.close()
+
+
+@app.get("/usuarios/tabla", response_class=HTMLResponse)
+async def usuarios_tabla_partial(
+    request: Request,
+    q: str = "",
+    rol: str = "",
+    activos: str = "1",
+):
+    """Partial HTMX: tabla de usuarios con filtros. Solo Administrador."""
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+    from sqlalchemy import or_
+
+    db = SessionLocal()
+    try:
+        usuario = _get_usuario_actual(request)
+        if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
+            return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
+
+        query = db.query(Usuario)
+        if q:
+            patron = f"%{q}%"
+            query = query.filter(or_(
+                Usuario.username.ilike(patron),
+                Usuario.email.ilike(patron),
+                Usuario.nombre_completo.ilike(patron),
+            ))
+        if rol:
+            try:
+                query = query.filter(Usuario.rol == RolUsuario(rol))
+            except ValueError:
+                pass
+        if activos == "1":
+            query = query.filter(Usuario.is_active == True)  # noqa: E712
+        usuarios = query.order_by(Usuario.nombre_completo.asc()).all()
+        return templates.TemplateResponse(
+            "usuarios/tabla.html",
+            {"request": request, "usuario": usuario, "usuarios": usuarios},
+        )
+    finally:
+        db.close()
+
+
+@app.get("/usuarios/nuevo", response_class=HTMLResponse)
+async def usuarios_nuevo_modal(request: Request):
+    """Modal de creación de nuevo usuario. Solo Administrador."""
+    from app.models.usuario import RolUsuario
+    usuario = _get_usuario_actual(request)
+    if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
+        return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
+    return templates.TemplateResponse(
+        "usuarios/form.html",
+        {"request": request, "usuario": usuario, "target": None},
+    )
+
+
+@app.get("/usuarios/{usuario_id}/editar", response_class=HTMLResponse)
+async def usuarios_editar_modal(request: Request, usuario_id: int):
+    """Modal de edición de usuario. Solo Administrador."""
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+    db = SessionLocal()
+    try:
+        usuario_actual = _get_usuario_actual(request)
+        if not usuario_actual or usuario_actual.rol != RolUsuario.ADMINISTRADOR:
+            return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
+        target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not target:
+            return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Usuario no encontrado</div>')
+        return templates.TemplateResponse(
+            "usuarios/form.html",
+            {"request": request, "usuario": usuario_actual, "target": target},
+        )
+    finally:
+        db.close()
+
+
+# === Página de Importar / Exportar (solo Administrador) ===
+@app.get("/importar-exportar", response_class=HTMLResponse)
+async def importar_exportar_page(request: Request):
+    """Página con herramientas de import/export. Solo Administrador."""
+    from app.db.session import SessionLocal
+    from app.models.usuario import Usuario, RolUsuario
+    from app.models.estado import Estado
+    from app.models.etiqueta import Etiqueta
+
+    db = SessionLocal()
+    try:
+        usuario = _get_usuario_actual(request)
+        if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
+            return RedirectResponse(url="/kanban")
+        estados = db.query(Estado).order_by(Estado.orden).all()
+        etiquetas = db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
+        return templates.TemplateResponse(
+            "importar_exportar/index.html",
+            {"request": request, "usuario": usuario, "estados": estados, "etiquetas": etiquetas},
+        )
+    finally:
+        db.close()
+
+
+# === Endpoint de exportación CSV desde /tickets (compatibilidad) ===
+@app.get("/tickets/exportar-csv", response_class=HTMLResponse)
+async def tickets_exportar_csv(request: Request):
+    """Redirige a la exportación CSV del módulo de import/export."""
+    return RedirectResponse(url="/api/v1/tickets-ie/exportar/csv")
 
 
 # === Páginas de Workspaces / Tableros / Vistas / Butler / Notificaciones ===

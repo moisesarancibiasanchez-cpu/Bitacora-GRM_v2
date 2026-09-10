@@ -1,0 +1,108 @@
+{# Partial: formulario de creación/edición de usuario #}
+<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="usuario-form">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+      <h3 class="text-sm font-semibold text-slate-800">
+        {% if usuario %}Editar usuario: {{ usuario.nombre_completo }}{% else %}Nuevo usuario{% endif %}
+      </h3>
+      <button data-close-modal class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+    </div>
+    <form
+      {% if usuario %}
+      hx-patch="/api/v1/usuarios/{{ usuario.id }}"
+      {% else %}
+      hx-post="/api/v1/usuarios"
+      {% endif %}
+      hx-target="#form-msg" hx-swap="innerHTML"
+      hx-on::after-request="
+        if (event.detail.successful) {
+          try { window.showToast('Usuario guardado', 'success'); } catch(e) {}
+          // Cerrar modal y recargar tabla
+          var m = document.querySelector('[data-modal=&quot;usuario-form&quot;]');
+          if (m) m.remove();
+          htmx.ajax('GET', '/usuarios/tabla', {target: '#usuarios-tabla', swap: 'innerHTML'});
+        }
+      "
+      class="p-5 space-y-3">
+
+      <div id="form-msg"></div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">Usuario <span class="text-red-500">*</span></label>
+        <input type="text" name="username" required minlength="3" maxlength="64"
+               pattern="[a-zA-Z0-9_.\-]+"
+               value="{{ usuario.username if usuario else '' }}"
+               {% if usuario %}readonly{% endif %}
+               class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none {% if usuario %}bg-slate-50 text-slate-500{% endif %}" />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre completo <span class="text-red-500">*</span></label>
+        <input type="text" name="nombre_completo" required minlength="3" maxlength="200"
+               value="{{ usuario.nombre_completo if usuario else '' }}"
+               class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">Email <span class="text-red-500">*</span></label>
+        <input type="email" name="email" required maxlength="120"
+               value="{{ usuario.email if usuario else '' }}"
+               class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">Departamento</label>
+        <input type="text" name="departamento" maxlength="120"
+               value="{{ usuario.departamento if usuario and usuario.departamento else '' }}"
+               class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">
+          Rol <span class="text-red-500">*</span>
+        </label>
+        <select name="rol" required class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+          {% set rol_actual = usuario.rol.value if usuario and usuario.rol else 'solicitante' %}
+          <option value="observador" {% if rol_actual == 'observador' %}selected{% endif %}>Observador (solo lectura)</option>
+          <option value="solicitante" {% if rol_actual == 'solicitante' %}selected{% endif %}>Solicitante (crear tickets)</option>
+          <option value="agente" {% if rol_actual == 'agente' %}selected{% endif %}>Agente (asignar, comentar)</option>
+          <option value="agente_senior" {% if rol_actual == 'agente_senior' %}selected{% endif %}>Agente Senior (transiciones críticas)</option>
+          <option value="administrador" {% if rol_actual == 'administrador' %}selected{% endif %}>Administrador (acceso total)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">
+          Contraseña
+          {% if usuario %}<span class="text-[10px] text-slate-400 font-normal">(dejar vacío para no cambiar)</span>{% endif %}
+        </label>
+        <input type="password" name="password" minlength="6" maxlength="128"
+               {% if not usuario %}required{% endif %}
+               placeholder="{% if usuario %}••••••••{% else %}Mínimo 6 caracteres{% endif %}"
+               class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+      </div>
+
+      {% if usuario %}
+      <div>
+        <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+          <input type="checkbox" name="is_active" value="true"
+                 {% if usuario.is_active %}checked{% endif %}
+                 class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+          <span>Usuario activo</span>
+        </label>
+      </div>
+      {% endif %}
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+        <button type="button" data-close-modal
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">
+          {% if usuario %}Guardar cambios{% else %}Crear usuario{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

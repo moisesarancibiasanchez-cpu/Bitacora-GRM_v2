@@ -115,15 +115,19 @@ DETALLE_TEMPLATE = Template(r"""
           </div>
           <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
                 hx-target="#modal-root" hx-swap="innerHTML"
-                hx-trigger="blur changed delay:800ms from:textarea[name='valor_descripcion'], submit"
-                class="m-0 p-0">
+                hx-trigger="submit, keyup[ctrlKey && key=='s'] from:body, blur from:this delay:1500ms changed"
+                class="m-0 p-0"
+                hx-indicator="#descripcion-spinner-{{ ticket.id }}">
             <input type="hidden" name="campo" value="descripcion">
             <input type="hidden" name="active_tab" value="{{ _active }}">
-            <textarea name="valor_descripcion" rows="4" data-markdown="true"
+            <textarea id="textarea-descripcion-{{ ticket.id }}" name="valor_descripcion" rows="4" data-markdown="true"
                       placeholder="Detalla el problema, pasos para reproducir, mensajes de error, etc. Soporta **Markdown**."
                       class="w-full text-sm text-slate-700 border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y">{{ ticket.descripcion or '' }}</textarea>
-            <div class="flex justify-end mt-1">
+            <div class="flex items-center justify-end mt-1 gap-2">
+              <span id="descripcion-spinner-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></span>
+              <span id="descripcion-status-{{ ticket.id }}" class="text-[10px] text-slate-400 italic"></span>
               <button type="submit"
+                      onclick="var el=document.getElementById('descripcion-status-{{ ticket.id }}'); if(el){el.textContent='Guardando…';}"
                       class="px-2.5 py-1 text-[11px] font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
@@ -204,9 +208,28 @@ DETALLE_TEMPLATE = Template(r"""
             </form>
           </div>
 
-          {# Fecha de vencimiento editable #}
+          {# Fecha de vencimiento editable con glosa SLA #}
           <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Fecha de vencimiento</span>
+            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+              Fecha de vencimiento (SLA)
+              <span class="group relative inline-flex">
+                <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                  <strong class="block mb-1 text-amber-300">¿Qué es el SLA?</strong>
+                  El SLA (<em>Service Level Agreement</em>) es el plazo máximo para resolver esta incidencia antes de que se considere incumplida.
+                  <br><br>
+                  <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 align-middle"></span> <strong>Cumplido:</strong> resuelto dentro del plazo.
+                  <br>
+                  <span class="inline-block w-2 h-2 rounded-full bg-amber-500 align-middle"></span> <strong>Próximo:</strong> el plazo se acerca.
+                  <br>
+                  <span class="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> <strong>Vencido:</strong> el plazo ya pasó.
+                  <br><br>
+                  Si lo dejas vacío, se usa el SLA por defecto del estado actual.
+                </span>
+              </span>
+            </span>
             <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
                   hx-target="#modal-root" hx-swap="innerHTML"
                   hx-trigger="change from:input[name='valor_fecha_vencimiento'], submit"
@@ -226,6 +249,18 @@ DETALLE_TEMPLATE = Template(r"""
                 </button>
                 <span id="spinner-fecha-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
               </div>
+              {% if ticket.fecha_vencimiento_sla %}
+              <div class="text-[10px] text-slate-400 mt-0.5">
+                Estado SLA:
+                {% if ticket.sla_cumplido == 1 %}
+                  <span class="text-emerald-600 font-medium">● Cumplido</span>
+                {% elif ticket.sla_cumplido == 0 %}
+                  <span class="text-red-600 font-medium">● Vencido</span>
+                {% else %}
+                  <span class="text-amber-600 font-medium">● Pendiente</span>
+                {% endif %}
+              </div>
+              {% endif %}
             </form>
           </div>
 

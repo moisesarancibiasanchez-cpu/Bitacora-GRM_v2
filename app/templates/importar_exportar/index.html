@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Importar / Exportar · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="p-6 overflow-y-auto h-full">
+  <div class="max-w-5xl mx-auto">
+
+    <div class="mb-5">
+      <h2 class="text-xl font-semibold text-slate-800">Importar / Exportar Tickets</h2>
+      <p class="text-sm text-slate-500">Mueve tickets entre Bitácora GRM y otros sistemas (Excel, CSV, JSON, texto plano)</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+      <!-- ============== EXPORTAR ============== -->
+      <div class="bg-white rounded-lg border border-slate-200 p-5">
+        <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12"/>
+          </svg>
+          Exportar tickets
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">
+          Descarga los tickets actuales en el formato que prefieras. Todos los formatos contienen la misma información.
+        </p>
+        <div class="grid grid-cols-2 gap-2">
+          <a href="/api/v1/tickets-ie/exportar/csv"
+             class="px-3 py-3 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-center inline-flex items-center justify-center gap-1.5">
+            <span class="text-base">📄</span> CSV
+          </a>
+          <a href="/api/v1/tickets-ie/exportar/json"
+             class="px-3 py-3 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-center inline-flex items-center justify-center gap-1.5">
+            <span class="text-base">{ }</span> JSON
+          </a>
+          <a href="/api/v1/tickets-ie/exportar/xlsx"
+             class="px-3 py-3 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-center inline-flex items-center justify-center gap-1.5">
+            <span class="text-base">📊</span> Excel
+          </a>
+          <a href="/api/v1/tickets-ie/exportar/txt"
+             class="px-3 py-3 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-center inline-flex items-center justify-center gap-1.5">
+            <span class="text-base">📝</span> Texto
+          </a>
+        </div>
+
+        <details class="mt-4">
+          <summary class="text-[11px] text-slate-500 cursor-pointer hover:text-slate-700 font-medium">
+            Ver columnas incluidas
+          </summary>
+          <div class="mt-2 text-[10px] text-slate-500 grid grid-cols-2 gap-1">
+            <div>· id</div><div>· codigo</div>
+            <div>· titulo</div><div>· descripcion</div>
+            <div>· tipo</div><div>· prioridad</div>
+            <div>· estado</div><div>· asignado</div>
+            <div>· etiquetas</div><div>· fecha_vencimiento_sla</div>
+            <div>· sla_cumplido</div><div>· creado / actualizado</div>
+          </div>
+        </details>
+      </div>
+
+      <!-- ============== IMPORTAR ============== -->
+      <div class="bg-white rounded-lg border border-slate-200 p-5">
+        <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+          </svg>
+          Importar tickets
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">
+          Sube un archivo y los tickets se crearán en el estado inicial del sistema.
+          Los nuevos tickets se numerarán con prefijo <code class="text-[10px] bg-slate-100 px-1 rounded">GRM-IMP-</code>.
+        </p>
+
+        <div id="importar-msg" class="mb-3"></div>
+
+        <form hx-post="/api/v1/tickets-ie/importar/csv"
+              hx-encoding="multipart/form-data"
+              hx-target="#importar-msg" hx-swap="innerHTML"
+              hx-on::after-request="
+                if (event.detail.successful) {
+                  try { window.showToast('Importación completada', 'success'); } catch(e) {}
+                }
+              "
+              class="space-y-2">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Formato del archivo</label>
+            <select name="__formato" id="importar-formato"
+                    onchange="var f=this.value; document.querySelectorAll('[id^=importar-form-]').forEach(function(el){el.classList.add('hidden')}); document.getElementById('importar-form-'+f).classList.remove('hidden'); this.form.setAttribute('hx-post','/api/v1/tickets-ie/importar/'+f);"
+                    class="w-full text-xs border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500">
+              <option value="csv">CSV (valores separados por coma)</option>
+              <option value="json">JSON (arreglo de objetos)</option>
+              <option value="txt">Texto plano (tab-separated)</option>
+            </select>
+          </div>
+
+          <div id="importar-form-csv" class="space-y-2">
+            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Archivo CSV</label>
+            <input type="file" name="archivo" accept=".csv,text/csv" required
+                   class="block w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+          </div>
+          <div id="importar-form-json" class="hidden space-y-2">
+            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Archivo JSON</label>
+            <input type="file" name="archivo" accept=".json,application/json" required
+                   class="block w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+          </div>
+          <div id="importar-form-txt" class="hidden space-y-2">
+            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Archivo TXT (tab-separated)</label>
+            <input type="file" name="archivo" accept=".txt,text/plain" required
+                   class="block w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+          </div>
+
+          <label class="flex items-center gap-1.5 text-xs text-slate-700">
+            <input type="checkbox" name="dry_run" value="true"
+                   class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+            <span>Solo validar (no crear tickets)</span>
+          </label>
+
+          <button type="submit"
+                  class="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-md inline-flex items-center justify-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+            </svg>
+            Importar
+          </button>
+        </form>
+
+        <details class="mt-3">
+          <summary class="text-[11px] text-slate-500 cursor-pointer hover:text-slate-700 font-medium">
+            Ver columnas requeridas
+          </summary>
+          <div class="mt-2 text-[10px] text-slate-500 space-y-1">
+            <div><strong class="text-slate-700">titulo</strong> (obligatorio)</div>
+            <div>· descripcion (opcional)</div>
+            <div>· tipo: incidencia | solicitud | problema | cambio</div>
+            <div>· prioridad: critica | alta | media | baja</div>
+            <div>· asignado_username (opcional)</div>
+            <div>· etiquetas (separadas por coma o punto y coma)</div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- ============== RESUMEN ============== -->
+    <div class="mt-5 bg-slate-50 border border-slate-200 rounded-lg p-4">
+      <h4 class="text-xs font-semibold text-slate-700 mb-2">Información</h4>
+      <ul class="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+        <li>Las exportaciones respetan los filtros por estado, etiqueta y asignado del backend.</li>
+        <li>La importación crea tickets en el estado inicial configurado en el sistema.</li>
+        <li>El campo <code>asignado_username</code> resuelve por nombre de usuario; si no existe, queda sin asignar.</li>
+        <li>Si el archivo es muy grande (&gt;2 MB), divídelo en varios archivos.</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Gestión de Usuarios · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="p-6 overflow-y-auto h-full">
+  <div class="max-w-7xl mx-auto">
+
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">Gestión de Usuarios</h2>
+        <p class="text-sm text-slate-500">Administra accesos, roles y permisos del sistema</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-importar-tickets"
+                class="px-3 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
+                hx-get="/importar-exportar" hx-target="#modal-root" hx-swap="innerHTML">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12"/>
+          </svg>
+          Importar / Exportar
+        </button>
+        <button id="btn-nuevo-usuario"
+                class="px-3 py-2 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1.5"
+                hx-get="/usuarios/nuevo" hx-target="#modal-root" hx-swap="innerHTML">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Nuevo usuario
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white rounded-lg border border-slate-200 p-3 mb-4 flex flex-wrap items-end gap-3">
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Búsqueda</label>
+        <input id="filtro-q" type="text" placeholder="Nombre, usuario o email…"
+               class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 w-56" />
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Rol</label>
+        <select id="filtro-rol" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="">Todos</option>
+          <option value="administrador">Administrador</option>
+          <option value="agente_senior">Agente Senior</option>
+          <option value="agente">Agente</option>
+          <option value="solicitante">Solicitante</option>
+          <option value="observador">Observador</option>
+        </select>
+      </div>
+      <label class="flex items-center gap-1.5 text-xs text-slate-700 pb-1.5 cursor-pointer">
+        <input id="filtro-activos" type="checkbox" class="rounded border-slate-300 text-indigo-600" checked />
+        <span>Solo activos</span>
+      </label>
+      <span id="total-usuarios" class="text-xs text-slate-500 pb-1.5 ml-auto"></span>
+    </div>
+
+    <!-- Tabla de usuarios -->
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <div id="usuarios-tabla"
+           hx-get="/usuarios/tabla"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="p-6 text-center text-slate-400 text-sm">Cargando usuarios…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: nuevo/editar usuario -->
+<div id="modal-root" class="contents"></div>
+
+<script>
+  (function () {
+    // Refrescar tabla al cambiar filtros (con debounce)
+    let timer;
+    function recargar() {
+      const q = document.getElementById('filtro-q').value;
+      const rol = document.getElementById('filtro-rol').value;
+      const activos = document.getElementById('filtro-activos').checked ? '1' : '0';
+      const cont = document.getElementById('usuarios-tabla');
+      const params = new URLSearchParams({ q, rol, activos });
+      htmx.ajax('GET', '/usuarios/tabla?' + params.toString(), {
+        target: '#usuarios-tabla', swap: 'innerHTML',
+      });
+    }
+    document.getElementById('filtro-q').addEventListener('input', function () {
+      clearTimeout(timer); timer = setTimeout(recargar, 250);
+    });
+    document.getElementById('filtro-rol').addEventListener('change', recargar);
+    document.getElementById('filtro-activos').addEventListener('change', recargar);
+  })();
+</script>
+{% endblock %}

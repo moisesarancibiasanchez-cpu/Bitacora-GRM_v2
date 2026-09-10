@@ -210,6 +210,16 @@ class TicketService:
             # Si Redis no está disponible, no fallar el flujo principal
             task_id = None
 
+        # 10. Ejecutar reglas Butler (no afecta la transición ya confirmada)
+        try:
+            from app.services.butler_executor import on_ticket_cambio_estado
+            on_ticket_cambio_estado(
+                ticket.id, estado_origen.id, estado_destino.id, usuario
+            )
+        except Exception:
+            # Butler no debe romper el flujo principal
+            pass
+
         return ticket, task_id
 
     # ----------------------------------------------------------------------
@@ -282,6 +292,14 @@ class TicketService:
         )
         self.db.commit()
         self.db.refresh(ticket)
+
+        # Disparar reglas Butler (no rompe el flujo si fallan)
+        try:
+            from app.services.butler_executor import on_ticket_creado
+            on_ticket_creado(ticket.id, usuario)
+        except Exception:
+            pass
+
         return ticket
 
     def _generar_codigo_ticket(self) -> str:
