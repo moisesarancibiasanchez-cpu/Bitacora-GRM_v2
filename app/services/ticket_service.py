@@ -352,6 +352,140 @@ class TicketService:
         "fecha_vencimiento", "catalogo_tipo_id", "datos_catalogo",
     }
 
+    def actualizar_campos(
+        self,
+        ticket_id: int,
+        cambios: Dict[str, Any],
+        usuario: Usuario,
+    ) -> Tuple[Optional[Ticket], Dict[str, Any], Dict[str, Any], Optional[str]]:
+        """Actualiza múltiples campos del ticket en una sola transacción.
+
+        Diseñado para evitar el bug donde múltiples auto-saves concurrentes
+        se sobrescriben entre sí: ahora el modal envía TODOS los campos
+        en un solo POST y se aplican atómicamente.
+
+        Parameters
+        ----------
+        ticket_id : int
+        cambios : Dict[str, Any]
+            Mapa ``{nombre_campo: valor_nuevo}``. Solo se aceptan campos
+            en :pyattr:`CAMPOS_EDITABLES`. Los campos cuyo valor no haya
+            cambiado se omiten del log de auditoría.
+        usuario : Usuario
+
+        Returns
+        -------
+        ``(ticket, valores_anteriores, valores_nuevos, error)``.
+        ``valores_anteriores`` y ``valores_nuevos`` son diccionarios con
+        únicamente los campos que efectivamente cambiaron.
+        """
+        ticket = self.obtener_ticket(ticket_id)
+        if not ticket:
+            return None, {}, {}, "Ticket no encontrado"
+
+        valores_anteriores: Dict[str, Any] = {}
+        valores_nuevos: Dict[str, Any] = {}
+        errores: List[str] = []
+
+        # Procesar cada campo individualmente reutilizando la misma lógica
+        # que ``actualizar_campo`` pero sin hacer flush/refresh hasta el
+        # final (para asegurar atomicidad).
+        for campo, valor in cambios.items():
+            if campo not in self.CAMPOS_EDITABLES:
+                errores.append(f"Campo '{campo}' no editable")
+                continue
+
+            # Calcular valor anterior legible
+            if campo == "prioridad":
+                anterior_raw = ticket.prioridad.value if hasattr(ticket.prioridad, "value") else ticket.prioridad
+            elif campo == "fecha_vencimiento":
+                anterior_raw = ticket.fecha_vencimiento_sla.isoformat() if ticket.fecha_vencimiento_sla else None
+            elif campo == "asignado_id":
+                anterior_raw = ticket.asignado_id
+            else:
+                anterior_raw = getattr(ticket, campo, None)
+
+            # Calcular el nuevo valor
+            try:
+                if campo == "prioridad":
+                    from app.models.ticket import Prioridad
+                    nuevo_valor_enum = Prioridad(valor)
+                    # Detectar cambio real
+                    nuevo_legible = nuevo_valor_enum.value
+                    if str(anterior_raw) == str(nuevo_legible):
+                        continue  # sin cambio, no auditar
+                    ticket.prioridad = nuevo_valor_enum
+                elif campo == "fecha_vencimiento":
+                    if valor in (None, "", "null"):
+                        if anterior_raw is None:
+                            continue  # ya estaba vacío
+                        ticket.fecha_vencimiento_sla = None
+                        nuevo_legible = None
+                    else:
+                        try:
+                            v = str(valor).strip()
+                            if "T" in v or (" " in v and ":" in v):
+                                nuevo_dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                            else:
+                                nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
+                                nuevo_dt = nuevo_dt.replace(hour=23, minute=59)
+                            if nuevo_dt.tzinfo is not None:
+                                nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                            if ticket.fecha_vencimiento_sla and ticket.fecha_vencimiento_sla == nuevo_dt:
+                                continue  # sin cambio
+                            ticket.fecha_vencimiento_sla = nuevo_dt
+                            nuevo_legible = nuevo_dt.isoformat()
+                        except (ValueError, TypeError):
+                            errores.append(f"Fecha inválida: {valor}")
+                            continue
+                elif campo == "asignado_id":
+                    if valor in (None, "", "null", 0, "0"):
+                        nuevo_legible = None
+                        if anterior_raw is None:
+                            continue  # ya estaba sin asignar
+                        ticket.asignado_id = None
+                    else:
+                        try:
+                            nuevo_id = int(valor)
+                        except (ValueError, TypeError):
+                            errores.append(f"asignado_id inválido: {valor}")
+                            continue
+                        if nuevo_id == anterior_raw:
+                            continue  # sin cambio
+                        ticket.asignado_id = nuevo_id
+                        nuevo_legible = nuevo_id
+                else:
+                    # Campos simples (titulo, descripcion)
+                    nuevo_legible = valor
+                    if str(anterior_raw or "") == str(nuevo_legible or ""):
+                        continue  # sin cambio
+                    setattr(ticket, campo, valor)
+            except Exception as exc:
+                errores.append(f"Error al actualizar '{campo}': {exc}")
+                continue
+
+            valores_anteriores[campo] = anterior_raw
+            valores_nuevos[campo] = nuevo_legible
+
+        if errores:
+            # Si hubo errores, NO commit: revertir todos los cambios
+            self.db.rollback()
+            return ticket, {}, {}, "; ".join(errores)
+
+        if not valores_nuevos:
+            # Nada que cambiar (todos los campos ya tenían el valor enviado)
+            return ticket, {}, {}, None
+
+        ticket.updated_at = datetime.utcnow()
+        try:
+            self.db.commit()
+            self.db.refresh(ticket)
+        except Exception as exc:
+            self.db.rollback()
+            return None, {}, {}, f"Error al guardar cambios: {exc}"
+
+        return ticket, valores_anteriores, valores_nuevos, None
+
     def actualizar_campo(
         self,
         ticket_id: int,

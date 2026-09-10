@@ -47,24 +47,14 @@ DETALLE_TEMPLATE = Template(r"""
             {{ ticket.estado.nombre }}
           </span>
         </div>
-        {# Título editable: input que auto-guarda con HTMX al perder foco o presionar Enter + botón Guardar #}
-        <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
-              hx-target="#modal-root" hx-swap="innerHTML"
-              hx-trigger="blur changed delay:800ms from:input[name='valor_titulo'], submit"
-              class="m-0 p-0 flex items-center gap-1">
-          <input type="hidden" name="campo" value="titulo">
-          <input type="hidden" name="active_tab" value="{{ _active }}">
-          <input type="text" name="valor_titulo" value="{{ ticket.titulo }}"
+        {# Título editable: input asociado al formulario principal del tab Detalles (form="..."). Se guarda con el botón "Guardar cambios" junto con el resto de campos, sin auto-save. #}
+        <div class="m-0 p-0 flex items-center gap-1">
+          <input type="text" form="form-detalles-{{ ticket.id }}" name="valor_titulo" value="{{ ticket.titulo }}"
                  aria-label="Título del ticket"
+                 oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
                  class="flex-1 min-w-0 text-base font-semibold text-slate-800 leading-snug bg-transparent border-0 border-b border-transparent
                         hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 transition-colors" />
-          <button type="submit" title="Guardar título"
-                  class="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-            </svg>
-          </button>
-        </form>
+        </div>
       </div>
       <button data-close-modal
               class="w-8 h-8 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0">
@@ -107,148 +97,91 @@ DETALLE_TEMPLATE = Template(r"""
       <!-- Tab: Detalles -->
       <div class="tab-panel {% if _active != 'detalles' %}hidden{% endif %} p-5 space-y-4" data-panel="detalles">
 
-        {# ----- Descripción editable con Markdown + botón Guardar ----- #}
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Descripción (Markdown)</h4>
-            <span class="text-[10px] text-slate-400 italic">**negrita** *itálica* `código` # título - lista</span>
-          </div>
-          <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
-                hx-target="#modal-root" hx-swap="innerHTML"
-                hx-trigger="submit, keyup[ctrlKey && key=='s'] from:body, blur from:this delay:1500ms changed"
-                class="m-0 p-0"
-                hx-indicator="#descripcion-spinner-{{ ticket.id }}">
-            <input type="hidden" name="campo" value="descripcion">
+        {# ----- Formulario único que guarda todos los campos en una sola transacción ----- #}
+        <form hx-post="/api/v1/tickets/{{ ticket.id }}/guardar"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              hx-indicator="#guardar-spinner-{{ ticket.id }}"
+              class="space-y-4"
+              id="form-detalles-{{ ticket.id }}"
+              data-cambios-pendientes="false">
+
+          {# ----- Descripción editable con Markdown ----- #}
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Descripción (Markdown)</h4>
+              <span class="text-[10px] text-slate-400 italic">**negrita** *itálica* `código` # título - lista</span>
+            </div>
             <input type="hidden" name="active_tab" value="{{ _active }}">
             <textarea id="textarea-descripcion-{{ ticket.id }}" name="valor_descripcion" rows="4" data-markdown="true"
+                      oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
                       placeholder="Detalla el problema, pasos para reproducir, mensajes de error, etc. Soporta **Markdown**."
                       class="w-full text-sm text-slate-700 border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y">{{ ticket.descripcion or '' }}</textarea>
-            <div class="flex items-center justify-end mt-1 gap-2">
-              <span id="descripcion-spinner-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></span>
-              <span id="descripcion-status-{{ ticket.id }}" class="text-[10px] text-slate-400 italic"></span>
-              <button type="submit"
-                      onclick="var el=document.getElementById('descripcion-status-{{ ticket.id }}'); if(el){el.textContent='Guardando…';}"
-                      class="px-2.5 py-1 text-[11px] font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-                Guardar descripción
-              </button>
+          </div>
+
+          {# ----- Grid de campos ----- #}
+          <div class="grid grid-cols-2 gap-3 text-xs">
+
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tipo</span>
+              <span class="text-slate-700">{{ ticket.tipo.value }}</span>
             </div>
-          </form>
-        </div>
 
-        {# ----- Grid de campos ----- #}
-        <div class="grid grid-cols-2 gap-3 text-xs">
+            {# Prioridad editable #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Prioridad</span>
+              <select name="valor_prioridad"
+                      onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                      class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                {% for p in ['baja','media','alta','critica'] %}
+                <option value="{{ p }}" {% if ticket.prioridad.value == p %}selected{% endif %}>{{ p|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
 
-          <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tipo</span>
-            <span class="text-slate-700">{{ ticket.tipo.value }}</span>
-          </div>
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Creador</span>
+              <span class="text-slate-700">{{ ticket.creador.nombre_completo if ticket.creador else '—' }}</span>
+            </div>
 
-          {# Prioridad editable #}
-          <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Prioridad</span>
-            <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
-                  hx-target="#modal-root" hx-swap="innerHTML"
-                  hx-trigger="change from:select[name='valor_prioridad'], submit"
-                  hx-indicator="#spinner-prioridad-{{ ticket.id }}"
-                  class="m-0 p-0">
-              <input type="hidden" name="campo" value="prioridad">
-              <input type="hidden" name="active_tab" value="{{ _active }}">
-              <div class="flex items-center gap-1">
-                <select name="valor_prioridad"
-                        class="flex-1 min-w-0 text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
-                  {% for p in ['baja','media','alta','critica'] %}
-                  <option value="{{ p }}" {% if ticket.prioridad.value == p %}selected{% endif %}>{{ p|capitalize }}</option>
-                  {% endfor %}
-                </select>
-                <button type="submit" title="Guardar prioridad"
-                        class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            {# Asignado editable #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Asignado</span>
+              <select name="valor_asignado_id"
+                      onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                      class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                <option value="0">— sin asignar —</option>
+                {% for u in usuarios %}
+                <option value="{{ u.id }}" {% if ticket.asignado_id == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            {# Fecha de vencimiento editable con glosa SLA #}
+            <div class="col-span-2">
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+                Fecha de vencimiento (SLA)
+                <span class="group relative inline-flex">
+                  <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                   </svg>
-                </button>
-                <span id="spinner-prioridad-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
-              </div>
-            </form>
-          </div>
-
-          <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Creador</span>
-            <span class="text-slate-700">{{ ticket.creador.nombre_completo if ticket.creador else '—' }}</span>
-          </div>
-
-          {# Asignado editable #}
-          <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Asignado</span>
-            <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
-                  hx-target="#modal-root" hx-swap="innerHTML"
-                  hx-trigger="change from:select[name='valor_asignado_id'], submit"
-                  hx-indicator="#spinner-asignado-{{ ticket.id }}"
-                  class="m-0 p-0">
-              <input type="hidden" name="campo" value="asignado_id">
-              <input type="hidden" name="active_tab" value="{{ _active }}">
-              <div class="flex items-center gap-1">
-                <select name="valor_asignado_id"
-                        class="flex-1 min-w-0 text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
-                  <option value="0">— sin asignar —</option>
-                  {% for u in usuarios %}
-                  <option value="{{ u.id }}" {% if ticket.asignado_id == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
-                  {% endfor %}
-                </select>
-                <button type="submit" title="Guardar asignación"
-                        class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                  </svg>
-                </button>
-                <span id="spinner-asignado-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
-              </div>
-            </form>
-          </div>
-
-          {# Fecha de vencimiento editable con glosa SLA #}
-          <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
-              Fecha de vencimiento (SLA)
-              <span class="group relative inline-flex">
-                <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
-                  <strong class="block mb-1 text-amber-300">¿Qué es el SLA?</strong>
-                  El SLA (<em>Service Level Agreement</em>) es el plazo máximo para resolver esta incidencia antes de que se considere incumplida.
-                  <br><br>
-                  <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 align-middle"></span> <strong>Cumplido:</strong> resuelto dentro del plazo.
-                  <br>
-                  <span class="inline-block w-2 h-2 rounded-full bg-amber-500 align-middle"></span> <strong>Próximo:</strong> el plazo se acerca.
-                  <br>
-                  <span class="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> <strong>Vencido:</strong> el plazo ya pasó.
-                  <br><br>
-                  Si lo dejas vacío, se usa el SLA por defecto del estado actual.
+                  <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                    <strong class="block mb-1 text-amber-300">¿Qué es el SLA?</strong>
+                    El SLA (<em>Service Level Agreement</em>) es el plazo máximo para resolver esta incidencia antes de que se considere incumplida.
+                    <br><br>
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 align-middle"></span> <strong>Cumplido:</strong> resuelto dentro del plazo.
+                    <br>
+                    <span class="inline-block w-2 h-2 rounded-full bg-amber-500 align-middle"></span> <strong>Próximo:</strong> el plazo se acerca.
+                    <br>
+                    <span class="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> <strong>Vencido:</strong> el plazo ya pasó.
+                    <br><br>
+                    Si lo dejas vacío, se usa el SLA por defecto del estado actual.
+                  </span>
                 </span>
               </span>
-            </span>
-            <form hx-patch="/api/v1/tickets/{{ ticket.id }}"
-                  hx-target="#modal-root" hx-swap="innerHTML"
-                  hx-trigger="change from:input[name='valor_fecha_vencimiento'], submit"
-                  hx-indicator="#spinner-fecha-{{ ticket.id }}"
-                  class="m-0 p-0">
-              <input type="hidden" name="campo" value="fecha_vencimiento">
-              <input type="hidden" name="active_tab" value="{{ _active }}">
-              <div class="flex items-center gap-1">
-                <input type="date" name="valor_fecha_vencimiento"
-                       value="{{ ticket.fecha_vencimiento_sla.strftime('%Y-%m-%d') if ticket.fecha_vencimiento_sla else '' }}"
-                       class="flex-1 min-w-0 text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
-                <button type="submit" title="Guardar fecha"
-                        class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                  </svg>
-                </button>
-                <span id="spinner-fecha-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0"></span>
-              </div>
+              <input type="date" name="valor_fecha_vencimiento"
+                     value="{{ ticket.fecha_vencimiento_sla.strftime('%Y-%m-%d') if ticket.fecha_vencimiento_sla else '' }}"
+                     onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                     class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
               {% if ticket.fecha_vencimiento_sla %}
               <div class="text-[10px] text-slate-400 mt-0.5">
                 Estado SLA:
@@ -261,76 +194,42 @@ DETALLE_TEMPLATE = Template(r"""
                 {% endif %}
               </div>
               {% endif %}
-            </form>
+            </div>
+
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Creado</span>
+              <span class="text-slate-700">{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') if ticket.created_at else '—' }}</span>
+            </div>
           </div>
 
-          <div>
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Creado</span>
-            <span class="text-slate-700">{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') if ticket.created_at else '—' }}</span>
+          {# ----- Botón único "Guardar cambios" ----- #}
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+            <span class="text-[10px] text-slate-400 italic flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              Todos los cambios se aplican en una sola transacción.
+            </span>
+            <div class="flex items-center gap-2">
+              <span id="guardar-spinner-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></span>
+              <button type="button"
+                      data-action="descartar-cambios"
+                      data-form-id="form-detalles-{{ ticket.id }}"
+                      class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+                Descartar
+              </button>
+              <button type="submit"
+                      class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Guardar cambios
+              </button>
+            </div>
           </div>
-        </div>
+        </form>
 
-        {# ----- Etiquetas editables ----- #}
-        <div>
-          <div class="flex items-center justify-between mb-1.5">
-            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Etiquetas</h4>
-            {% if etiquetas_disponibles %}
-            <details class="relative">
-              <summary class="list-none cursor-pointer text-[10px] text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-0.5">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                Gestionar
-              </summary>
-              <div class="absolute right-0 mt-1 w-64 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg z-10 p-1.5 space-y-1">
-                {% set _etiquetas_actuales_ids = ticket.etiquetas|map(attribute='id')|list %}
-                {% for et in etiquetas_disponibles %}
-                <div class="flex items-center justify-between gap-2 px-2 py-1 hover:bg-slate-50 rounded">
-                  <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background-color: {{ et.color }}"></span>
-                    <span class="text-xs text-slate-700 truncate">{{ et.nombre }}</span>
-                  </div>
-                  {% if et.id in _etiquetas_actuales_ids %}
-                    <button class="text-[10px] text-red-600 hover:text-red-800 font-medium"
-                            hx-delete="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
-                            hx-target="#modal-root" hx-swap="innerHTML"
-                            hx-trigger="click"
-                            onclick="event.stopPropagation()">
-                      Quitar
-                    </button>
-                  {% else %}
-                    <button class="text-[10px] text-emerald-600 hover:text-emerald-800 font-medium"
-                            hx-post="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
-                            hx-target="#modal-root" hx-swap="innerHTML"
-                            hx-trigger="click"
-                            onclick="event.stopPropagation()">
-                      Agregar
-                    </button>
-                  {% endif %}
-                </div>
-                {% endfor %}
-              </div>
-            </details>
-            {% endif %}
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            {% if ticket.etiquetas %}
-              {% for et in ticket.etiquetas %}
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
-                      style="background-color: {{ et.color }}20; color: {{ et.color }};">
-                  <span class="inline-block w-1.5 h-1.5 rounded-full" style="background-color: {{ et.color }}"></span>
-                  {{ et.nombre }}
-                  <button class="ml-0.5 text-slate-400 hover:text-red-500"
-                          hx-delete="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
-                          hx-target="#modal-root" hx-swap="innerHTML"
-                          title="Quitar etiqueta">×</button>
-                </span>
-              {% endfor %}
-            {% else %}
-              <span class="text-[11px] text-slate-400 italic">Sin etiquetas</span>
-            {% endif %}
-          </div>
-        </div>
-
-        {# ----- Campos personalizados ----- #}
+        {# ----- Campos personalizados (fuera del form principal: cada uno con su propio auto-save) ----- #}
         {% if campos_personalizados %}
         <div class="pt-3 border-t border-slate-100">
           <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Campos personalizados</h4>
@@ -391,6 +290,66 @@ DETALLE_TEMPLATE = Template(r"""
           </div>
         </div>
         {% endif %}
+
+        {# ----- Etiquetas editables (fuera del form principal: se gestionan con sus propios endpoints) ----- #}
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Etiquetas</h4>
+            {% if etiquetas_disponibles %}
+            <details class="relative">
+              <summary class="list-none cursor-pointer text-[10px] text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-0.5">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Gestionar
+              </summary>
+              <div class="absolute right-0 mt-1 w-64 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg z-10 p-1.5 space-y-1">
+                {% set _etiquetas_actuales_ids = ticket.etiquetas|map(attribute='id')|list %}
+                {% for et in etiquetas_disponibles %}
+                <div class="flex items-center justify-between gap-2 px-2 py-1 hover:bg-slate-50 rounded">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background-color: {{ et.color }}"></span>
+                    <span class="text-xs text-slate-700 truncate">{{ et.nombre }}</span>
+                  </div>
+                  {% if et.id in _etiquetas_actuales_ids %}
+                    <button class="text-[10px] text-red-600 hover:text-red-800 font-medium"
+                            hx-delete="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-trigger="click"
+                            onclick="event.stopPropagation()">
+                      Quitar
+                    </button>
+                  {% else %}
+                    <button class="text-[10px] text-emerald-600 hover:text-emerald-800 font-medium"
+                            hx-post="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-trigger="click"
+                            onclick="event.stopPropagation()">
+                      Agregar
+                    </button>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </details>
+            {% endif %}
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            {% if ticket.etiquetas %}
+              {% for et in ticket.etiquetas %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
+                      style="background-color: {{ et.color }}20; color: {{ et.color }};">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full" style="background-color: {{ et.color }}"></span>
+                  {{ et.nombre }}
+                  <button class="ml-0.5 text-slate-400 hover:text-red-500"
+                          hx-delete="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
+                          hx-target="#modal-root" hx-swap="innerHTML"
+                          title="Quitar etiqueta">×</button>
+                </span>
+              {% endfor %}
+            {% else %}
+              <span class="text-[11px] text-slate-400 italic">Sin etiquetas</span>
+            {% endif %}
+          </div>
+        </div>
 
         <!-- Cambio de estado rápido -->
         <div class="pt-3 border-t border-slate-100">

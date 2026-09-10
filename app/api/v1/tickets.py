@@ -510,6 +510,172 @@ async def actualizar_ticket_campo(
 
 
 # ===========================================================================
+#  POST /tickets/{id}/guardar  Actualización ATÓMICA de múltiples campos
+#  ---------------------------------------------------------------------------
+#  Reemplaza los múltiples auto-saves por un único submit. El frontend envía
+#  todos los campos editables en un solo POST y se aplican en una sola
+#  transacción, evitando race conditions donde un cambio sobrescribe a otro.
+# ===========================================================================
+@router.post("/{ticket_id}/guardar", response_class=HTMLResponse)
+async def guardar_ticket_campos(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Guarda múltiples campos editables del ticket en una sola transacción.
+
+    Acepta ``application/x-www-form-urlencoded`` con los campos (todos
+    opcionales, pero al menos uno debe estar presente):
+      - ``titulo``
+      - ``descripcion``
+      - ``prioridad``
+      - ``asignado_id``
+      - ``fecha_vencimiento``
+      - ``active_tab`` (para preservar la pestaña activa tras el swap)
+
+    Devuelve el modal re-renderizado (para HTMX). Genera UN solo registro
+    de auditoría con todos los cambios realizados.
+    """
+    from app.models.estado import Estado
+    from app.models.comentario import Comentario
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist
+    from app.models.auditoria import Auditoria
+    from app.models.etiqueta import Etiqueta
+    from app.services.trello_service import CampoPersonalizadoService
+    from app.templates.tickets.detalle_modal import render_detalle_modal
+
+    form = await request.form()
+    active_tab = (form.get("active_tab") or "detalles").strip() or "detalles"
+
+    # Mapear los campos enviados a un dict {campo: valor}
+    CAMPOS_ACEPTADOS = {
+        "titulo", "descripcion", "prioridad", "asignado_id", "fecha_vencimiento",
+    }
+    cambios: dict = {}
+    for campo in CAMPOS_ACEPTADOS:
+        clave = f"valor_{campo}"
+        if clave in form:
+            cambios[campo] = form.get(clave)
+        elif campo in form:
+            cambios[campo] = form.get(campo)
+
+    if not cambios:
+        return HTMLResponse(
+            '<div class="rounded-md bg-amber-50 border border-amber-200 p-2 text-xs text-amber-700">No se enviaron campos para guardar.</div>',
+            status_code=400,
+        )
+
+    service = TicketService(db)
+    ticket, valores_anteriores, valores_nuevos, error = service.actualizar_campos(
+        ticket_id=ticket_id, cambios=cambios, usuario=usuario,
+    )
+
+    if error:
+        if ticket is None:
+            return HTMLResponse(
+                f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>',
+                status_code=404 if "no encontrado" in error.lower() else 400,
+            )
+        # Para errores de validación, devolver toast de error
+        return HTMLResponse(
+            f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{error}</div>',
+            status_code=400,
+            headers={"HX-Trigger": json.dumps({"ticket-error": {"message": error}})},
+        )
+
+    # Generar UNA entrada de auditoría consolidada con todos los cambios
+    if valores_nuevos:
+        ACCIONES_POR_CAMPO = {
+            "titulo": "titulo_editado",
+            "descripcion": "descripcion_editada",
+            "prioridad": "prioridad_cambiada",
+            "asignado_id": "asignacion",
+            "fecha_vencimiento": "vencimiento_cambiado",
+        }
+        campos_modificados = list(valores_nuevos.keys())
+        if len(campos_modificados) == 1:
+            accion = ACCIONES_POR_CAMPO.get(campos_modificados[0], f"campo_editado:{campos_modificados[0]}")
+        else:
+            accion = "campos_editados_en_lote"
+
+        registrar_auditoria(
+            db,
+            ticket.id,
+            usuario.id,
+            accion,
+            valor_anterior=valores_anteriores or None,
+            valor_nuevo=valores_nuevos or None,
+            comentario=f"Campos modificados: {', '.join(campos_modificados)}",
+        )
+
+    # Re-renderizar el modal completo
+    db.refresh(ticket)
+    estados = db.query(Estado).order_by(Estado.orden).all()
+    comentarios = (
+        db.query(Comentario)
+        .filter(Comentario.ticket_id == ticket_id)
+        .order_by(Comentario.created_at.asc())
+        .all()
+    )
+    adjuntos = (
+        db.query(Adjunto)
+        .filter(Adjunto.ticket_id == ticket_id)
+        .order_by(Adjunto.created_at.desc())
+        .all()
+    )
+    checklists = (
+        db.query(Checklist)
+        .filter(Checklist.ticket_id == ticket_id)
+        .order_by(Checklist.orden.asc())
+        .all()
+    )
+    auditorias = (
+        db.query(Auditoria)
+        .filter(Auditoria.ticket_id == ticket_id)
+        .order_by(Auditoria.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    usuarios = (
+        db.query(Usuario)
+        .filter(Usuario.is_active == True)  # noqa: E712
+        .order_by(Usuario.nombre_completo.asc())
+        .all()
+    )
+    etiquetas_disponibles = (
+        db.query(Etiqueta)
+        .filter(Etiqueta.activo == True)  # noqa: E712
+        .order_by(Etiqueta.nombre.asc())
+        .all()
+    )
+    campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
+    ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+
+    html = render_detalle_modal(
+        ticket=ticket, estados=estados, comentarios=comentarios,
+        adjuntos=adjuntos, checklists=checklists,
+        auditorias=auditorias, usuario=usuario,
+        ultima_modificacion=ultima_mod,
+        active_tab=active_tab,
+        usuarios=usuarios,
+        etiquetas_disponibles=etiquetas_disponibles,
+        campos_personalizados=campos_personalizados,
+    )
+    return HTMLResponse(
+        content=html,
+        status_code=200,
+        headers={
+            "HX-Trigger": json.dumps({
+                "ticket-updated": {"campos": list(valores_nuevos.keys()) if valores_nuevos else []},
+                "ticket-guardado": {"campos": list(valores_nuevos.keys()) if valores_nuevos else []},
+            }),
+        },
+    )
+
+
+# ===========================================================================
 #  PATCH /tickets/{id}/campos/{campo_id}  Actualizar valor de campo personalizado
 # ===========================================================================
 @router.patch("/{ticket_id}/campos/{campo_id}", response_class=HTMLResponse)
