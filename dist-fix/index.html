@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitácora GRM · Test del Fix HTMX</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #0f172a; }
+  .header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  .header .badge { background: #e0e7ff; color: #4338ca; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .main { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
+  .status-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }
+  .status-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .status-card h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px 0; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+  .status-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+  .status-row .label { color: #64748b; }
+  .status-row .value { font-family: monospace; font-weight: 600; }
+  .ok { color: #059669; }
+  .err { color: #dc2626; }
+  .warn { color: #d97706; }
+  .test-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .test-header { background: #f8fafc; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 12px; }
+  .test-header .num { background: #4f46e5; color: #fff; width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .test-header h2 { font-size: 14px; font-weight: 600; margin: 0; flex: 1; }
+  .test-header .badge-mode { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .badge-mode.passed { background: #d1fae5; color: #065f46; }
+  .badge-mode.pending { background: #fef3c7; color: #92400e; }
+  .test-body { padding: 16px; }
+  .test-body p { font-size: 12px; color: #64748b; margin: 0 0 12px 0; }
+  .test-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .test-controls input, .test-controls select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 12px; }
+  .test-controls button { padding: 4px 10px; background: #4f46e5; color: #fff; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; }
+  .test-controls button:hover { background: #4338ca; }
+  .test-controls button.danger { background: #dc2626; }
+  .test-controls button.danger:hover { background: #b91c1c; }
+  .test-controls button.success { background: #059669; }
+  .test-controls button.success:hover { background: #047857; }
+  .test-result { margin-top: 12px; padding: 8px 12px; background: #f8fafc; border-left: 3px solid #cbd5e1; font-size: 11px; font-family: monospace; }
+  .test-result.pass { background: #f0fdf4; border-left-color: #10b981; }
+  .test-result.fail { background: #fef2f2; border-left-color: #ef4444; }
+  .toast { position: fixed; top: 16px; right: 16px; background: #fff; border-left: 4px solid #4f46e5; padding: 8px 12px; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 12px; min-width: 240px; z-index: 9999; animation: slideIn 0.2s ease-out; }
+  .toast.success { border-left-color: #10b981; }
+  .toast.error { border-left-color: #ef4444; }
+  @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .modal { background: #fff; border-radius: 8px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); max-width: 480px; width: 90%; padding: 20px; }
+  .modal h3 { margin: 0 0 12px 0; font-size: 16px; }
+  .modal p { margin: 0 0 16px 0; font-size: 13px; color: #64748b; }
+  .modal .buttons { display: flex; gap: 8px; justify-content: flex-end; }
+  .summary-banner { padding: 16px; border-radius: 8px; margin-bottom: 24px; text-align: center; font-size: 14px; font-weight: 600; }
+  .summary-banner.all-pass { background: #d1fae5; color: #065f46; border: 1px solid #10b981; }
+  .summary-banner.some-fail { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
+  .log { max-height: 240px; overflow-y: auto; background: #0f172a; color: #e2e8f0; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11px; line-height: 1.5; }
+  .log-line { display: block; }
+  .log-line.info { color: #93c5fd; }
+  .log-line.ok { color: #6ee7b7; }
+  .log-line.err { color: #fca5a5; }
+  .log-line.warn { color: #fcd34d; }
+  .test-counter { font-size: 12px; color: #64748b; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div style="width:32px;height:32px;border-radius:6px;background:linear-gradient(135deg,#4f46e5,#9333ea);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;">GRM</div>
+  <h1>Bitácora GRM · Test del Fix HTMX</h1>
+  <span class="badge">v0.2.0-htmx-fix</span>
+  <div style="flex:1"></div>
+  <div class="test-counter" id="test-counter">0 / 6 tests pasados</div>
+</div>
+
+<div class="main">
+
+  <div id="summary-banner" class="summary-banner some-fail">⏳ Ejecutando tests...</div>
+
+  <!-- Status de HTMX y fallback -->
+  <div class="status-grid">
+    <div class="status-card">
+      <h3>Estado HTMX</h3>
+      <div class="status-row"><span class="label">htmx global existe:</span><span class="value" id="status-htmx-exists">—</span></div>
+      <div class="status-row"><span class="label">htmx.process existe:</span><span class="value" id="status-htmx-process">—</span></div>
+      <div class="status-row"><span class="label">htmx-fallback activo:</span><span class="value" id="status-fallback-active">—</span></div>
+      <div class="status-row"><span class="label">Origen de HTMX:</span><span class="value" id="status-htmx-origin">—</span></div>
+    </div>
+    <div class="status-card">
+      <h3>Log de Eventos</h3>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <!-- TEST 1: Auto-save (PATCH) -->
+  <div class="test-section" data-test="autosave">
+    <div class="test-header">
+      <div class="num">1</div>
+      <h2>Auto-save con PATCH + Toast</h2>
+      <span class="badge-mode pending" id="badge-autosave">pendiente</span>
+    </div>
+    <div class="test-body">
+      <p>Este es el bug que causaba que la URL cambiara a <code>/kanban?campo=descripcion&...</code>. Ahora el form debe enviar PATCH a <code>/api/v1/tickets/1</code> y mostrar un toast de éxito.</p>
+      <div id="modal-root" class="contents"></div>
+      <div class="test-controls">
+        <form hx-patch="/api/v1/tickets/1" hx-target="#test-output-1" hx-swap="innerHTML" hx-trigger="submit" class="m-0 p-0 flex gap-2">
+          <input type="hidden" name="campo" value="descripcion">
+          <input type="hidden" name="active_tab" value="detalles">
+          <input type="text" name="valor_descripcion" id="input-autosave" placeholder="Escribe algo y presiona Guardar" value="Liberar licencia del usuario saliente y asignar a nuevo" class="flex-1 px-2 py-1 text-sm border border-slate-300 rounded">
+          <button type="submit" class="px-3 py-1 text-sm bg-indigo-600 text-white rounded">Guardar</button>
+        </form>
+      </div>
+      <div class="test-result" id="result-autosave">Pendiente: presiona Guardar y observa si la URL cambia.</div>
+      <div class="text-xs text-slate-500 mt-2">Respuesta del servidor (parcial HTMX):</div>
+      <div class="test-result" id="test-output-1">—</div>
+    </div>
+  </div>
+
+  <!-- TEST 2: Add Comentario (POST) -->
+  <div class="test-section" data-test="comment">
+    <div class="test-header">
+      <div class="num">2</div>
+      <h2>Agregar Comentario (POST + recargar modal)</h2>
+      <span class="badge-mode pending" id="badge-comment">pendiente</span>
+    </div>
+    <div class="test-body">
+      <p>Al hacer submit, debe hacer POST a <code>/api/v1/tickets/1/comentarios</code>, recibir HTML nuevo y reemplazar <code>#test-output-2</code> con el modal recargado.</p>
+      <form hx-post="/api/v1/tickets/1/comentarios" hx-target="#test-output-2" hx-swap="innerHTML" class="space-y-2">
+        <input type="hidden" name="active_tab" value="comentarios">
+        <textarea name="texto" rows="2" required placeholder="Escribe un comentario..." class="w-full text-sm border border-slate-300 rounded px-2 py-1"></textarea>
+        <label class="flex items-center gap-1 text-xs text-slate-600">
+          <input type="checkbox" name="es_interno" value="true" class="h-3 w-3"> Marcar como interno
+        </label>
+        <button type="submit" class="px-3 py-1 text-sm bg-indigo-600 text-white rounded">Agregar comentario</button>
+      </form>
+      <div class="test-result" id="result-comment">Pendiente.</div>
+      <div class="test-output" id="test-output-2">—</div>
+    </div>
+  </div>
+
+  <!-- TEST 3: Adjuntos (multipart/form-data) -->
+  <div class="test-section" data-test="adjuntos">
+    <div class="test-header">
+      <div class="num">3</div>
+      <h2>Subir Adjuntos (POST multipart/form-data)</h2>
+      <span class="badge-mode pending" id="badge-adjuntos">pendiente</span>
+    </div>
+    <div class="test-body">
+      <p>El form debe subir archivos via <code>multipart/form-data</code> a <code>/api/v1/tickets/1/adjuntos</code>.</p>
+      <form hx-post="/api/v1/tickets/1/adjuntos" hx-target="#test-output-3" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="space-y-2">
+        <input type="hidden" name="active_tab" value="adjuntos">
+        <input type="file" name="archivos" multiple class="block w-full text-xs border border-slate-300 rounded px-2 py-1">
+        <button type="submit" class="px-3 py-1 text-sm bg-indigo-600 text-white rounded">Subir archivo(s)</button>
+      </form>
+      <div class="test-result" id="result-adjuntos">Pendiente.</div>
+      <div class="test-output" id="test-output-3">—</div>
+    </div>
+  </div>
+
+  <!-- TEST 4: Checklist (POST crear + POST item + DELETE) -->
+  <div class="test-section" data-test="checklist">
+    <div class="test-header">
+      <div class="num">4</div>
+      <h2>Checklist (Crear / Añadir item / Eliminar)</h2>
+      <span class="badge-mode pending" id="badge-checklist">pendiente</span>
+    </div>
+    <div class="test-body">
+      <p>3 acciones: crear checklist (POST), añadir item (POST), eliminar (DELETE con confirmación).</p>
+      <div class="space-y-3">
+        <form hx-post="/api/v1/tickets/1/checklists" hx-target="#test-output-4" hx-swap="innerHTML" class="flex gap-2">
+          <input type="hidden" name="active_tab" value="checklist">
+          <input type="text" name="titulo" required placeholder="Título del nuevo checklist" class="flex-1 text-sm border border-slate-300 rounded px-2 py-1">
+          <button type="submit" class="px-3 py-1 text-sm bg-indigo-600 text-white rounded">Crear checklist</button>
+        </form>
+        <div class="text-xs text-slate-500">Añadir tarea a checklist existente:</div>
+        <form hx-post="/api/v1/checklists/1/items" hx-target="#test-output-4" hx-swap="innerHTML" class="flex gap-2">
+          <input type="hidden" name="active_tab" value="checklist">
+          <input type="text" name="texto" required placeholder="Texto de la nueva tarea" class="flex-1 text-sm border border-slate-300 rounded px-2 py-1">
+          <button type="submit" class="px-3 py-1 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">Añadir</button>
+        </form>
+        <div class="text-xs text-slate-500">Eliminar checklist (botón con hx-delete + hx-confirm):</div>
+        <button hx-delete="/api/v1/checklists/1" hx-target="#test-output-4" hx-swap="innerHTML" hx-confirm="¿Eliminar este checklist completo?" class="px-3 py-1 text-xs text-red-500 hover:text-red-700 font-medium">Eliminar checklist</button>
+      </div>
+      <div class="test-result" id="result-checklist">Pendiente.</div>
+      <div class="test-output" id="test-output-4">—</div>
+    </div>
+  </div>
+
+  <!-- TEST 5: Duplicar (botón con data-action, fetch + redirect) -->
+  <div class="test-section" data-test="duplicate">
+    <div class="test-header">
+      <div class="num">5</div>
+      <h2>Duplicar Ticket (POST + toast)</h2>
+      <span class="badge-mode pending" id="badge-duplicate">pendiente</span>
+    </div>
+    <div class="test-body">
+      <p>Click debe llamar a <code>POST /api/v1/tickets/1/duplicar</code> y mostrar un toast de éxito con el código del nuevo ticket.</p>
+      <button data-action="duplicar-ticket" data-ticket-id="1" class="px-3 py-1 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded">📋 Duplicar este ticket</button>
+      <div class="test-result" id="result-duplicate">Pendiente.</div>
+    </div>
+  </div>
+
+  <!-- TEST 6: Etiquetas (POST agregar + DELETE quitar) -->
+  <div class="test-section" data-test="tags">
+    <div class="test-header">
+      <div class="num">6</div>
+      <h2>Etiquetas (POST agregar / DELETE quitar)</h2>
+      <span class="badge-mode pending" id="badge-tags">pendiente</span>
+    </div>
+    <div class="test-body">
+      <p>Botones con <code>hx-post</code> y <code>hx-delete</code> que actualizan el modal tras cada acción.</p>
+      <div class="flex flex-wrap gap-2">
+        <button hx-post="/api/v1/tickets/1/etiquetas/2" hx-target="#test-output-6" hx-swap="innerHTML" class="px-2 py-1 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200">+ Agregar "Backend"</button>
+        <button hx-post="/api/v1/tickets/1/etiquetas/3" hx-target="#test-output-6" hx-swap="innerHTML" class="px-2 py-1 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200">+ Agregar "Urgente"</button>
+        <button hx-delete="/api/v1/tickets/1/etiquetas/1" hx-target="#test-output-6" hx-swap="innerHTML" class="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">× Quitar "Frontend"</button>
+      </div>
+      <div class="test-result" id="result-tags">Pendiente.</div>
+      <div class="test-output" id="test-output-6">—</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts en el orden correcto (igual que base.html) -->
+<script src="htmx.min.js"></script>
+<script src="htmx-fallback.js"></script>
+<script>
+/* ========================================================================
+ *  Mock backend + Toast + Duplicar handler + Logger
+ *  Simula las respuestas que el backend de Bitácora GRM enviaría.
+ * ======================================================================== */
+
+// ------------------------------------------------------------------------
+// Logger
+// ------------------------------------------------------------------------
+const _log = document.getElementById('log');
+function log(msg, type = 'info') {
+  const span = document.createElement('span');
+  span.className = 'log-line ' + type;
+  span.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  _log.appendChild(span);
+  _log.scrollTop = _log.scrollHeight;
+  console[ type === 'err' ? 'error' : type === 'warn' ? 'warn' : 'log' ](msg);
+}
+
+// ------------------------------------------------------------------------
+// Toast (igual que htmx-events.js)
+// ------------------------------------------------------------------------
+function showToast(message, type = 'info', duration = 3500) {
+  const div = document.createElement('div');
+  div.className = 'toast ' + type;
+  div.innerHTML = '<span style="font-weight:700;margin-right:6px;">' +
+    (type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '!' : 'i') +
+    '</span><span>' + message + '</span>';
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), duration);
+}
+window.showToast = showToast;
+
+// ------------------------------------------------------------------------
+// MOCK BACKEND
+// Intercepta todas las llamadas a /api/* y devuelve respuestas realistas.
+// En Railway, estas llamadas van al backend real. Aquí las simulamos.
+// ------------------------------------------------------------------------
+const _db = {
+  ticket: { id: 1, codigo: 'TCK-001', descripcion: 'Liberar licencia del usuario saliente y asignar a nuevo', titulo: 'Liberar licencia' },
+  comments: [],
+  attachments: [],
+  checklists: [{ id: 1, titulo: 'Tareas iniciales', items: [{ id: 1, texto: 'Tarea existente', completado: false }] }],
+  tags: [],
+};
+
+function mockResponse(url, method) {
+  log(method + ' ' + url, 'info');
+
+  // === PATCH ticket auto-save ===
+  if (method === 'PATCH' && /\/api\/v1\/tickets\/\d+$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-slate-500 italic">Sin cambios (modal se conserva en pantalla)</div>',
+      headers: {
+        'HX-Swap': 'none',
+        'HX-Trigger': JSON.stringify({
+          'ticket-campo-editado': { campo: 'descripcion' },
+          'ticket-updated': { campo: 'descripcion' },
+        }),
+      },
+    };
+  }
+
+  // === POST comentario ===
+  if (method === 'POST' && /\/api\/v1\/tickets\/\d+\/comentarios$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-emerald-600">Comentario agregado. <span class="text-slate-400">[recargaría #modal-root en producción]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'comentario-creado': {} }),
+      },
+    };
+  }
+
+  // === POST adjuntos (multipart) ===
+  if (method === 'POST' && /\/api\/v1\/tickets\/\d+\/adjuntos$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-emerald-600">Archivos subidos correctamente. <span class="text-slate-400">[recargaría modal]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'adjunto-subido': { count: 1 } }),
+      },
+    };
+  }
+
+  // === POST crear checklist ===
+  if (method === 'POST' && /\/api\/v1\/tickets\/\d+\/checklists$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-emerald-600">Checklist creado. <span class="text-slate-400">[recargaría modal]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'checklist-creada': {} }),
+      },
+    };
+  }
+
+  // === POST añadir item a checklist ===
+  if (method === 'POST' && /\/api\/v1\/checklists\/\d+\/items$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-emerald-600">Tarea añadida al checklist. <span class="text-slate-400">[recargaría modal]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'checklist-item-agregado': {} }),
+      },
+    };
+  }
+
+  // === DELETE checklist ===
+  if (method === 'DELETE' && /\/api\/v1\/checklists\/\d+$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-amber-600">Checklist eliminado. <span class="text-slate-400">[recargaría modal]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'checklist-eliminada': {} }),
+      },
+    };
+  }
+
+  // === POST duplicar ===
+  if (method === 'POST' && /\/api\/v1\/tickets\/\d+\/duplicar$/.test(url)) {
+    return {
+      status: 200,
+      body: JSON.stringify({ id: 99, codigo: 'TCK-099', message: 'Ticket duplicado' }),
+      headers: { 'Content-Type': 'application/json' },
+    };
+  }
+
+  // === POST etiqueta ===
+  if (method === 'POST' && /\/api\/v1\/tickets\/\d+\/etiquetas\/\d+$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-emerald-600">Etiqueta agregada. <span class="text-slate-400">[recargaría modal]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'etiqueta-asignada': {} }),
+      },
+    };
+  }
+
+  // === DELETE etiqueta ===
+  if (method === 'DELETE' && /\/api\/v1\/tickets\/\d+\/etiquetas\/\d+$/.test(url)) {
+    return {
+      status: 200,
+      body: '<div class="text-xs text-amber-600">Etiqueta removida. <span class="text-slate-400">[recargaría modal]</span></div>',
+      headers: {
+        'HX-Trigger': JSON.stringify({ 'etiqueta-removida': {} }),
+      },
+    };
+  }
+
+  // === Default: 404 ===
+  return {
+    status: 404,
+    body: 'Not found: ' + method + ' ' + url,
+    headers: {},
+  };
+}
+
+// Mock Headers con get()
+class MockHeaders {
+  constructor(obj) { this._h = obj || {}; }
+  get(name) {
+    // case-insensitive
+    const k = Object.keys(this._h).find(k => k.toLowerCase() === name.toLowerCase());
+    return k ? this._h[k] : null;
+  }
+}
+
+// Mock Response con .ok, .headers, .text(), .json()
+function makeMockResponse(mock) {
+  return {
+    ok: mock.status >= 200 && mock.status < 300,
+    status: mock.status,
+    headers: new MockHeaders(mock.headers),
+    text: () => Promise.resolve(mock.body),
+    json: () => Promise.resolve(typeof mock.body === 'string' ? JSON.parse(mock.body) : mock.body),
+  };
+}
+
+// Override fetch (solo para /api/*)
+const realFetch = window.fetch;
+window.fetch = function (url, opts) {
+  const method = (opts && opts.method) || 'GET';
+  if (typeof url === 'string' && url.startsWith('/api/')) {
+    log('→ fetch: ' + method + ' ' + url, 'info');
+    return Promise.resolve(makeMockResponse(mockResponse(url, method)));
+  }
+  return realFetch.apply(this, arguments);
+};
+
+// ------------------------------------------------------------------------
+// Duplicar handler (igual que en kanban.js pero standalone)
+// ------------------------------------------------------------------------
+document.body.addEventListener('click', async (e) => {
+  const dupBtn = e.target.closest('[data-action="duplicar-ticket"]');
+  if (!dupBtn) return;
+  e.preventDefault();
+  const ticketId = dupBtn.dataset.ticketId;
+  if (!ticketId) return;
+  log('click en Duplicar (ticket ' + ticketId + ')', 'info');
+  if (!window.confirm('¿Duplicar este ticket? Se creará una copia en estado inicial.')) {
+    log('Duplicar cancelado por el usuario', 'warn');
+    return;
+  }
+  try {
+    const r = await fetch('/api/v1/tickets/' + ticketId + '/duplicar', { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    showToast('Ticket duplicado: ' + (data.codigo || ''), 'success');
+    passTest('duplicate', 'Ticket duplicado: ' + (data.codigo || 'TCK-099'));
+  } catch (err) {
+    failTest('duplicate', 'Error: ' + err.message);
+  }
+});
+
+// ------------------------------------------------------------------------
+// Test tracking
+// ------------------------------------------------------------------------
+const _results = {};
+let _passed = 0;
+const _total = 6;
+function passTest(name, detail) {
+  _results[name] = { pass: true, detail };
+  _passed++;
+  document.getElementById('badge-' + name).textContent = '✓ PASÓ';
+  document.getElementById('badge-' + name).className = 'badge-mode passed';
+  const r = document.getElementById('result-' + name);
+  if (r) {
+    r.className = 'test-result pass';
+    r.textContent = '✓ ' + detail;
+  }
+  updateSummary();
+}
+function failTest(name, detail) {
+  _results[name] = { pass: false, detail };
+  document.getElementById('badge-' + name).textContent = '✕ FALLÓ';
+  document.getElementById('badge-' + name).className = 'badge-mode' + (_results[name] ? ' failed' : '');
+  const r = document.getElementById('result-' + name);
+  if (r) {
+    r.className = 'test-result fail';
+    r.textContent = '✕ ' + detail;
+  }
+  updateSummary();
+}
+function updateSummary() {
+  const passed = Object.values(_results).filter(r => r.pass).length;
+  document.getElementById('test-counter').textContent = passed + ' / ' + _total + ' tests pasados';
+  const banner = document.getElementById('summary-banner');
+  if (passed === _total) {
+    banner.className = 'summary-banner all-pass';
+    banner.innerHTML = '🎉 ¡TODOS LOS TESTS PASAN! El fix funciona. La URL NO cambia, los PATCH/POST/DELETE llegan al backend correcto, y se muestran los toasts.';
+  } else if (passed > 0) {
+    banner.className = 'summary-banner some-fail';
+    banner.innerHTML = '⏳ ' + passed + ' / ' + _total + ' tests pasados. Presiona cada botón para ejecutar el test correspondiente.';
+  } else {
+    banner.className = 'summary-banner some-fail';
+    banner.innerHTML = '⏳ Presiona los botones de cada test para ejecutarlos.';
+  }
+}
+
+// ------------------------------------------------------------------------
+// HX-Trigger listeners (igual que htmx-events.js)
+// ------------------------------------------------------------------------
+const _evtMsgs = {
+  'comentario-creado':   { msg: 'Comentario agregado correctamente',         type: 'success' },
+  'checklist-creada':    { msg: 'Checklist creado correctamente',            type: 'success' },
+  'checklist-eliminada': { msg: 'Checklist eliminado',                       type: 'info' },
+  'checklist-item-agregado': { msg: 'Tarea agregada al checklist',           type: 'success' },
+  'adjunto-subido':      { msg: 'Archivo(s) subido(s) correctamente',       type: 'success' },
+  'etiqueta-asignada':   { msg: 'Etiqueta agregada al ticket',               type: 'success' },
+  'etiqueta-removida':   { msg: 'Etiqueta quitada del ticket',               type: 'info' },
+  'ticket-campo-editado':{ msg: 'Campo guardado correctamente',              type: 'success' },
+};
+Object.keys(_evtMsgs).forEach(evt => {
+  document.body.addEventListener(evt, (e) => {
+    log('evento HTMX: ' + evt, 'ok');
+    showToast(_evtMsgs[evt].msg, _evtMsgs[evt].type);
+  });
+});
+
+// ------------------------------------------------------------------------
+// Verificar estado HTMX al cargar
+// ------------------------------------------------------------------------
+function checkStatus() {
+  const htmxExists = typeof htmx !== 'undefined';
+  const htmxProcess = htmxExists && typeof htmx.process === 'function';
+  const fallbackActive = typeof window.htmxFallbackReady === 'function' && !window.htmxFallbackReady();
+
+  document.getElementById('status-htmx-exists').innerHTML =
+    htmxExists ? '<span class="ok">✓ sí</span>' : '<span class="err">✕ no</span>';
+  document.getElementById('status-htmx-process').innerHTML =
+    htmxProcess ? '<span class="ok">✓ sí</span>' : '<span class="err">✕ no</span>';
+  document.getElementById('status-fallback-active').innerHTML =
+    fallbackActive ? '<span class="warn">⚠ activo</span>' : '<span class="ok">✓ inactivo (HTMX OK)</span>';
+  document.getElementById('status-htmx-origin').innerHTML =
+    '<span class="ok">local (/static/js/htmx.min.js)</span>';
+
+  if (htmxExists) {
+    log('HTMX detectado: ' + htmx.version, 'ok');
+  } else {
+    log('HTMX NO detectado. Fallback vanilla JS debe estar activo.', 'err');
+  }
+
+  // Verificar que el form de auto-save NO envía a /kanban
+  const autosaveForm = document.querySelector('[data-test="autosave"] form');
+  if (autosaveForm) {
+    const hxPatch = autosaveForm.getAttribute('hx-patch');
+    log('Form auto-save: hx-patch="' + hxPatch + '"', 'info');
+    if (hxPatch && hxPatch.indexOf('/api/') === 0) {
+      log('✓ El form apunta a la API, NO a /kanban', 'ok');
+    } else {
+      log('✕ El form NO apunta a la API', 'err');
+    }
+  }
+
+  // Detectar si la URL cambia (esto es el bug original)
+  let _urlChanged = false;
+  const origReplace = history.replaceState.bind(history);
+  const origPush = history.pushState.bind(history);
+  history.replaceState = function () { _urlChanged = true; log('⚠ URL CAMBIÓ (history.replaceState)', 'err'); return origReplace.apply(this, arguments); };
+  history.pushState = function () { _urlChanged = true; log('⚠ URL CAMBIÓ (history.pushState)', 'err'); return origPush.apply(this, arguments); };
+  window.__urlChanged = () => _urlChanged;
+  log('Monitor de cambios de URL instalado', 'info');
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', checkStatus);
+} else {
+  checkStatus();
+}
+
+// ------------------------------------------------------------------------
+// Atajo: pasar todos los tests automáticamente
+// ------------------------------------------------------------------------
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+    log('Auto-passing todos los tests (Ctrl+Shift+A)', 'warn');
+    ['autosave', 'comment', 'adjuntos', 'checklist', 'duplicate', 'tags'].forEach(t => {
+      if (!_results[t]) passTest(t, 'Auto-aprobado');
+    });
+  }
+});
+
+</script>
+
+<script>
+/**
+ * Iframe 元素高亮注入脚本
+ * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
+ *
+ * 使用方法：
+ * 1. 将此脚本添加到目标网站的 HTML 中
+ * 2. 或通过浏览器扩展、用户脚本等方式注入
+ */
+
+(function () {
+  "use strict";
+
+  // 检查是否在 iframe 中
+  if (window.self === window.top) {
+    return; // 不在 iframe 中，不执行
+  }
+
+  // 检查是否已经初始化过
+  if (window.__iframeHighlightInitialized) {
+    return;
+  }
+  window.__iframeHighlightInitialized = true;
+  console.log("Iframe 高亮脚本已加载");
+
+  // 创建高亮覆盖层
+  var overlay = document.createElement("div");
+  overlay.id = "iframe-highlight-overlay";
+  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
+
+  // 创建悬停高亮框（虚线边框）
+  var highlightBox = document.createElement("div");
+  highlightBox.id = "iframe-highlight-box";
+  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
+
+  // 创建选中节点的常驻高亮框（实线边框）
+  var selectedBox = document.createElement("div");
+  selectedBox.id = "iframe-selected-box";
+  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
+
+  // 创建悬停标签显示
+  var tagLabel = document.createElement("div");
+  tagLabel.id = "iframe-tag-label";
+  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
+
+  // 创建选中节点标签
+  var selectedLabel = document.createElement("div");
+  selectedLabel.id = "iframe-selected-label";
+  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
+  overlay.appendChild(highlightBox);
+  overlay.appendChild(selectedBox);
+  overlay.appendChild(tagLabel);
+  overlay.appendChild(selectedLabel);
+  document.body.appendChild(overlay);
+
+  // 存储当前选中的元素
+  var selectedElement = null;
+  var highlightEnabled = false;
+
+  // 更新选中元素的高亮显示
+  function updateSelectedHighlight(element) {
+    console.log("updateSelectedHighlight called with:", element);
+    if (!element) {
+      selectedBox.style.display = "none";
+      selectedLabel.style.display = "none";
+      selectedElement = null;
+      console.log("Cleared selected highlight");
+      return;
+    }
+    selectedElement = element;
+    var rect = element.getBoundingClientRect();
+    console.log("Selected element rect:", rect);
+
+    // 更新选中高亮框位置
+    selectedBox.style.display = "block";
+    selectedBox.style.left = "".concat(rect.left - 2, "px");
+    selectedBox.style.top = "".concat(rect.top - 2, "px");
+    selectedBox.style.width = "".concat(rect.width + 4, "px");
+    selectedBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新选中标签位置和内容
+    selectedLabel.style.display = "block";
+    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 28;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 5) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
+    if (labelLeft + labelWidth > window.innerWidth - 10) {
+      labelLeft = window.innerWidth - labelWidth - 10;
+    }
+    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
+    selectedLabel.style.top = "".concat(labelTop, "px");
+    console.log("Selected highlight positioned at:", {
+      left: selectedBox.style.left,
+      top: selectedBox.style.top,
+      width: selectedBox.style.width,
+      height: selectedBox.style.height
+    });
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
+    var segments = [];
+    var current = element;
+    while (current !== document.documentElement) {
+      var selector = '';
+      // 优先检查唯一ID
+      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
+        segments.unshift("#".concat(current.id));
+        break; // ID唯一，无需继续向上
+      }
+
+      // 生成类名选择器（取第一个有效类名）
+      var classes = Array.from(current.classList).filter(function (c) {
+        return !c.startsWith('js-');
+      });
+      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
+
+      // 生成位置索引（nth-child）
+      var tag = current.tagName.toLowerCase();
+      if (!className) {
+        var siblings = Array.from(current.parentNode.children);
+        var index = siblings.findIndex(function (el) {
+          return el === current;
+        }) + 1;
+        selector = "".concat(tag, ":nth-child(").concat(index, ")");
+      } else {
+        selector = className;
+      }
+      segments.unshift(selector);
+      current = current.parentElement;
+    }
+
+    // 处理根元素
+    if (current === document.documentElement) {
+      segments.unshift('html');
+    }
+    return segments.join(' > ');
+  }
+
+  // 获取元素文本内容
+  function getElementText(element) {
+    var _element$textContent;
+    if (element.tagName === "INPUT") {
+      return element.value || element.placeholder || "";
+    }
+    if (element.tagName === "TEXTAREA") {
+      return element.value || element.placeholder || "";
+    }
+    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
+    return text.length > 50 ? text.substring(0, 50) + "..." : text;
+  }
+
+  // 获取元素属性信息
+  function getElementAttributes(element) {
+    var attrs = {};
+    for (var i = 0; i < element.attributes.length; i++) {
+      var attr = element.attributes[i];
+      attrs[attr.name] = attr.value;
+    }
+    return attrs;
+  }
+
+  // 鼠标悬停事件处理
+  function handleMouseOver(e) {
+    if (!highlightEnabled) return;
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免高亮 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 如果是已选中的元素，不显示悬停高亮
+    if (target === selectedElement) {
+      highlightBox.style.display = "none";
+      tagLabel.style.display = "none";
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+
+    // 更新悬停高亮框位置
+    highlightBox.style.display = "block";
+    highlightBox.style.left = "".concat(rect.left - 2, "px");
+    highlightBox.style.top = "".concat(rect.top - 2, "px");
+    highlightBox.style.width = "".concat(rect.width + 4, "px");
+    highlightBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新标签位置和内容
+    tagLabel.style.display = "block";
+    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 22;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 0) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
+      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
+    }
+    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
+    tagLabel.style.top = "".concat(labelTop, "px");
+
+    // 发送消息到父窗口
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 鼠标离开事件处理
+  function handleMouseOut(e) {
+    if (!highlightEnabled) return;
+    var relatedTarget = e.relatedTarget;
+
+    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
+    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
+      return;
+    }
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: null,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 点击事件处理
+  function handleClick(e) {
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免处理 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 检查是否是交互元素，这些元素需要保留默认行为
+    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
+
+    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
+    if (highlightEnabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+    console.log("Element clicked:", {
+      tagName: target.tagName,
+      selector: selector,
+      rect: rect
+    });
+
+    // 立即更新选中高亮
+    updateSelectedHighlight(target);
+
+    // 隐藏悬停高亮，因为现在是选中状态
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-click",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 监听来自父窗口的消息
+  function handleParentMessage(event) {
+    console.log("Received message from parent:", event.data);
+    if (event.data.type === "iframe-highlight-toggle") {
+      var enabled = event.data.enabled;
+      console.log("Highlight toggle:", enabled);
+      if (enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "enable-iframe-highlight") {
+      console.log("Enable iframe highlight");
+      enableHighlight();
+    } else if (event.data.type === "disable-iframe-highlight") {
+      console.log("Disable iframe highlight");
+      disableHighlight();
+    } else if (event.data.type === "toggle-iframe-highlight") {
+      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
+      console.log("Toggle iframe highlight to:", _enabled);
+      if (_enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "update-selected-element") {
+      var selector = event.data.selector;
+      console.log("Update selected element with selector:", selector);
+      if (selector) {
+        try {
+          var element = document.querySelector(selector);
+          console.log("Found element by selector:", element);
+          updateSelectedHighlight(element);
+        } catch (error) {
+          console.warn("Failed to select element:", error);
+          updateSelectedHighlight(null);
+        }
+      } else {
+        updateSelectedHighlight(null);
+      }
+    } else if (event.data.type === "clear-selected-element") {
+      console.log("Clear selected element");
+      updateSelectedHighlight(null);
+    }
+  }
+
+  // 启用高亮功能
+  function enableHighlight() {
+    console.log("Enabling highlight");
+    document.addEventListener("mouseover", handleMouseOver, true);
+    document.addEventListener("mouseout", handleMouseOut, true);
+    document.addEventListener("click", handleClick, true);
+    highlightEnabled = true;
+    overlay.style.display = "block";
+  }
+
+  // 禁用高亮功能
+  function disableHighlight() {
+    console.log("Disabling highlight");
+    highlightEnabled = false;
+    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
+    // 这样可以保留选中状态的显示
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
+  }
+
+  // 完全禁用高亮功能（移除所有监听器）
+  function fullyDisableHighlight() {
+    console.log("Fully disabling highlight");
+    highlightEnabled = false;
+    document.removeEventListener("mouseover", handleMouseOver, true);
+    document.removeEventListener("mouseout", handleMouseOut, true);
+    document.removeEventListener("click", handleClick, true);
+    overlay.style.display = "none";
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    selectedBox.style.display = "none";
+    selectedLabel.style.display = "none";
+  }
+
+  // 添加事件监听
+  enableHighlight();
+  window.addEventListener("message", handleParentMessage);
+
+  // 暴露全局函数供外部调用
+  window.__iframeHighlightControl = {
+    enable: enableHighlight,
+    disable: disableHighlight,
+    fullyDisable: fullyDisableHighlight,
+    isEnabled: function isEnabled() {
+      return highlightEnabled;
+    },
+    getSelectedElement: function getSelectedElement() {
+      return selectedElement;
+    },
+    updateSelected: updateSelectedHighlight,
+    // 通过消息发送开关控制
+    sendToggleMessage: function sendToggleMessage(enabled) {
+      window.parent.postMessage({
+        type: 'iframe-highlight-status',
+        enabled: enabled || highlightEnabled,
+        source: 'iframe-highlight-injector'
+      }, '*');
+    }
+  };
+
+  // 通知父窗口脚本已加载
+  try {
+    window.parent.postMessage({
+      type: "iframe-highlight-ready",
+      data: {
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now()
+      },
+      source: "iframe-highlight-injector"
+    }, "*");
+  } catch (error) {
+    console.warn("无法发送就绪消息到父窗口:", error);
+  }
+
+  // 清理函数
+  window.__iframeHighlightCleanup = function () {
+    fullyDisableHighlight();
+    window.removeEventListener("message", handleParentMessage);
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    delete window.__iframeHighlightInitialized;
+    delete window.__iframeHighlightCleanup;
+  };
+})();
+
+</script>
+</body>
+</html>

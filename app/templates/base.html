@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Bitácora GRM{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12"
-          integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYti87iKBWq3EsdM2"
-          crossorigin="anonymous"></script>
+  <!-- HTMX autoalojado: elimina dependencia de unpkg.com y de SRI hash que
+       puede fallar en Railway por CSP o bloqueos de CDN. -->
+  <script src="/static/js/htmx.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script>
@@ -100,6 +100,9 @@
     window.CURRENT_USER_ROL = "{{ usuario.rol.value if usuario else 'solicitante' }}";
   </script>
 
+  <!-- htmx-fallback SIEMPRE antes de kanban.js: si HTMX falla, este
+       script intercepta los hx-* y los maneja con fetch() nativo -->
+  <script src="/static/js/htmx-fallback.js"></script>
   <script src="/static/js/kanban.js"></script>
   <script src="/static/js/htmx-events.js"></script>
   <script src="/static/js/command-palette.js"></script>
