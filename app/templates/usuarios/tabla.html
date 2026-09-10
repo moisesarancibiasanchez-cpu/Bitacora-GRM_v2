@@ -52,8 +52,7 @@
           </button>
           {% if u.is_active %}
           <button class="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
-                  hx-patch="/api/v1/usuarios/{{ u.id }}"
-                  hx-vals='{"is_active": false}'
+                  hx-post="/api/v1/usuarios/{{ u.id }}/desactivar-form"
                   hx-confirm="¿Desactivar al usuario {{ u.nombre_completo }}?"
                   hx-target="#usuarios-tabla" hx-swap="innerHTML"
                   hx-on::after-request="if(event.detail.successful) window.showToast && window.showToast('Usuario desactivado','info')"
@@ -64,7 +63,7 @@
           </button>
           {% else %}
           <button class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
-                  hx-post="/api/v1/usuarios/{{ u.id }}/reactivar"
+                  hx-post="/api/v1/usuarios/{{ u.id }}/reactivar-form"
                   hx-target="#usuarios-tabla" hx-swap="innerHTML"
                   hx-on::after-request="if(event.detail.successful) window.showToast && window.showToast('Usuario reactivado','success')"
                   title="Reactivar">
