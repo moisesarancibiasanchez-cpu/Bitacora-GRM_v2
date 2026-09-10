@@ -206,6 +206,33 @@ class TicketService:
         self.db.commit()
         self.db.refresh(ticket)
 
+        # 8.1) Notificar al responsable de la columna destino (in-app + email)
+        #      Se hace ANTES de las tareas Celery para que, si la columna
+        #      tiene responsable, la notificación quede persistida en la
+        #      misma transacción lógica.
+        try:
+            from app.services.notificacion_responsable_service import (
+                notificar_responsable_columna,
+            )
+            notificar_responsable_columna(
+                self.db,
+                ticket=ticket,
+                estado_destino=estado_destino,
+                estado_origen_nombre=estado_origen.nombre,
+                actor=usuario,
+            )
+            self.db.commit()
+        except Exception as exc:
+            # No debe romper el flujo principal
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "notificar_responsable_columna falló (no crítico): %s", exc
+            )
+
         # 9. Disparar tarea Celery (segundo plano) - no bloquea el request
         task_id = None
         try:

@@ -89,17 +89,69 @@
     <div id="kanban-board" class="h-full flex gap-3 p-4 min-w-max">
       {% for estado in estados %}
         {% set tickets_col = tickets_por_estado.get(estado.id, []) %}
+        {% set resp = estado.responsable %}
+        {% if resp %}
+          {% set resp_nombre = (resp.nombre_completo or resp.username) %}
+          {% set resp_partes = resp_nombre.split() %}
+          {% set resp_initials = (resp_partes[0][0] if resp_partes else '?') ~ (resp_partes[1][0] if resp_partes|length > 1 else '') %}
+        {% endif %}
         <div id="column-{{ estado.id }}"
              class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col"
              data-estado-id="{{ estado.id }}"
              data-estado-nombre="{{ estado.nombre }}">
-          <div class="flex items-center justify-between mb-3 px-1 flex-shrink-0">
-            <div class="flex items-center gap-2">
-              <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: {{ estado.color }}"></span>
-              <h3 class="font-semibold text-sm text-slate-700 uppercase tracking-wide">{{ estado.nombre }}</h3>
+          <div id="column-header-{{ estado.id }}"
+               class="flex items-center justify-between gap-2 mb-3 px-1 flex-shrink-0 flex-wrap">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style="background-color: {{ estado.color }}"></span>
+              <div class="flex items-center gap-1 min-w-0" id="title-wrap-{{ estado.id }}">
+                <h3 id="title-display-{{ estado.id }}"
+                    data-estado-id="{{ estado.id }}"
+                    class="font-semibold text-sm text-slate-700 uppercase tracking-wide truncate cursor-pointer hover:text-indigo-600"
+                    onclick="window.editarTituloColumna({{ estado.id }})"
+                    title="Clic para editar el título de la columna">{{ estado.nombre }}</h3>
+                <button type="button"
+                        onclick="window.editarTituloColumna({{ estado.id }})"
+                        class="text-slate-400 hover:text-indigo-600 p-0.5"
+                        title="Editar título de la columna">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M15.232 5.232l3.536 3.536M9 11l3.536-3.536M3 21h6l11-11a2.5 2.5 0 00-3.536-3.536L5 17v4z"></path>
+                  </svg>
+                </button>
+              </div>
             </div>
-            <span class="text-xs font-mono text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200"
-                  id="count-{{ estado.id }}">{{ tickets_col|length }}</span>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              {% if resp %}
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-[10px] text-indigo-700"
+                      title="Responsable: {{ resp_nombre }}">
+                  <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-bold">{{ resp_initials|upper }}</span>
+                  <span class="font-medium truncate max-w-[7rem]">{{ resp_partes[0] if resp_partes else resp.username }}</span>
+                  <button type="button"
+                          hx-patch="/api/v1/estados/{{ estado.id }}"
+                          hx-vals='{"responsable_id": null}'
+                          hx-target="#column-header-{{ estado.id }}"
+                          hx-swap="outerHTML"
+                          class="ml-0.5 text-indigo-400 hover:text-red-500"
+                          title="Quitar responsable">×</button>
+                </span>
+              {% else %}
+                <button type="button"
+                        hx-get="/api/v1/estados/{{ estado.id }}/responsable-picker"
+                        hx-target="#column-header-{{ estado.id }}"
+                        hx-swap="outerHTML"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 text-[10px] text-slate-500 hover:bg-slate-50"
+                        title="Asignar responsable a esta columna">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                  </svg>
+                  responsable
+                </button>
+              {% endif %}
+              <span class="text-xs font-mono text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200"
+                    id="count-{{ estado.id }}">{{ tickets_col|length }}</span>
+            </div>
           </div>
           <div class="kanban-list flex-1 overflow-y-auto min-h-[200px] pr-1 pb-2"
                data-estado-id="{{ estado.id }}">
@@ -123,5 +175,122 @@
     "current_user_id": {{ usuario.id if usuario else 0 }},
     "prioridades": ["critica", "alta", "media", "baja"]
   }
+</script>
+
+<!-- Edición inline del título de columna -->
+<script>
+(function(){
+  // --------------------------------------------------------------
+  //  Edición inline del título de la columna
+  //  - Doble clic / clic en el icono de editar / clic en el h3
+  //  - Reemplaza por un <input> que se autosubmite con HTMX (PATCH)
+  //  - Esc cancela y restaura el título original
+  // --------------------------------------------------------------
+  function ensureTitleInputStyles(){
+    if (document.getElementById('title-input-style')) return;
+    const s = document.createElement('style');
+    s.id = 'title-input-style';
+    s.textContent = `
+      .col-title-input{
+        font-size:.875rem; font-weight:600; text-transform:uppercase;
+        letter-spacing:.05em; color:#334155; background:#fff;
+        border:1px solid #cbd5e1; border-radius:6px; padding:2px 6px;
+        min-width:0; max-width:14rem; outline:none;
+      }
+      .col-title-input:focus{ border-color:#4f46e5; box-shadow:0 0 0 2px rgba(79,70,229,.25); }
+    `;
+    document.head.appendChild(s);
+  }
+
+  window.cancelarEdicionTitulo = function(estadoId){
+    const wrap = document.getElementById('title-wrap-' + estadoId);
+    if (!wrap) return;
+    wrap.innerHTML = wrap.dataset.originalHtml || wrap.innerHTML;
+  };
+
+  window.editarTituloColumna = function(estadoId){
+    ensureTitleInputStyles();
+    const h3 = document.getElementById('title-display-' + estadoId);
+    if (!h3) return;
+    const wrap = document.getElementById('title-wrap-' + estadoId);
+    if (!wrap) return;
+    if (wrap.dataset.editing === '1') return;
+    wrap.dataset.editing = '1';
+    wrap.dataset.originalHtml = wrap.innerHTML;
+
+    const current = (h3.textContent || '').trim();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'col-title-input';
+    input.value = current;
+    input.maxLength = 80;
+    input.setAttribute('form', 'form-title-' + estadoId);
+
+    const form = document.createElement('form');
+    form.id = 'form-title-' + estadoId;
+    form.style.display = 'none';
+    form.setAttribute('hx-patch', '/api/v1/estados/' + estadoId);
+    form.setAttribute('hx-target', '#column-header-' + estadoId);
+    form.setAttribute('hx-swap', 'outerHTML');
+    form.setAttribute('hx-trigger', 'submit');
+    // htmx procesa el form
+    if (window.htmx) htmx.process(form);
+
+    wrap.innerHTML = '';
+    wrap.appendChild(input);
+    wrap.appendChild(form);
+    input.focus();
+    input.select();
+
+    function commit(){
+      const nuevo = input.value.trim();
+      if (!nuevo || nuevo === current){
+        // Sin cambios o vacío -> cancelar
+        wrap.innerHTML = wrap.dataset.originalHtml;
+        wrap.dataset.editing = '0';
+        return;
+      }
+      // Construir form data y disparar HTMX
+      const fd = new FormData();
+      fd.append('nombre', nuevo);
+      // Lanzar el submit a través de htmx
+      htmx.ajax('PATCH', '/api/v1/estados/' + estadoId, {
+        target: '#column-header-' + estadoId,
+        swap: 'outerHTML',
+        values: { nombre: nuevo }
+      });
+      // El servidor devolverá el nuevo header; limpiamos el flag
+      wrap.dataset.editing = '0';
+    }
+
+    function cancel(){
+      wrap.innerHTML = wrap.dataset.originalHtml;
+      wrap.dataset.editing = '0';
+    }
+
+    input.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter'){ ev.preventDefault(); commit(); }
+      else if (ev.key === 'Escape'){ ev.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', function(){
+      // pequeño timeout para que el clic en el botón "editar" no se pierda
+      setTimeout(function(){
+        if (wrap.dataset.editing === '1') commit();
+      }, 120);
+    });
+  };
+
+  // Toast helper si el servidor devuelve HX-Trigger con error
+  document.addEventListener('htmx:responseError', function(ev){
+    if (window.showToast){
+      window.showToast('Error al guardar el cambio', 'error');
+    }
+  });
+  document.addEventListener('column-updated', function(){
+    if (window.showToast){
+      window.showToast('Columna actualizada', 'success');
+    }
+  });
+})();
 </script>
 {% endblock %}

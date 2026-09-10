@@ -48,6 +48,13 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
         ),
         "archivado": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
         "limite_wip": "INTEGER",
+        # Feature nueva: responsable de la columna (FK a usuarios)
+        # Cuando un ticket cae en este estado, el responsable recibe
+        # notificación in-app + email.
+        "responsable_id": (
+            "INTEGER REFERENCES usuarios(id) ON DELETE SET NULL",
+            "INTEGER REFERENCES usuarios(id) ON DELETE SET NULL",
+        ),
     },
     "tickets": {
         # Trello: cada tarjeta pertenece a un tablero

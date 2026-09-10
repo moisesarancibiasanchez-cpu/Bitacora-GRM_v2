@@ -20,6 +20,10 @@ class EstadoBase(BaseModel):
 
 class EstadoRead(EstadoBase):
     id: int
+    responsable_id: Optional[int] = Field(
+        default=None,
+        description="ID del usuario responsable de la columna (None = sin asignar)",
+    )
     model_config = ConfigDict(from_attributes=True)
 
 

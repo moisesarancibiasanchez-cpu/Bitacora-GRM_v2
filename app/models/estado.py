@@ -13,6 +13,9 @@ class Estado(Base, TimestampMixin):
     """
     Estado de un ticket dentro del flujo de trabajo (columna del Kanban).
     Ejemplos: 'Nuevo', 'En curso', 'En espera', 'Resuelto', 'Cerrado'.
+
+    Una columna puede tener un ``responsable_id``: cuando un ticket cae en
+    este estado, ese usuario recibe una notificación in-app y un email.
     """
     __tablename__ = "estados"
 
@@ -40,6 +43,19 @@ class Estado(Base, TimestampMixin):
     limite_wip = Column(Integer, nullable=True)
     # Suscriptores: se consultan a través de WatchService (polimórfico)
 
+    # ----------------------------------------------------------------------
+    #  Responsable de la columna (feature nueva)
+    # ----------------------------------------------------------------------
+    # Usuario al que se le notifica (in-app + email) cuando un ticket cae
+    # en este estado. Si es NULL, la columna no tiene responsable asignado
+    # y se omite la notificación.
+    responsable_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Relaciones
     transiciones_salida = relationship(
         "TransicionEstado",
@@ -49,6 +65,11 @@ class Estado(Base, TimestampMixin):
     )
     tickets = relationship("Ticket", back_populates="estado")
     tablero = relationship("Tablero", back_populates="listas")
+    # Relación al usuario responsable
+    responsable = relationship(
+        "Usuario",
+        foreign_keys=[responsable_id],
+    )
 
     def __repr__(self) -> str:
         return f"<Estado {self.nombre} (orden={self.orden})>"
