@@ -121,11 +121,48 @@
         // Timeout más generoso para Railway (red puede ser lenta)
         try { htmx.config.timeout = 20000; } catch (e) {}
         try { htmx.config.defaultSettleDelay = 50; } catch (e) {}
+
+        // Helper: muestra un toast de error de forma segura
+        function showErrorToast(message) {
+          try {
+            if (window.showToast) {
+              window.showToast(message, 'error', 5000);
+              return;
+            }
+          } catch (_) {}
+          // Fallback: alert
+          try { alert(message); } catch (_) {}
+        }
+
+        // Helper: extrae un mensaje útil del response (JSON o texto)
+        function extractErrorMessage(xhr) {
+          if (!xhr) return 'Error desconocido';
+          var text = '';
+          try { text = xhr.responseText || ''; } catch (_) { text = ''; }
+          if (text) {
+            try {
+              var data = JSON.parse(text);
+              if (data && data.detail) {
+                if (typeof data.detail === 'string') return data.detail;
+                if (Array.isArray(data.detail) && data.detail[0] && data.detail[0].msg) {
+                  return data.detail[0].msg;
+                }
+              }
+            } catch (_) { /* no es JSON, devolver el texto tal cual si es corto */ }
+            if (text.length < 200) return text;
+          }
+          return 'Error HTTP ' + xhr.status;
+        }
+
         // Si llega un 401 desde HTMX, mostrar un error útil en lugar de
         // quedarse en "Cargando..."
         document.body.addEventListener('htmx:responseError', function (evt) {
-          var status = evt.detail && evt.detail.xhr && evt.detail.xhr.status;
+          var xhr = evt.detail && evt.detail.xhr;
+          var status = xhr && xhr.status;
+          var path = (evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+
           if (status === 401) {
+            // Sesión expirada o credenciales inválidas: mostrar modal
             var root = document.getElementById('modal-root');
             if (root) {
               root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">' +
@@ -137,7 +174,49 @@
                 '<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Cerrar</button>' +
                 '</div></div>';
             }
+            return;
           }
+
+          if (status === 403) {
+            showErrorToast('No tienes permisos para realizar esta acción.');
+            return;
+          }
+
+          if (status === 404) {
+            // No mostrar error para card-html cuando se hace polling (es esperado)
+            if (path && path.indexOf('/card-html') >= 0) return;
+            showErrorToast('El recurso solicitado no existe (404).');
+            return;
+          }
+
+          if (status === 422) {
+            // Validación: el backend ya emitió un HX-Trigger con ticket-error
+            return;
+          }
+
+          if (status === 413) {
+            showErrorToast('El archivo es demasiado grande. Reduce su tamaño e inténtalo de nuevo.');
+            return;
+          }
+
+          if (status >= 500) {
+            showErrorToast('Error del servidor (' + status + '). Inténtalo de nuevo en unos momentos.');
+            return;
+          }
+
+          if (status >= 400) {
+            showErrorToast(extractErrorMessage(xhr));
+          }
+        });
+
+        // Errores de red (sin respuesta del servidor)
+        document.body.addEventListener('htmx:sendError', function (evt) {
+          showErrorToast('No se pudo conectar con el servidor. Revisa tu conexión a internet.');
+        });
+
+        // Timeout
+        document.body.addEventListener('htmx:timeout', function (evt) {
+          showErrorToast('La petición tardó demasiado. Inténtalo de nuevo.');
         });
       }
       if (document.readyState === 'loading') {

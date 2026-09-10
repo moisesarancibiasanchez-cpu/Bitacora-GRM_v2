@@ -61,6 +61,114 @@
     }
   });
 
+  // ===========================================================================
+  // EVENTO: ticket-created
+  // Se dispara desde el backend (HX-Trigger) cuando se crea un nuevo ticket.
+  // Inserta la tarjeta en la columna correspondiente del tablero Kanban
+  // sin necesidad de recargar la página completa.
+  // ===========================================================================
+  document.body.addEventListener('ticket-created', async (evt) => {
+    const detail = (evt && evt.detail) || {};
+    const ticketId = detail.ticket_id;
+    if (!ticketId) {
+      console.warn('[htmx-events] ticket-created sin ticket_id');
+      return;
+    }
+
+    // 1) Cerrar el modal de éxito
+    const modalRoot = document.getElementById('modal-root');
+    if (modalRoot) modalRoot.innerHTML = '';
+
+    try {
+      // 2) Obtener el estado del ticket (necesitamos estado_id para la columna)
+      let estadoId = null;
+      try {
+        const r2 = await fetch(`/api/v1/tickets/${ticketId}`, {
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+          credentials: 'same-origin',
+        });
+        if (r2.ok) {
+          const ticketData = await r2.json();
+          estadoId = ticketData.estado_id;
+        }
+      } catch (_) { /* fallback */ }
+
+      // 3) Obtener el HTML de la nueva tarjeta
+      const r = await fetch(`/api/v1/tickets/${ticketId}/card-html`, {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        credentials: 'same-origin',
+      });
+      if (!r.ok) {
+        if (window.showToast) {
+          window.showToast('Incidencia creada. Recarga el tablero para verla.', 'info', 5000);
+        }
+        return;
+      }
+      const html = await r.text();
+
+      // 4) Buscar la columna destino
+      let targetList = null;
+      if (estadoId != null) {
+        targetList = document.querySelector(`.kanban-list[data-estado-id="${estadoId}"]`);
+      }
+      // Fallback: si no se pudo determinar el estado, insertar en la primera columna
+      if (!targetList) {
+        targetList = document.querySelector('.kanban-list');
+      }
+      if (!targetList) {
+        if (window.showToast) {
+          window.showToast('Incidencia creada. Recarga el tablero para verla.', 'info', 5000);
+        }
+        return;
+      }
+
+      // 5) Quitar el placeholder "Arrastra una tarjeta aquí" si existe
+      const emptyPlaceholder = targetList.querySelector('.empty-column');
+      if (emptyPlaceholder) emptyPlaceholder.remove();
+
+      // 6) Insertar la nueva tarjeta AL INICIO de la lista
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html.trim();
+      const newCard = wrapper.firstElementChild;
+      if (newCard) {
+        newCard.style.animation = 'fade-in 0.6s ease-out';
+        targetList.insertBefore(newCard, targetList.firstChild);
+      }
+
+      // 7) Actualizar el contador de la columna
+      if (estadoId != null) {
+        const counter = document.getElementById(`count-${estadoId}`);
+        if (counter) {
+          const current = parseInt(counter.textContent || '0', 10) || 0;
+          counter.textContent = String(current + 1);
+        }
+      }
+
+      // 8) Notificar al usuario
+      if (window.showToast) {
+        const archivos = detail.archivos_subidos || 0;
+        const items = detail.items_creados || 0;
+        let msg = `Incidencia ${detail.codigo || ''} creada correctamente`;
+        if (archivos) msg += ` · ${archivos} archivo(s)`;
+        if (items) msg += ` · ${items} item(s) de checklist`;
+        window.showToast(msg, 'success');
+      }
+
+      // 9) Procesar hx-* en la nueva tarjeta
+      if (typeof window.htmxFallbackProcess === 'function' && !window.htmxFallbackReady()) {
+        try { window.htmxFallbackProcess(newCard); } catch (_) {}
+      }
+      if (typeof htmx !== 'undefined' && htmx.process && newCard) {
+        try { htmx.process(newCard); } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[htmx-events] Error al insertar nueva tarjeta:', err);
+      if (window.showToast) {
+        window.showToast('Incidencia creada. Recarga el tablero para verla.', 'info', 5000);
+      }
+    }
+  });
+
   // Eventos de creación de recursos en modal de detalle
   const _evtMsgs = {
     'comentario-creado':   { msg: 'Comentario agregado correctamente',         type: 'success' },

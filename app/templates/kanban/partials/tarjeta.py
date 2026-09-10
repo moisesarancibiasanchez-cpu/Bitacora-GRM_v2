@@ -1,0 +1,106 @@
+"""
+Fragmento Jinja2: tarjeta completa del Kanban (versión rica).
+
+Esta tarjeta es la que se muestra en el tablero principal (kanban/index.html)
+e incluye información SLA, asignado, etiquetas, etc.
+
+Existe una versión más simple en card.py que se usa para respuesta
+rápida tras drag & drop.
+"""
+from jinja2 import Template
+
+
+TARJETA_TEMPLATE = Template("""
+<div id="ticket-{{ ticket.id }}"
+     class="kanban-card group cursor-pointer rounded-lg bg-white shadow-sm border border-slate-200 p-3 mb-2 hover:shadow-md hover:border-indigo-400 hover:bg-indigo-50/30 transition-all duration-150 relative"
+     data-ticket-id="{{ ticket.id }}"
+     data-prioridad="{{ ticket.prioridad.value }}"
+     data-estado="{{ ticket.estado.nombre }}"
+     data-codigo="{{ ticket.codigo|lower }}"
+     data-titulo="{{ ticket.titulo|lower }}"
+     data-descripcion="{{ (ticket.descripcion or '')|lower }}"
+     data-asignado-id="{{ ticket.asignado_id or '' }}"
+     data-asignado-nombre="{{ (ticket.asignado.nombre_completo if ticket.asignado else '')|lower }}"
+     data-etiquetas="{% for e in ticket.etiquetas %}{{ e.id }}{% if not loop.last %},{% endif %}{% endfor %}"
+     role="button"
+     tabindex="0"
+     aria-label="Ticket {{ ticket.codigo }} - Click para ver detalle, arrastrar para mover estado"
+     title="Click para ver detalle · Arrastrar para mover">
+  <div class="flex items-start justify-between gap-2 mb-1.5">
+    <span class="font-mono text-[10px] tracking-wide text-slate-500 uppercase">{{ ticket.codigo }}</span>
+    <div class="flex items-center gap-1.5">
+      <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold
+                   {% if ticket.prioridad.value == 'critica' %}bg-red-100 text-red-700
+                   {% elif ticket.prioridad.value == 'alta' %}bg-orange-100 text-orange-700
+                   {% elif ticket.prioridad.value == 'media' %}bg-yellow-100 text-yellow-700
+                   {% else %}bg-slate-100 text-slate-600{% endif %}">
+        {{ ticket.prioridad.value|upper }}
+      </span>
+      <button type="button"
+              class="open-detail-btn w-5 h-5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center transition-colors"
+              hx-get="/api/v1/tickets/{{ ticket.id }}/detalle-html"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              title="Ver detalle">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2 group-hover:text-indigo-700 transition-colors">{{ ticket.titulo }}</h4>
+  <p class="text-xs text-slate-500 line-clamp-2 mb-2">{{ ticket.descripcion }}</p>
+  <div class="flex items-center justify-between text-[11px] text-slate-500">
+    <div class="flex items-center gap-1.5">
+      {% if ticket.asignado %}
+        {% set ini = ticket.asignado.nombre_completo.split(' ')[:2]|map('first')|join|upper %}
+        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold" title="{{ ticket.asignado.nombre_completo }}">
+          {{ ini }}
+        </span>
+        <span>{{ ticket.asignado.nombre_completo.split(' ')[0] }}</span>
+      {% else %}
+        <span class="italic opacity-60">sin asignar</span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-1.5">
+      {% if ticket.etiquetas %}
+        {% for e in ticket.etiquetas[:3] %}
+          <span class="inline-block w-2 h-2 rounded-full" style="background-color: {{ e.color }}" title="{{ e.nombre }}"></span>
+        {% endfor %}
+        {% if ticket.etiquetas|length > 3 %}
+          <span class="text-[10px] text-slate-400">+{{ ticket.etiquetas|length - 3 }}</span>
+        {% endif %}
+      {% endif %}
+      {% if ticket.sla_cumplido == 0 %}
+        <span class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200" title="SLA vencido: la fecha límite ya pasó">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500"></span>
+          SLA
+        </span>
+      {% elif ticket.sla_cumplido == -1 and ticket.fecha_vencimiento_sla %}
+        <span class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="SLA próximo: la fecha límite se acerca">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+          SLA
+        </span>
+      {% elif ticket.sla_cumplido == 1 %}
+        <span class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="SLA cumplido: dentro del plazo">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          SLA
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  <!-- Indicador "click para ver detalle" (visible en hover/focus) -->
+  <div class="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-indigo-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-b-lg"></div>
+</div>
+""")
+
+
+def render_tarjeta_completa(ticket) -> str:
+    """Renderiza la tarjeta completa de un ticket a HTML.
+
+    Esta versión es la "rica" que se muestra en el tablero principal
+    (kanban/index.html) e incluye badges de SLA, etiquetas y asignado.
+    """
+    return TARJETA_TEMPLATE.render(ticket=ticket)

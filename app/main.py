@@ -395,8 +395,9 @@ async def ticket_crear(request: Request):
                 </div>
                 <h3 class="text-lg font-semibold text-slate-800 mb-1">Incidencia creada</h3>
                 <p class="text-sm text-slate-500 mb-1">Tu ticket fue registrado con el código</p>
-                <p class="font-mono text-base text-indigo-600 font-semibold mb-4">{ticket.codigo}</p>
+                <p class="font-mono text-base text-indigo-600 font-semibold mb-3">{ticket.codigo}</p>
                 {(f'<p class="text-xs text-slate-500 mb-3">{archivos_subidos} archivo(s), {items_creados} item(s) de checklist</p>') if (archivos_subidos or items_creados) else ''}
+                {(f'<p class="text-xs text-slate-500 mb-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">⏱ SLA: vence {ticket.fecha_vencimiento_sla.strftime("%Y-%m-%d %H:%M") if ticket.fecha_vencimiento_sla else "sin fecha"}</span></p>') if ticket.fecha_vencimiento_sla else ''}
                 <div class="flex items-center justify-center gap-2">
                   <button data-close-modal
                           hx-get="/api/v1/tickets/{ticket.id}/detalle-html"
@@ -405,8 +406,6 @@ async def ticket_crear(request: Request):
                     Ver detalle
                   </button>
                   <button data-close-modal
-                          hx-get="/kanban"
-                          hx-target="#main-content" hx-swap="innerHTML"
                           class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
                     Cerrar
                   </button>

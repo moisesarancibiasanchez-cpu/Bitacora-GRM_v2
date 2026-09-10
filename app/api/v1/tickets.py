@@ -322,6 +322,29 @@ def detalle_html(
 
 
 # ===========================================================================
+#  GET /tickets/{id}/card-html  Devuelve SOLO la tarjeta (card) de un ticket
+#  para que HTMX pueda insertarla en el tablero tras crear un nuevo ticket.
+# ===========================================================================
+@router.get("/{ticket_id}/card-html", response_class=HTMLResponse)
+def card_html(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Devuelve el fragmento HTML de la tarjeta de un ticket.
+
+    Usado por el frontend tras crear un nuevo ticket, para insertar la
+    tarjeta en la columna correspondiente del tablero sin necesidad de
+    recargar la página completa.
+    """
+    from app.templates.kanban.partials.tarjeta import render_tarjeta_completa
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
+    return HTMLResponse(content=render_tarjeta_completa(ticket))
+
+
+# ===========================================================================
 #  PATCH /tickets/{id}  Actualización de campos editables desde el modal
 # ===========================================================================
 @router.patch("/{ticket_id}", response_class=HTMLResponse)

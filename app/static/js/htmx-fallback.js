@@ -29,6 +29,16 @@
   'use strict';
 
   // ---------------------------------------------------------------------------
+  // SALIDA TEMPRANA: Si HTMX está cargado, este script no debe hacer NADA.
+  // Cualquier listener que registremos interferirá con HTMX.
+  // ---------------------------------------------------------------------------
+  if (typeof htmx !== 'undefined' && htmx.process && htmx.ajax) {
+    // HTMX está cargado y operativo. No hacer nada.
+    console.log('[htmx-fallback] HTMX detectado. Fallback desactivado (no se registran listeners).');
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
   // Detección: ¿HTMX está realmente funcionando?
   // ---------------------------------------------------------------------------
   function htmxWorking() {
