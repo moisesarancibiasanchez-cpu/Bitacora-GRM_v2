@@ -16,7 +16,7 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 
 - **Validación estricta de transiciones** (matriz de estados + roles ITSM).
 - **Auditoría obligatoria** de cada cambio (insert en `auditorias`).
-- **Tablero Kanban con drag & drop** (SortableJS) sobre **server-rendered HTML** (Jinja2).
+- **Tablero Kanban con drag & drop** (SortableJS) sobre **HTML renderizado en servidor** (Jinja2).
 - **Refresco sin recarga de página** (HTMX outerHTML swap).
 - **Procesamiento asíncrono** (Celery + Redis) para recálculo de SLAs y notificaciones.
 

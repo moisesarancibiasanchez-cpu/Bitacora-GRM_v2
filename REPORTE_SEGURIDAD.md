@@ -10,13 +10,13 @@
 ## 1. Resumen ejecutivo
 
 Se detectó una vulnerabilidad **crítica** de control de acceso: cada vez que un usuario
-accedía a la plataforma se autenticaba **automáticamente como el primer Administrador
-disponible**, sin necesidad de credenciales, dando acceso total a todas las
+accedía a la plataforma se autenticaba **de forma automática como el primer Administrador
+disponible**, sin necesidad de credenciales, entregando acceso total a todas las
 funcionalidades administrativas (gestión de usuarios, dashboards, butler, etc.).
 
-La causa raíz fue un **"modo demo"** heredado del desarrollo que quedó activo en
+La causa de fondo fue un **"modo demo"** heredado del desarrollo que quedó activo en
 producción. Se identificaron **5 vulnerabilidades** relacionadas y se aplicaron
-**6 fixes**.
+**6 correcciones**.
 
 Después de los fixes, la validación end-to-end confirmó:
 
@@ -44,7 +44,7 @@ Después de los fixes, la validación end-to-end confirmó:
 **Causa:** La función auxiliar `_get_usuario_actual(request)` y la función
 `_usuario_demo(db)` recurrían como fallback a "el primer usuario con rol
 Administrador activo" cuando no encontraban una sesión válida. Esto significaba
-que **cualquier visitante sin cookie ni credenciales se autenticaba como admin**.
+que **cualquier visitante sin cookie ni credenciales quedaba autenticado como admin**.
 
 Patrones afectados en `app/main.py`:
 
@@ -58,7 +58,7 @@ automatizaciones.
 
 **Fix:** `_get_usuario_actual()` ahora retorna `None` si no hay sesión; todas las
 rutas de página pasan por `_require_session_or_redirect()` que redirige a
-`/auth/login` con HTTP 302. Se eliminó completamente `_usuario_demo()` y los
+`/auth/login` con HTTP 302. Se eliminó por completo `_usuario_demo()` y los
 3 patrones inline.
 
 **Rutas corregidas (todas requieren sesión válida):**
@@ -83,18 +83,18 @@ es redirigido a `/auth/login` donde debe autenticarse con credenciales
 registradas o crear una cuenta (el primer registro se vuelve Administrador
 automáticamente).
 
-### V3 — Seed de usuarios demo con contraseñas hardcodeadas (ALTA)
+### V3 — Seed de usuarios demo con contraseñas codificadas (ALTA)
 
 **Archivo:** `app/db/init_db.py` → `seed_usuarios()`
-**Causa:** Al inicializar la BD se creaban 4 cuentas con contraseñas públicas
+**Causa:** Al inicializar la BD se creaban 4 cuentas con contraseñas de dominio público
 (`admin/admin123`, `agente1/agente123`, `lider/lider123`, `usuario1/user123`).
-Si la BD se inicializaba en producción sin que el operador lo supiera, quedaban
-cuentas con credenciales conocidas en el sistema.
+Si la BD se inicializaba en producción sin que el operador lo advirtiera, quedaban
+cuentas con credenciales conocidas dentro del sistema.
 
 **Fix:** `seed_usuarios()` ahora **solo** crea los usuarios demo si la variable
-de entorno `SEED_DEMO_USERS=true` está definida explícitamente. Por defecto
+de entorno `SEED_DEMO_USERS=true` está definida de forma explícita. Por defecto
 (`false`) NO se crea ninguna cuenta demo; el operador debe registrar la primera
-cuenta a través de `/auth/registro` (que automáticamente asigna rol
+cuenta a través de `/auth/registro` (que asigna de manera automática el rol
 Administrador al primer usuario).
 
 ```python
@@ -112,12 +112,12 @@ def seed_usuarios(db: Session):
 ### V4 — Bypass X-User-Id header (CRÍTICA)
 
 **Archivo:** `app/api/v1/deps.py` → `get_current_user()`
-**Causa:** El dependency de FastAPI aceptaba el header `X-User-Id` para resolver
-el usuario actual. **Cualquier petición** con `X-User-Id: 1` se autenticaba como
+**Causa:** La dependencia de FastAPI aceptaba el header `X-User-Id` para resolver
+el usuario actual. **Cualquier petición** con `X-User-Id: 1` quedaba autenticada como
 el usuario con `id=1` (el admin) sin necesidad de cookie ni credencial.
 
-**Fix:** La rama X-User-Id está **DESHABILITADA por defecto**. Solo se activa
-si se define explícitamente `ALLOW_XUSER_HEADER=true` (uso exclusivo de
+**Fix:** La rama X-User-Id queda **DESHABILITADA por defecto**. Solo se activa
+si se define de forma explícita `ALLOW_XUSER_HEADER=true` (uso exclusivo de
 pruebas internas; NUNCA en producción). Validado: con la variable en `false`,
 `GET /api/v1/usuarios` con `X-User-Id: 1` retorna **401** (backdoor cerrado).
 
@@ -134,9 +134,9 @@ if user_id is None and ALLOW_XUSER_HEADER:
 
 **Archivo:** `app/core/security.py`
 **Causa:** `passlib 1.7.4` es incompatible con `bcrypt>=4.0`. El `__about__`
-deprecado y la función interna `detect_wrap_bug` (que excede los 72 bytes)
+deprecado y la función interna `detect_wrap_bug` (que supera los 72 bytes)
 provocaban `AttributeError` y `ValueError` que rompían `verify_password()`.
-Esto causaba que **ningún login funcionara** después de actualizar dependencias
+Esto provocaba que **ningún login funcionara** después de actualizar dependencias
 (los hashes generados por passlib devolvían `False` aunque la contraseña fuera
 correcta).
 
@@ -193,29 +193,29 @@ El modelo de roles del sistema (`app/models/usuario.py`) define 5 roles:
 
 La validación confirmó:
 
-- **Solicitante (usuario1)** puede loguearse y acceder a `/kanban` (200), pero al
+- **Solicitante (usuario1)** puede iniciar sesión y acceder a `/kanban` (200), pero al
   intentar `/usuarios` recibe **HTTP 307 → /kanban** (redirect por no ser admin).
-- **Solicitante** en endpoints admin-only recibe **HTTP 403**.
+- **Solicitante** en endpoints solo-admin recibe **HTTP 403**.
 - **Administrador** accede sin restricciones a todas las páginas (200).
 - El **primer usuario que se registra** vía `/auth/registro` recibe
-  automáticamente rol `ADMINISTRADOR`.
+  de manera automática el rol `ADMINISTRADOR`.
 - Los registros posteriores reciben `SOLICITANTE` por defecto.
 
 ---
 
 ## 5. Recomendaciones operativas
 
-1. **No activar `ALLOW_XUSER_HEADER=true` en producción.** Esta variable es solo
-   para entornos de prueba internos. Verificar con:
+1. **No activar `ALLOW_XUSER_HEADER=true` en producción.** Esta variable está pensada
+   solo para entornos de prueba internos. Verificar con:
 
    ```bash
    echo "ALLOW_XUSER_HEADER=$ALLOW_XUSER_HEADER"
    # Debe estar vacía o ser 'false'
    ```
 
-2. **No activar `SEED_DEMO_USERS=true` en producción.** Si necesitas
+2. **No activar `SEED_DEMO_USERS=true` en producción.** Si requieres
    `admin/admin123` y cuentas demo en local, hazlo en una base de datos
-   separada:
+   aparte:
 
    ```bash
    # Solo para desarrollo local:
@@ -223,14 +223,14 @@ La validación confirmó:
    ```
 
 3. **El primer usuario que se registre en una instalación limpia será
-   Administrador.** Asegúrate de que esa primera cuenta use una contraseña
-   robusta (≥ 12 caracteres, combinación de tipos) y que las cuentas
-   subsecuentes se creen explícitamente con el rol apropiado desde la
+   Administrador.** Asegúrate de que esa primera cuenta utilice una contraseña
+   robusta (≥ 12 caracteres, combinación de tipos) y de que las cuentas
+   siguientes se creen de manera explícita con el rol apropiado desde la
    consola de administración.
 
-4. **Rotar la `SECRET_KEY` del JWT** periódicamente (está en
+4. **Rotar la `SECRET_KEY` del JWT** de forma periódica (está en
    `app/core/config.py` → `settings.SECRET_KEY`). Al rotarla, todas las
-   sesiones actuales se invalidan, lo que forzará un nuevo login.
+   sesiones vigentes se invalidan, lo que forzará un nuevo inicio de sesión.
 
 5. **Considerar agregar 2FA** (TOTP) para cuentas con rol Administrador en
    una próxima iteración.
@@ -245,11 +245,11 @@ La validación confirmó:
 
 | Antes                                            | Después                                       |
 | ------------------------------------------------ | --------------------------------------------- |
-| Cualquier visitante → admin automáticamente     | Login obligatorio con credenciales registradas |
+| Cualquier visitante → admin de forma automática  | Login obligatorio con credenciales registradas |
 | `X-User-Id: 1` → admin (sin auth)                | 401 Unauthorized                               |
-| `admin/admin123` sembrado por defecto            | Solo si `SEED_DEMO_USERS=true` (explícito)   |
-| `passlib` roto con `bcrypt>=4.0`                 | `bcrypt` directo, compatible con hashes viejos |
-| Login con credenciales correctas → 500           | Login funciona correctamente                  |
+| `admin/admin123` sembrado por defecto            | Solo si `SEED_DEMO_USERS=true` (de forma explícita)   |
+| `passlib` roto con `bcrypt>=4.0`                 | `bcrypt` directo, compatible con hashes antiguos |
+| Login con credenciales correctas → 500           | Inicio de sesión funciona correctamente                  |
 | Solicitante podía entrar a `/usuarios` (admin)   | 307 → /kanban / 403 en API                    |
 
 **Severidad del fix:** cierra una vulnerabilidad **crítica** de control de acceso

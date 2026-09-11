@@ -8,7 +8,7 @@
 
 ## Resumen Ejecutivo
 
-Se realizó una validación exhaustiva, detallada y prolija de la aplicación **Bitácora GRM v2** (sistema híbrido ITSM + Kanban). Se identificaron **1 bug crítico de aplicación** y **3 issues menores de UI/UX** que fueron corregidos. Todos los demás componentes funcionan correctamente.
+Se realizó una validación exhaustiva y minuciosa de la aplicación **Bitácora GRM v2** (sistema híbrido ITSM + Kanban). Se identificaron **1 bug crítico de aplicación** y **3 issues menores de UI/UX** que fueron corregidos. Todos los demás componentes funcionan correctamente.
 
 **Resultado**: 100% de los endpoints públicos y autenticados retornan status codes esperados, RBAC funciona correctamente, ciclo de vida de tickets validado end-to-end, e import/export operacional en los 4 formatos.
 

@@ -1,7 +1,7 @@
 # Análisis Exhaustivo de Funcionalidades de Trello
 
 **Proyecto:** Bitácora GRM — Sistema Híbrido ITSM + Kanban
-**Versión:** 1.0 — Auditoría completa de features estilo Trello
+**Versión:** 1.0 — Auditoría completa de funcionalidades estilo Trello
 **Fecha:** 2026-09-09
 
 ---
@@ -171,16 +171,16 @@
 ## 4. Resumen de Brechas (Gap Analysis)
 
 ### 4.1 Brechas Críticas (alta prioridad)
-1. **Filtros en Kanban** — El botón "Filtros" no hace nada
-2. **Búsqueda global** — No hay forma de buscar tickets
-3. **Duplicar tarjeta** — Feature básica de Trello
-4. **Avatar/iniciales** — Sin esto el UI se ve incompleto
+1. **Filtros en Kanban** — El botón "Filtros" no realiza ninguna acción
+2. **Búsqueda global** — No existe forma de buscar tickets
+3. **Duplicar tarjeta** — Funcionalidad básica de Trello
+4. **Avatar/iniciales** — Sin esto la UI se ve incompleta
 5. **Dashboard con métricas** — Falta vista agregada
 6. **Export CSV** — Necesario para reportes
-7. **Modal de crear regla Butler** — El botón no lleva a nada
+7. **Modal de crear regla Butler** — El botón no lleva a ninguna parte
 
 ### 4.2 Brechas Importantes (media prioridad)
-8. **Vista previa de imágenes** — Los adjuntos no se ven
+8. **Vista previa de imágenes** — Los adjuntos no se visualizan
 9. **Eliminar adjuntos UI** — Endpoint existe pero UI no
 10. **Card cover** — Falta imagen de portada
 11. **Asignar múltiples miembros** — Solo uno por tarjeta
@@ -189,9 +189,9 @@
 
 ### 4.3 Mejoras (baja prioridad)
 14. Atajos de teclado
-15. Command palette
+15. Paleta de comandos
 16. Card aging visual
-17. Bulk actions
+17. Acciones en lote
 18. WebSocket para tiempo real
 19. SSO / OAuth
 
@@ -201,13 +201,13 @@
 
 ### Sprint 1 (esta entrega)
 - [x] Filtros en Kanban (etiqueta, asignado, prioridad, búsqueda)
-- [x] Búsqueda global con command palette (Ctrl+K)
+- [x] Búsqueda global con paleta de comandos (Ctrl+K)
 - [x] Duplicar tarjeta
 - [x] Vista previa de imágenes adjuntas
 - [x] Avatar con iniciales en comentarios y tarjetas
 - [x] Dashboard con métricas (vista resumen)
 - [x] Export CSV de tickets
-- [x] Modal crear regla Butler
+- [x] Modal de creación de regla Butler
 
 ### Sprint 2 (futuro)
 - Templates de tableros

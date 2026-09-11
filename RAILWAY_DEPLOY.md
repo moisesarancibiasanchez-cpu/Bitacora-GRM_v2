@@ -1,7 +1,7 @@
 # 🚂 Despliegue en Railway - Bitácora GRM
 
 > **Estado:** ✅ Todos los archivos de configuración listos, validados localmente con `gunicorn` y push a GitHub.
-> **Última commit:** `729422b fix(railway): WhiteNoise ASGI compatibility`
+> **Último commit:** `729422b fix(railway): WhiteNoise ASGI compatibility`
 
 ---
 
@@ -109,7 +109,7 @@ Si todo es `ok`, ir a `/kanban` para ver el tablero.
 
 ---
 
-## 🔍 Variables de entorno explicadas
+## 🔍 Variables de entorno detalladas
 
 | Variable | Default | Descripción |
 |---|---|---|
@@ -117,15 +117,15 @@ Si todo es `ok`, ir a `/kanban` para ver el tablero.
 | `APP_VERSION` | `0.1.0` | Versión |
 | `DEBUG` | `true` | `false` en producción (desactiva hot-reload, activa WhiteNoise si está) |
 | `USE_SQLITE` | `false` | `true` solo para demo sin BD externa |
-| `SECRET_KEY` | (placeholder) | **OBLIGATORIO** cambiar en prod. Generar con `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `SECRET_KEY` | (placeholder) | **OBLIGATORIO** cambiar en producción. Generar con `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `DATABASE_URL` | (Railway auto) | Inyectada por Railway al adjuntar PostgreSQL |
 | `REDIS_URL` | (Railway auto) | Inyectada por Railway al adjuntar Redis |
 | `CELERY_BROKER_URL` | `redis://.../1` | DB Redis para cola de tareas |
 | `CELERY_RESULT_BACKEND` | `redis://.../2` | DB Redis para resultados |
-| `AUTO_INIT_DB` | `false` | Si `true`, corre `init_db` al arranque (solo dev) |
+| `AUTO_INIT_DB` | `false` | Si `true`, ejecuta `init_db` al arranque (solo desarrollo) |
 | `PORT` | (Railway auto) | Inyectada por Railway |
 | `WEB_CONCURRENCY` | `2` | Workers de gunicorn |
-| `WEB_THREADS` | `4` | Threads por worker |
+| `WEB_THREADS` | `4` | Hilos por worker |
 | `CORS_ORIGINS` | `["*"]` | Lista JSON de orígenes permitidos |
 
 ---
@@ -167,20 +167,20 @@ $ USE_SQLITE=true DEBUG=false PORT=18765 python -m gunicorn -c gunicorn.conf.py 
 
 ### "No start command detected" (Railpack)
 - **Causa:** Falta `Procfile` o `railway.toml`.
-- **Solución:** Ambos están en el repo. Si persiste, en el servicio ir a Settings → Deploy → Start Command y poner `bash start.sh`.
+- **Solución:** Ambos están en el repo. Si persiste, en el servicio ir a Settings → Deploy → Start Command y dejar `bash start.sh`.
 
 ### "Application failed to start" / exit code 1
-- **Causa común:** Falta `DATABASE_URL` o `REDIS_URL`.
-- **Solución:** Verificar que los plugins PostgreSQL y Redis están en el mismo proyecto. Las variables se inyectan automáticamente.
+- **Causa habitual:** Falta `DATABASE_URL` o `REDIS_URL`.
+- **Solución:** Verificar que los plugins PostgreSQL y Redis están en el mismo proyecto. Las variables se inyectan de forma automática.
 
 ### Healthcheck falla (502/503)
 - **Causa:** La BD o Redis no responden.
 - **Solución:** Revisar logs del servicio (`railway logs --service web`). El endpoint `/health` distingue:
   - `database: error` → BD no accesible (revisar `DATABASE_URL`)
-  - `redis: unavailable` → Redis no es crítico, pero si quieres Celery necesitas el plugin Redis.
+  - `redis: unavailable` → Redis no es crítico, pero si necesitas Celery requieres el plugin Redis.
 
 ### WhiteNoise no aparece en logs
-- **Esperado:** WhiteNoise 6.x es WSGI-only. Se usa `StaticFiles` (nativo ASGI) en su lugar. Si más adelante quieres compresión brotli, instala `a2wsgi` y la integración se activará automáticamente.
+- **Esperado:** WhiteNoise 6.x es WSGI-only. Se usa `StaticFiles` (nativo ASGI) en su reemplazo. Si más adelante requieres compresión brotli, instala `a2wsgi` y la integración se activará de forma automática.
 
 ### /api/v1/* devuelve `401 No autenticado`
 - **Causa:** Las rutas API requieren header `X-User-Id: <id>` o `Authorization: Bearer <jwt>`.

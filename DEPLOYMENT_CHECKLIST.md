@@ -7,7 +7,7 @@
 - [x] **Cuenta GitHub** con acceso a `moisesarancibiasanchez-cpu/Bitacora-GRM_v2`
 - [x] **Cuenta Railway** (https://railway.app)
 - [x] **Token de GitHub** con scope `repo` (ya configurado)
-- [x] **Python 3.12.5** (especificado en `runtime.txt`)
+- [x] **Python 3.12.5** (indicado en `runtime.txt`)
 
 ## 📁 Archivos listos en el repo
 
@@ -93,12 +93,12 @@
 - [ ] Arrastrar una tarjeta entre columnas (SortableJS + HTMX)
 - [ ] Verificar logs de `worker` muestran tareas ejecutándose cada 5 min (SLA)
 
-### Paso 8: Hardening (post-despliegue)
+### Paso 8: Endurecimiento (post-despliegue)
 - [ ] Cambiar `SECRET_KEY`
 - [ ] Cambiar `CORS_ORIGINS` al dominio real
 - [ ] Cambiar contraseñas de los usuarios seed
 - [ ] Revisar logs de `worker` y `beat`
-- [ ] Configurar backups de PostgreSQL
+- [ ] Configurar copias de respaldo de PostgreSQL
 
 ---
 
@@ -125,7 +125,7 @@ $ USE_SQLITE=true DEBUG=false PORT=18765 python -m gunicorn -c gunicorn.conf.py 
 
 ---
 
-## 🐛 Troubleshooting rápido
+## 🐛 Solución de problemas rápida
 
 | Síntoma | Causa | Solución |
 |---|---|---|
