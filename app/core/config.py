@@ -56,6 +56,19 @@ class Settings(BaseSettings):
     # === CORS ===
     CORS_ORIGINS: List[str] = ["*"]
 
+    # === SMTP (envío de correos) ===
+    # Si SMTP_HOST y SMTP_FROM están definidos, los correos se envían
+    # vía SMTP real. Si no, se persisten en tmp/app.email.log (modo dev).
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_USE_TLS: bool = True
+
+    # === URL pública del sistema (para los correos) ===
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+
     def get_database_url(self) -> str:
         """Devuelve la URL de BD; si no se configuró, construye la de PostgreSQL."""
         if self.DATABASE_URL and self.DATABASE_URL != "sqlite:///./bitacora_grm.db":

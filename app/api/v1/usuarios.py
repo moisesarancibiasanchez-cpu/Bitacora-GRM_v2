@@ -13,17 +13,25 @@ Hay dos variantes de POST/PATCH:
   - /api/v1/usuarios/{id}/editar-form (form-data)  - para el formulario HTML / HTMX
 """
 import re
+import secrets
+import string
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import Optional, List
 
 from app.api.v1.deps import get_current_user
+from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.usuario import Usuario, RolUsuario
+from app.services.credenciales_service import (
+    CredencialesResult,
+    enviar_credenciales_iniciales,
+    generar_password_provisoria,
+)
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -237,6 +245,233 @@ def reactivar_usuario(usuario_id: int, db: Session = Depends(get_db),
     return UsuarioRead.from_orm_user(target)
 
 
+# ============== Endpoints de envío de credenciales ==============
+class EnviarCredencialesResponse(BaseModel):
+    """Respuesta del endpoint de envío de credenciales."""
+    ok: bool
+    sent: bool
+    transport: str  # "smtp" | "log" | "disabled"
+    to: str
+    subject: str
+    detail: Optional[str] = None
+    message: str
+    password_generada: Optional[str] = None  # solo en dev/demo
+
+
+@router.post(
+    "/{usuario_id}/enviar-credenciales",
+    response_model=EnviarCredencialesResponse,
+)
+def enviar_credenciales(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """
+    Envía (o re-envía) las credenciales iniciales a un usuario.
+
+    1. Genera una nueva contraseña provisoria.
+    2. La hashea y la persiste en la BD (resetea la anterior).
+    3. Envía el email con la contraseña al usuario.
+    4. Audita la acción.
+
+    Solo Administrador. La contraseña se devuelve en la respuesta SOLO
+    en modo desarrollo (cuando el envío real es a un archivo de log).
+    En producción (SMTP real) la contraseña NO se devuelve por seguridad.
+    """
+    _require_admin(usuario)
+    target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not target.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="El usuario está desactivado. Reactívelo antes de enviar credenciales.",
+        )
+    if not target.email:
+        raise HTTPException(
+            status_code=400,
+            detail="El usuario no tiene email registrado.",
+        )
+
+    result: CredencialesResult = enviar_credenciales_iniciales(
+        db,
+        target=target,
+        actor=usuario,
+    )
+
+    # En modo dev/log, devolvemos la contraseña generada para que el
+    # admin la pueda ver (en SMTP real NUNCA se devuelve).
+    pwd_visible = result.password_generada if result.transport == "log" else None
+
+    if result.transport == "disabled":
+        msg = "No se pudo enviar el correo: el usuario no tiene email."
+    elif result.transport == "log":
+        msg = (
+            "Correo registrado en el log de desarrollo "
+            "(tmp/app.email.log) porque no hay SMTP configurado. "
+            "La contraseña generada se muestra a continuación."
+        )
+    else:
+        msg = f"Credenciales enviadas correctamente a {result.to}."
+
+    return EnviarCredencialesResponse(
+        ok=True,
+        sent=result.sent,
+        transport=result.transport,
+        to=result.to,
+        subject=result.subject,
+        detail=result.detail,
+        message=msg,
+        password_generada=pwd_visible,
+    )
+
+
+class PreviewEmailResponse(BaseModel):
+    """Vista previa del email que se enviaría."""
+    to: str
+    subject: str
+    body_text: str
+    body_html: str
+    smtp_configured: bool
+    password_preview: str
+
+
+@router.get(
+    "/{usuario_id}/preview-email",
+    response_model=PreviewEmailResponse,
+)
+def preview_email_credenciales(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """
+    Devuelve una vista previa del email de credenciales que se enviaría
+    al usuario, con una contraseña simulada. NO envía nada.
+
+    Sirve para que el admin revise el contenido del correo antes de
+    confirmar el envío. Solo Administrador.
+    """
+    _require_admin(usuario)
+    target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not target.email:
+        raise HTTPException(
+            status_code=400,
+            detail="El usuario no tiene email registrado.",
+        )
+
+    # Contraseña simulada (NO se persiste)
+    pwd_preview = generar_password_provisoria()
+    rol_str = (
+        target.rol.value if hasattr(target.rol, "value") else str(target.rol)
+    )
+    from app.services.email_service import email_credenciales_iniciales
+    subject, body, html = email_credenciales_iniciales(
+        nombre_completo=target.nombre_completo or target.username,
+        email_destino=target.email,
+        username=target.username,
+        password=pwd_preview,
+        rol=rol_str,
+        departamento=target.departamento,
+        url_sistema=settings.PUBLIC_BASE_URL or "http://localhost:8000",
+    )
+
+    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
+
+    return PreviewEmailResponse(
+        to=target.email,
+        subject=subject,
+        body_text=body,
+        body_html=html,
+        smtp_configured=smtp_ok,
+        password_preview=pwd_preview,
+    )
+
+
+@router.get("/smtp-status")
+def smtp_status(usuario: Usuario = Depends(get_current_user)):
+    """
+    Devuelve el estado actual de la configuración SMTP.
+    Solo Administrador (datos operativos).
+    """
+    _require_admin(usuario)
+    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
+    return {
+        "smtp_configured": smtp_ok,
+        "host": settings.SMTP_HOST or None,
+        "port": settings.SMTP_PORT,
+        "user": settings.SMTP_USER or None,
+        "from": settings.SMTP_FROM or None,
+        "use_tls": settings.SMTP_USE_TLS,
+        "public_base_url": settings.PUBLIC_BASE_URL,
+        "mode": "smtp" if smtp_ok else "log",
+    }
+
+
+@router.get(
+    "/{usuario_id}/preview-email-html",
+    response_class=HTMLResponse,
+)
+def preview_email_credenciales_html(
+    usuario_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """
+    Devuelve el MODAL HTML de previsualización/envío de credenciales.
+    Es el que usa el botón "📧" de la tabla de usuarios.
+    """
+    _require_admin(usuario)
+    target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not target:
+        return _error_fragment("Usuario no encontrado.", 404)
+    if not target.is_active:
+        return _error_fragment(
+            "El usuario está desactivado. Reactívelo antes de enviar credenciales.",
+            400,
+        )
+    if not target.email:
+        return _error_fragment("El usuario no tiene email registrado.", 400)
+
+    # Contraseña simulada (NO se persiste)
+    pwd_preview = generar_password_provisoria()
+    rol_str = (
+        target.rol.value if hasattr(target.rol, "value") else str(target.rol)
+    )
+    from app.services.email_service import email_credenciales_iniciales
+    subject, body_text, body_html = email_credenciales_iniciales(
+        nombre_completo=target.nombre_completo or target.username,
+        email_destino=target.email,
+        username=target.username,
+        password=pwd_preview,
+        rol=rol_str,
+        departamento=target.departamento,
+        url_sistema=settings.PUBLIC_BASE_URL or "http://localhost:8000",
+    )
+    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
+
+    # Render template: reusar la instancia global de main.py para heredar
+    # los filtros Jinja2 personalizados (truncate_text, etc.).
+    # Import local para evitar import circular.
+    from app.main import templates as app_templates
+    return app_templates.TemplateResponse(
+        "usuarios/credenciales_modal.html",
+        {
+            "request": request,
+            "target": target,
+            "subject": subject,
+            "body_text": body_text,
+            "body_html": body_html,
+            "smtp_configured": smtp_ok,
+            "password_preview": pwd_preview,
+        },
+    )
+
+
 # ============== Endpoints FORM-DATA (para el modal HTMX) ==============
 # El frontend (templates/usuarios/form.html) envía application/x-www-form-urlencoded.
 # Devuelven un fragmento HTML de error en #form-msg o 200 OK (vacío) en éxito.
@@ -250,10 +485,17 @@ def crear_usuario_form(
     password: str = Form(...),
     rol: str = Form("solicitante"),
     departamento: str = Form(""),
+    enviar_credenciales: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
-    """Crea un usuario nuevo desde el formulario HTML. Solo Administrador."""
+    """Crea un usuario nuevo desde el formulario HTML. Solo Administrador.
+
+    Si ``enviar_credenciales`` viene marcado (true/on/1/yes), se envía
+    automáticamente un email con las credenciales al usuario recién
+    creado. La contraseña NO se regenera: se usa la misma que se acaba
+    de crear.
+    """
     if usuario.rol != RolUsuario.ADMINISTRADOR:
         return _error_fragment("Requiere rol Administrador.", 403)
 
@@ -262,6 +504,7 @@ def crear_usuario_form(
     nombre = (nombre_completo or "").strip()
     pwd = password or ""
     depto = (departamento or "").strip() or None
+    enviar = enviar_credenciales in ("true", "on", "1", "yes")
 
     # Validaciones (mismas reglas que el registro público)
     if not _USERNAME_RE.match(user):
@@ -298,6 +541,24 @@ def crear_usuario_form(
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
+
+    # Auto-envío de credenciales si se marcó el checkbox
+    if enviar and nuevo.email:
+        try:
+            enviar_credenciales_iniciales(
+                db,
+                target=nuevo,
+                actor=usuario,
+                password_plana=pwd,        # reusar la misma pwd creada
+                persistir_password=False,   # ya está persistida
+            )
+        except Exception as exc:  # pragma: no cover
+            # El usuario ya fue creado; no rompemos la operación.
+            import logging
+            logging.getLogger(__name__).warning(
+                "[credenciales] Auto-envío falló: %s", exc
+            )
+
     return _ok_empty(hx_trigger='{"usuario-created": {"id": ' + str(nuevo.id) + '}}')
 
 

@@ -93,6 +93,20 @@
           <span>Usuario activo</span>
         </label>
       </div>
+      {% else %}
+      <div class="bg-sky-50 border border-sky-200 rounded-md p-3 -my-1">
+        <label class="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+          <input type="checkbox" name="enviar_credenciales" value="true"
+                 class="mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+          <span>
+            <span class="font-semibold">Enviar credenciales por email</span><br>
+            <span class="text-[11px] text-slate-500">
+              Al crear el usuario, se le enviará automáticamente un correo
+              con su URL de acceso, usuario y contraseña provisoria.
+            </span>
+          </span>
+        </label>
+      </div>
       {% endif %}
 
       <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">

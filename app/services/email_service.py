@@ -197,3 +197,318 @@ def email_ticket_en_columna(
         f'<p style="color:#64748b;font-size:12px">- Bitacora GRM</p>'
     )
     return subject, body, html
+
+
+# === Descripciones de alcance por rol (para el email de credenciales) ======
+# Estas descripciones son las que se muestran en el correo de bienvenida
+# bajo la sección "Alcance de tu perfil:". Se basan en los roles
+# definidos en app/models/usuario.py.
+
+_ROL_ALCANCE = {
+    "administrador": (
+        "Como Administrador, cuentas con acceso total al sistema: gestión "
+        "de usuarios, catálogos, configuración de estados y columnas, "
+        "visualización de auditoría y reportería gerencial."
+    ),
+    "agente_senior": (
+        "Como Agente Senior, dispones de privilegios operativos para "
+        "gestionar el ciclo de vida completo de las incidencias, "
+        "administrar asignaciones, actualizar estados, documentar "
+        "resoluciones y monitorear el cumplimiento de SLAs."
+    ),
+    "agente": (
+        "Como Agente, puedes atender tickets asignados: actualizar "
+        "estados, registrar comentarios, adjuntar antecedentes de "
+        "resolución y dar seguimiento al avance de tus incidencias."
+    ),
+    "solicitante": (
+        "Como Solicitante, podrás ingresar nuevos tickets o "
+        "requerimientos de incidencias, adjuntar antecedentes y dar "
+        "seguimiento directo al estado y tiempos de atención de tus "
+        "solicitudes."
+    ),
+    "observador": (
+        "Como Observador, contarás con acceso de solo lectura al "
+        "tablero e historial de incidencias para seguimiento, análisis "
+        "de avance y reportería interna, sin permisos de edición "
+        "operativa sobre los tickets."
+    ),
+}
+
+
+def _alcance_por_rol(rol: str) -> str:
+    """Devuelve la descripción del alcance del perfil según el rol."""
+    return _ROL_ALCANCE.get(
+        (rol or "").lower(),
+        "Tu perfil fue habilitado en el sistema. Contacta al equipo de "
+        "soporte si necesitas más detalles sobre los permisos "
+        "asignados.",
+    )
+
+
+def _nombre_corto(nombre_completo: str) -> str:
+    """Devuelve el primer nombre + segundo nombre (si existe) para
+    personalizar el saludo. Si no hay segundo nombre, devuelve solo el
+    primero. Si no hay nombre, devuelve 'usuario'."""
+    if not nombre_completo:
+        return "usuario"
+    partes = [p for p in nombre_completo.strip().split() if p]
+    if not partes:
+        return "usuario"
+    if len(partes) == 1:
+        return partes[0]
+    # Primer nombre + segundo nombre (opcional) si existe
+    return f"{partes[0]} {partes[1]}" if len(partes) >= 2 else partes[0]
+
+
+def email_credenciales_iniciales(
+    *,
+    nombre_completo: str,
+    email_destino: str,
+    username: str,
+    password: str,
+    rol: str,
+    departamento: Optional[str] = None,
+    url_sistema: str = "",
+    remitente_nombre: str = "Equipo de Soporte y Operaciones GRM v2",
+) -> tuple:
+    """
+    Devuelve (asunto, body_texto, body_html) para el correo de
+    credenciales iniciales de un usuario recién creado o reactivado.
+
+    Parameters
+    ----------
+    nombre_completo : str
+        Nombre completo del destinatario.
+    email_destino : str
+        Email del destinatario (se incluye en el header del email).
+    username : str
+        Nombre de usuario para iniciar sesión.
+    password : str
+        Contraseña provisoria (en texto plano para incluir en el email).
+    rol : str
+        Rol del usuario (administrador, agente_senior, agente,
+        solicitante, observador).
+    departamento : str, opcional
+        Departamento al que pertenece el usuario.
+    url_sistema : str, opcional
+        URL pública del sistema. Si está vacía se usa un placeholder.
+    remitente_nombre : str, opcional
+        Nombre del equipo que firma el correo.
+
+    Returns
+    -------
+    tuple[str, str, str]
+        (asunto, cuerpo_texto, cuerpo_html)
+    """
+    nombre_corto = _nombre_corto(nombre_completo)
+    rol_legible = (rol or "").upper() or "USUARIO"
+    depto = departamento or "No especificado"
+    url = url_sistema or "[URL_DEL_SISTEMA]"
+
+    subject = (
+        f"Acceso a Sistema de Monitoreo de Incidencias GRM v2 - "
+        f"Credenciales iniciales"
+    )
+
+    # ============== Cuerpo en texto plano ==============
+    body = (
+        f"Estimado/a {nombre_corto},\n\n"
+        f"Junto con saludar, te informamos que se ha habilitado tu "
+        f"acceso a la plataforma Sistema de Monitoreo de Incidencias "
+        f"GRM v2.\n\n"
+        f"A continuación, detallamos tus credenciales y datos de acceso:\n\n"
+        f"  - URL de acceso: {url}\n"
+        f"  - Usuario: @{username}\n"
+        f"  - Contraseña provisoria: {password}\n"
+        f"  - Departamento: {depto}\n"
+        f"  - Perfil / Rol asignado: {rol_legible}\n\n"
+        f"Alcance de tu perfil:\n\n"
+        f"{_alcance_por_rol(rol)}\n\n"
+        f"Seguridad y primeros pasos:\n\n"
+        f"Al ingresar por primera vez, el sistema te solicitará "
+        f"actualizar tu contraseña temporal por una de tu conocimiento "
+        f"exclusivo.\n\n"
+        f"Por políticas de seguridad, no compartas estas credenciales "
+        f"con terceros.\n\n"
+        f"Ante cualquier duda o problema con el ingreso, favor "
+        f"responder directamente a este correo o canalizarlo a través "
+        f"del equipo de soporte.\n\n"
+        f"Saludos cordiales,\n\n"
+        f"{remitente_nombre}\n"
+    )
+
+    # ============== Cuerpo en HTML ==============
+    # Generamos una tabla HTML para que se vea bien en clientes de correo.
+    # El escape de los valores se hace manualmente para evitar inyección.
+    def _esc(s: str) -> str:
+        return (
+            (s or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;")
+        )
+
+    rol_color = {
+        "administrador": "#dc2626",   # red
+        "agente_senior": "#7c3aed",   # purple
+        "agente": "#2563eb",          # blue
+        "solicitante": "#059669",     # green
+        "observador": "#64748b",      # gray
+    }.get((rol or "").lower(), "#0f172a")
+    alcance = _esc(_alcance_por_rol(rol))
+
+    html = f"""<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Credenciales GRM v2</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f5f9;padding:24px 0">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+        <!-- Header con marca -->
+        <tr>
+          <td style="background:#0f172a;color:#ffffff;padding:24px;text-align:center">
+            <div style="font-size:22px;font-weight:700;letter-spacing:0.3px">
+              Bitácora GRM v2
+            </div>
+            <div style="font-size:13px;opacity:0.8;margin-top:4px">
+              Sistema de Monitoreo de Incidencias
+            </div>
+          </td>
+        </tr>
+        <!-- Saludo -->
+        <tr>
+          <td style="padding:24px 28px 8px 28px">
+            <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55">
+              Estimado/a <b>{_esc(nombre_corto)}</b>,
+            </p>
+            <p style="margin:0 0 16px 0;font-size:14px;line-height:1.6;color:#334155">
+              Junto con saludar, te informamos que se ha habilitado tu
+              acceso a la plataforma <b>Sistema de Monitoreo de Incidencias
+              GRM v2</b>.
+            </p>
+            <p style="margin:0 0 6px 0;font-size:14px;color:#334155">
+              A continuación, detallamos tus credenciales y datos de acceso:
+            </p>
+          </td>
+        </tr>
+        <!-- Tabla de credenciales -->
+        <tr>
+          <td style="padding:8px 28px 8px 28px">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+              <tr>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;width:38%">
+                  URL de acceso
+                </td>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px">
+                  <a href="{_esc(url)}" style="color:#2563eb;text-decoration:none">{_esc(url)}</a>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569">
+                  Usuario
+                </td>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px;font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace">
+                  @{_esc(username)}
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569">
+                  Contraseña provisoria
+                </td>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px;font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace;color:#b45309">
+                  {_esc(password)}
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569">
+                  Departamento
+                </td>
+                <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:13px">
+                  {_esc(depto)}
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px 14px;font-size:13px;color:#475569">
+                  Perfil / Rol
+                </td>
+                <td style="padding:10px 14px;font-size:13px">
+                  <span style="display:inline-block;background:{rol_color};color:#ffffff;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:0.3px">
+                    {_esc(rol_legible)}
+                  </span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Alcance del perfil -->
+        <tr>
+          <td style="padding:16px 28px 8px 28px">
+            <p style="margin:0 0 6px 0;font-size:14px;font-weight:600;color:#0f172a">
+              Alcance de tu perfil
+            </p>
+            <p style="margin:0;font-size:13.5px;line-height:1.6;color:#334155">
+              {alcance}
+            </p>
+          </td>
+        </tr>
+        <!-- Seguridad y primeros pasos -->
+        <tr>
+          <td style="padding:16px 28px 8px 28px">
+            <p style="margin:0 0 6px 0;font-size:14px;font-weight:600;color:#0f172a">
+              Seguridad y primeros pasos
+            </p>
+            <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.6;color:#334155">
+              <li>Al ingresar por primera vez, el sistema te solicitará
+                actualizar tu contraseña temporal por una de tu
+                conocimiento exclusivo.</li>
+              <li>Por políticas de seguridad, no compartas estas
+                credenciales con terceros.</li>
+              <li>Ante cualquier duda o problema con el ingreso, favor
+                responder directamente a este correo o canalizarlo a
+                través del equipo de soporte.</li>
+            </ul>
+          </td>
+        </tr>
+        <!-- Botón CTA -->
+        <tr>
+          <td style="padding:20px 28px 8px 28px;text-align:center">
+            <a href="{_esc(url)}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none">
+              Ingresar a GRM v2
+            </a>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="padding:24px 28px;border-top:1px solid #e2e8f0;background:#f8fafc;text-align:center">
+            <p style="margin:0 0 4px 0;font-size:13px;color:#475569">
+              Saludos cordiales,
+            </p>
+            <p style="margin:0;font-size:13px;font-weight:600;color:#0f172a">
+              {_esc(remitente_nombre)}
+            </p>
+            <p style="margin:12px 0 0 0;font-size:11px;color:#94a3b8">
+              Este es un correo automático. Por favor, no responder a
+              esta dirección.
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="font-size:11px;color:#94a3b8;margin-top:12px">
+        Bitácora GRM v2 · Sistema de Monitoreo de Incidencias
+      </p>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
+"""
+
+    return subject, body, html

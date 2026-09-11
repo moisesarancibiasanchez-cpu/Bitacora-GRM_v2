@@ -1,0 +1,194 @@
+{# Partial: modal de previsualización y envío de credenciales
+   Variables esperadas:
+     - target: Usuario destinatario
+     - subject, body_text, body_html: contenido del email
+     - smtp_configured: bool
+     - password_preview: contraseña simulada (no persistida)
+#}
+<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="credenciales">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+      <div>
+        <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+          Enviar credenciales por email
+        </h3>
+        <p class="text-[11px] text-slate-500 mt-0.5">
+          Para: <b>{{ target.nombre_completo }}</b>
+          (<span class="font-mono">{{ target.email }}</span>)
+        </p>
+      </div>
+      <button data-close-modal class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+    </div>
+
+    <!-- Banner de modo de envío -->
+    {% if smtp_configured %}
+    <div class="mx-5 mt-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-md text-[11px] text-emerald-800 flex items-start gap-2">
+      <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span>
+        <b>SMTP configurado.</b> El correo se enviará en producción a la dirección
+        del usuario. La contraseña <b>no se mostrará</b> en pantalla por seguridad.
+      </span>
+    </div>
+    {% else %}
+    <div class="mx-5 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-800 flex items-start gap-2">
+      <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <span>
+        <b>SMTP NO configurado (modo desarrollo).</b> El correo se persistirá
+        en <code class="bg-amber-100 px-1 rounded">tmp/app.email.log</code> para
+        inspección. La contraseña generada se mostrará en pantalla después del
+        envío.
+      </span>
+    </div>
+    {% endif %}
+
+    <!-- Tabs: Texto / HTML -->
+    <div class="px-5 mt-3 border-b border-slate-200">
+      <div class="flex items-center gap-1">
+        <button type="button" data-tab="texto"
+                class="tab-btn px-3 py-1.5 text-xs font-medium border-b-2 border-sky-500 text-sky-700">
+          Texto plano
+        </button>
+        <button type="button" data-tab="html"
+                class="tab-btn px-3 py-1.5 text-xs font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700">
+          HTML (preview)
+        </button>
+      </div>
+    </div>
+
+    <!-- Contenido del email -->
+    <div class="flex-1 overflow-y-auto p-5">
+      <div class="mb-3 text-[11px] text-slate-500">
+        <b>Asunto:</b> <span class="text-slate-800">{{ subject }}</span>
+      </div>
+
+      <!-- Texto plano -->
+      <div data-tab-content="texto" class="tab-content">
+        <pre class="bg-slate-50 border border-slate-200 rounded-md p-3 text-[11px] font-mono text-slate-800 whitespace-pre-wrap">{{ body_text }}</pre>
+      </div>
+
+      <!-- HTML (iframe para aislar estilos) -->
+      <div data-tab-content="html" class="tab-content hidden">
+        <iframe srcdoc='{{ body_html|e }}'
+                class="w-full h-[420px] border border-slate-200 rounded-md bg-white"
+                sandbox="allow-same-origin"
+                title="Vista previa del email"></iframe>
+      </div>
+    </div>
+
+    <!-- Resultado del envío (oculto hasta hacer click) -->
+    <div id="credenciales-resultado" class="px-5 hidden"></div>
+
+    <!-- Footer / acciones -->
+    <div class="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+      <div class="text-[11px] text-slate-500">
+        Al enviar, se generará una <b>nueva contraseña provisoria</b> que
+        reemplazará la actual del usuario.
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button" data-close-modal
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+          Cancelar
+        </button>
+        <button type="button"
+                id="btn-enviar-credenciales"
+                data-user-id="{{ target.id }}"
+                class="px-3 py-1.5 text-xs font-medium rounded-md bg-sky-600 hover:bg-sky-700 text-white flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+          </svg>
+          Enviar credenciales
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // Tabs
+  document.querySelectorAll('[data-modal="credenciales"] .tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tab = this.getAttribute('data-tab');
+      document.querySelectorAll('[data-modal="credenciales"] .tab-btn').forEach(function(b) {
+        b.classList.remove('border-sky-500', 'text-sky-700');
+        b.classList.add('border-transparent', 'text-slate-500');
+      });
+      this.classList.remove('border-transparent', 'text-slate-500');
+      this.classList.add('border-sky-500', 'text-sky-700');
+      document.querySelectorAll('[data-modal="credenciales"] .tab-content').forEach(function(c) {
+        c.classList.add('hidden');
+      });
+      var content = document.querySelector('[data-modal="credenciales"] [data-tab-content="' + tab + '"]');
+      if (content) content.classList.remove('hidden');
+    });
+  });
+
+  // Botón enviar
+  var btn = document.getElementById('btn-enviar-credenciales');
+  if (btn) {
+    btn.addEventListener('click', function() {
+      var userId = this.getAttribute('data-user-id');
+      var resultado = document.getElementById('credenciales-resultado');
+      this.disabled = true;
+      var originalHTML = this.innerHTML;
+      this.innerHTML = '<svg class="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="4" class="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" class="opacity-75"></path></svg> Enviando...';
+
+      fetch('/api/v1/usuarios/' + userId + '/enviar-credenciales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+      })
+      .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, status: r.status, body: j }; }); })
+      .then(function(out) {
+        var body = out.body || {};
+        if (out.ok && body.ok) {
+          var transportIcon = body.transport === 'smtp'
+            ? '<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+            : '<svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
+          var pwdBlock = body.password_generada
+            ? '<div class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900"><b>Contraseña generada (solo dev):</b> <code class="font-mono">' + body.password_generada + '</code></div>'
+            : '';
+          resultado.innerHTML =
+            '<div class="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-md text-[12px] text-emerald-800 flex items-start gap-2">' +
+              transportIcon +
+              '<div class="flex-1">' +
+                '<b>' + (body.message || 'Enviado') + '</b><br>' +
+                '<span class="text-[11px]">Para: ' + (body.to || '') + ' | Transport: ' + (body.transport || '') + '</span>' +
+                pwdBlock +
+              '</div>' +
+            '</div>';
+          resultado.classList.remove('hidden');
+          try { window.showToast && window.showToast('Credenciales enviadas', 'success'); } catch(e) {}
+        } else {
+          resultado.innerHTML =
+            '<div class="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-[12px] text-red-800">' +
+              '<b>Error:</b> ' + (body.detail || body.message || 'Error desconocido') +
+            '</div>';
+          resultado.classList.remove('hidden');
+          try { window.showToast && window.showToast('Error al enviar', 'error'); } catch(e) {}
+        }
+      })
+      .catch(function(err) {
+        resultado.innerHTML =
+          '<div class="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-[12px] text-red-800">' +
+            '<b>Error de red:</b> ' + (err && err.message ? err.message : 'desconocido') +
+          '</div>';
+        resultado.classList.remove('hidden');
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      });
+    });
+  }
+})();
+</script>
