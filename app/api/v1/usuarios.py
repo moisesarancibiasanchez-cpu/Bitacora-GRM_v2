@@ -12,6 +12,7 @@ Hay dos variantes de POST/PATCH:
   - /api/v1/usuarios/crear-form  (form-data)       - para el formulario HTML / HTMX
   - /api/v1/usuarios/{id}/editar-form (form-data)  - para el formulario HTML / HTMX
 """
+import json as _json
 import re
 import secrets
 import string
@@ -29,6 +30,7 @@ from app.api.v1.deps import get_current_user
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import get_db
+from app.models.auditoria import Auditoria
 from app.models.usuario import Usuario, RolUsuario
 from app.services.credenciales_service import (
     CredencialesResult,
@@ -690,3 +692,183 @@ def reactivar_usuario_form(
     target.is_active = True
     db.commit()
     return _ok_empty()
+
+
+# ============== Reset de contraseña por Administrador ==============
+@router.get("/{usuario_id}/reset-password-modal", response_class=HTMLResponse)
+def reset_password_modal(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Devuelve el fragmento HTML del modal de reset de contraseña (admin).
+
+    Se carga por HTMX desde el botón "Cambiar contraseña" en la tabla de
+    usuarios. El administrador NO necesita conocer la contraseña actual
+    del objetivo: define una nueva y la confirma.
+    """
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        return HTMLResponse(
+            content=(
+                '<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">'
+                '<div class="bg-white rounded-xl p-6 max-w-md shadow-2xl">'
+                '<p class="text-sm text-red-700">Requiere rol Administrador.</p>'
+                '</div></div>'
+            ),
+            status_code=403,
+        )
+
+    target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not target:
+        return HTMLResponse(
+            content=(
+                '<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">'
+                '<div class="bg-white rounded-xl p-6 max-w-md shadow-2xl">'
+                '<p class="text-sm text-red-700">Usuario no encontrado.</p>'
+                '</div></div>'
+            ),
+            status_code=404,
+        )
+
+    import os
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidates = [
+        os.path.join(base_dir, "templates", "usuarios", "admin_reset_password_modal.html"),
+        os.path.join(base_dir, "app", "templates", "usuarios", "admin_reset_password_modal.html"),
+    ]
+    template_path = next((p for p in candidates if os.path.exists(p)), None)
+    if not template_path:
+        return HTMLResponse(
+            content=(
+                '<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">'
+                '<div class="bg-white rounded-xl p-6 max-w-md shadow-2xl">'
+                '<p class="text-sm text-red-700">No se encontró la plantilla del modal.</p>'
+                '</div></div>'
+            ),
+            status_code=500,
+        )
+    with open(template_path, "r", encoding="utf-8") as fh:
+        html = fh.read()
+
+    # Renderizado mínimo: solo {{ usuario.id }}, {{ usuario.username }} y
+    # {{ usuario.nombre_completo }} se usan en el partial. Jinja2 no es
+    # estrictamente necesario aquí; hacemos un replace controlado.
+    safe_username = (
+        target.username
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    safe_nombre = (
+        target.nombre_completo
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    html = (
+        html
+        .replace("{{ usuario.id }}", str(target.id))
+        .replace("{{ usuario.username }}", safe_username)
+        .replace("{{ usuario.nombre_completo }}", safe_nombre)
+    )
+    return HTMLResponse(content=html, status_code=200)
+
+
+@router.post("/{usuario_id}/reset-password-form", response_class=HTMLResponse)
+def reset_password_form(
+    usuario_id: int,
+    request: Request,
+    password_nuevo: str = Form(...),
+    password_nuevo_confirm: str = Form(...),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Cambia la contraseña de otro usuario (solo Administrador).
+
+    No requiere la contraseña actual. Emite los eventos HTMX:
+      - `cambio-password-admin-ok`     en éxito
+      - `cambio-password-admin-error`  en fallo
+
+    Además pinta un fragmento HTML de error en el target del formulario
+    (`#admin-reset-pwd-msg`) para feedback inmediato.
+    """
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        return _error_fragment("Requiere rol Administrador.", 403)
+
+    target = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not target:
+        return _error_fragment("Usuario no encontrado.", 404)
+
+    pwd = (password_nuevo or "").strip()
+    confirm = (password_nuevo_confirm or "").strip()
+
+    if len(pwd) < 6 or len(pwd) > 128:
+        return _error_fragment("La nueva contraseña debe tener entre 6 y 128 caracteres.")
+    if pwd != confirm:
+        return _error_fragment("La nueva contraseña y su confirmación no coinciden.")
+
+    # No permitir que el admin use la misma clave que ya tiene el objetivo
+    # (evita "no-op" silencioso).
+    try:
+        from app.core.security import verify_password
+        if verify_password(pwd, target.hashed_password):
+            return _error_fragment("La nueva contraseña debe ser diferente a la actual.")
+    except Exception:
+        pass
+
+    target.hashed_password = hash_password(pwd)
+
+    # Auditoría: registrar el reset (origen = admin). Errores se ignoran
+    # para no bloquear el cambio, igual que en el flujo de auto-servicio.
+    try:
+        ip = None
+        try:
+            fwd = request.headers.get("x-forwarded-for")
+            if fwd:
+                ip = fwd.split(",")[0].strip()[:64] or None
+            elif request.client and request.client.host:
+                ip = request.client.host[:64]
+        except Exception:
+            ip = None
+
+        db.add(
+            Auditoria(
+                ticket_id=None,
+                usuario_id=target.id,
+                accion="CAMBIO_PASSWORD",
+                valor_anterior=None,
+                valor_nuevo={
+                    "origen": "admin",
+                    "admin_id": usuario.id,
+                    "admin_username": usuario.username,
+                },
+                comentario=(
+                    f"Contraseña reseteada por el administrador "
+                    f"@{usuario.username} (id={usuario.id})."
+                ),
+                ip_origen=ip,
+            )
+        )
+    except Exception:
+        # Si la tabla de auditoría no está disponible, no bloqueamos.
+        pass
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return _error_fragment(
+            "No se pudo actualizar la contraseña. Intenta de nuevo."
+        )
+
+    payload = _json.dumps(
+        {
+            "message": f"Contraseña de @{target.username} actualizada correctamente.",
+            "usuario_id": target.id,
+        }
+    )
+    resp = Response(content="", status_code=200)
+    resp.headers["HX-Trigger"] = "cambio-password-admin-ok"
+    resp.headers["HX-Trigger-Evento"] = "cambio-password-admin-ok"
+    resp.headers["HX-Trigger-Detalle"] = payload
+    return resp
