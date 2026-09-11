@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 520" role="img" aria-label="Detalle de ticket">
+  <rect width="720" height="520" fill="#0f172a" opacity="0.55"/>
+  <rect x="60" y="30" width="600" height="460" rx="10" fill="#fff" stroke="#e2e8f0"/>
+  <!-- Header -->
+  <rect x="60" y="30" width="600" height="48" rx="10" fill="#1e293b"/>
+  <text x="80" y="60" font-family="system-ui" font-size="14" font-weight="700" fill="#fff">INC-0042 · No puedo acceder al SAP</text>
+  <text x="630" y="60" font-family="system-ui" font-size="18" text-anchor="end" fill="#fff" font-weight="700">×</text>
+  <!-- Tabs -->
+  <g font-family="system-ui" font-size="12" fill="#475569">
+    <rect x="60" y="78" width="600" height="36" fill="#f8fafc"/>
+    <text x="84" y="100" font-weight="700" fill="#4f46e5">Descripción</text>
+    <line x1="80" y1="113" x2="180" y2="113" stroke="#4f46e5" stroke-width="2"/>
+    <text x="200" y="100">Comentarios</text>
+    <text x="300" y="100">Checklist</text>
+    <text x="370" y="100">Adjuntos</text>
+    <text x="440" y="100">Etiquetas</text>
+    <text x="510" y="100">Historial</text>
+  </g>
+  <!-- Body -->
+  <g transform="translate(80,130)">
+    <text font-family="system-ui" font-size="10" fill="#64748b">Asignado a:</text>
+    <text x="70" font-family="system-ui" font-size="11" fill="#1e293b" font-weight="600">María López</text>
+    <text y="20" font-family="system-ui" font-size="10" fill="#64748b">Prioridad:</text>
+    <rect x="68" y="10" width="46" height="14" rx="3" fill="#dc2626"/>
+    <text x="91" y="21" font-family="system-ui" font-size="10" text-anchor="middle" font-weight="700" fill="#fff">Alta</text>
+    <text y="20" x="125" font-family="system-ui" font-size="10" fill="#64748b">Creado:</text>
+    <text x="170" y="20" font-family="system-ui" font-size="10" fill="#1e293b">12/09/2026 09:42</text>
+
+    <!-- Description -->
+    <text y="60" font-family="system-ui" font-size="12" font-weight="700" fill="#1e293b">Descripción</text>
+    <rect y="68" width="560" height="84" rx="5" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="10" y="86" font-family="ui-monospace,monospace" font-size="10" fill="#475569">**Pasos para reproducir:**</text>
+    <text x="10" y="104" font-family="ui-monospace,monospace" font-size="10" fill="#475569">1. Abrir navegador Chrome</text>
+    <text x="10" y="120" font-family="ui-monospace,monospace" font-size="10" fill="#475569">2. Ingresar a https://sap.empresa.com</text>
+    <text x="10" y="136" font-family="ui-monospace,monospace" font-size="10" fill="#dc2626">3. Error: "503 Service Unavailable"</text>
+    <text x="10" y="146" font-family="ui-monospace,monospace" font-size="10" fill="#dc2626">Afecta al equipo de ventas completo.</text>
+
+    <!-- Comments -->
+    <text y="174" font-family="system-ui" font-size="12" font-weight="700" fill="#1e293b">Comentarios</text>
+    <g transform="translate(0,184)">
+      <circle cx="14" cy="14" r="14" fill="#6366f1"/>
+      <text x="14" y="18" font-family="system-ui" font-size="10" text-anchor="middle" fill="#fff" font-weight="700">ML</text>
+      <text x="36" y="14" font-family="system-ui" font-size="11" font-weight="600" fill="#1e293b">María López</text>
+      <text x="36" y="28" font-family="system-ui" font-size="9" fill="#64748b">hace 12 min</text>
+      <text x="36" y="48" font-family="system-ui" font-size="11" fill="#1e293b">Estoy revisando los logs del proxy SAP.</text>
+    </g>
+    <!-- Input -->
+    <rect y="252" width="560" height="40" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="14" y="276" font-family="system-ui" font-size="11" fill="#94a3b8">Escribir un comentario… (admite Markdown)</text>
+    <rect x="490" y="258" width="58" height="28" rx="5" fill="#4f46e5"/>
+    <text x="519" y="277" font-family="system-ui" font-size="11" text-anchor="middle" fill="#fff" font-weight="600">Enviar</text>
+  </g>
+</svg>

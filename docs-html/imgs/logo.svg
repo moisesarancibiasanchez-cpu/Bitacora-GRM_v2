@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Bitácora GRM logo">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="36" fill="url(#bg)"/>
+  <!-- Shield -->
+  <path d="M100 32 L160 56 V104 C160 138 132 162 100 172 C68 162 40 138 40 104 V56 Z" fill="url(#accent)" opacity="0.95"/>
+  <!-- Inner grid (Kanban columns) -->
+  <g transform="translate(60,72)">
+    <rect x="0" y="0" width="20" height="60" rx="3" fill="#fff" opacity="0.92"/>
+    <rect x="30" y="0" width="20" height="60" rx="3" fill="#fff" opacity="0.78"/>
+    <rect x="60" y="0" width="20" height="60" rx="3" fill="#fff" opacity="0.65"/>
+    <line x1="0" y1="20" x2="80" y2="20" stroke="#6366f1" stroke-width="1.5" opacity="0.55"/>
+    <line x1="0" y1="40" x2="80" y2="40" stroke="#6366f1" stroke-width="1.5" opacity="0.55"/>
+  </g>
+  <!-- Check mark (ITSM rigor) -->
+  <path d="M130 132 L146 148 L170 122" stroke="#fbbf24" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

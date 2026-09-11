@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" role="img" aria-label="Tabla de administración de usuarios">
+  <rect width="720" height="460" rx="8" fill="#f1f5f9"/>
+  <!-- Browser -->
+  <rect x="20" y="20" width="680" height="420" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <rect x="20" y="20" width="680" height="36" rx="10" fill="#f1f5f9"/>
+  <text x="40" y="42" font-family="ui-monospace,monospace" font-size="11" fill="#475569">/usuarios</text>
+
+  <!-- Header -->
+  <text x="40" y="80" font-family="system-ui" font-size="16" font-weight="700" fill="#1e293b">Usuarios</text>
+  <rect x="540" y="60" width="140" height="30" rx="6" fill="#16a34a"/>
+  <text x="610" y="80" font-family="system-ui" font-size="12" font-weight="600" text-anchor="middle" fill="#fff">+ Nuevo Usuario</text>
+
+  <!-- Table header -->
+  <rect x="40" y="110" width="640" height="32" rx="6" fill="#e2e8f0"/>
+  <g font-family="system-ui" font-size="10" font-weight="700" fill="#475569">
+    <text x="56" y="131">USUARIO</text>
+    <text x="190" y="131">NOMBRE</text>
+    <text x="320" y="131">ROL</text>
+    <text x="450" y="131">ESTADO</text>
+    <text x="560" y="131">ACCIONES</text>
+  </g>
+
+  <!-- Row 1 -->
+  <rect x="40" y="148" width="640" height="40" rx="6" fill="#fff"/>
+  <text x="56" y="173" font-family="system-ui" font-size="11" fill="#1e293b">jperez</text>
+  <text x="190" y="173" font-family="system-ui" font-size="11" fill="#1e293b">Juan Pérez</text>
+  <rect x="320" y="160" width="76" height="18" rx="3" fill="#fef3c7"/>
+  <text x="358" y="173" font-family="system-ui" font-size="10" font-weight="700" text-anchor="middle" fill="#92400e">Agente</text>
+  <circle cx="458" cy="169" r="5" fill="#22c55e"/>
+  <text x="468" y="173" font-family="system-ui" font-size="10" fill="#1e293b">Activo</text>
+  <g transform="translate(560,158)">
+    <rect width="22" height="20" rx="4" fill="#dbeafe"/>
+    <text x="11" y="14" font-family="system-ui" font-size="11" text-anchor="middle" fill="#1e40af">✉</text>
+    <rect x="28" width="22" height="20" rx="4" fill="#e0e7ff"/>
+    <text x="39" y="14" font-family="system-ui" font-size="11" text-anchor="middle" fill="#4338ca">✎</text>
+    <rect x="56" width="22" height="20" rx="4" fill="#fef3c7"/>
+    <text x="67" y="14" font-family="system-ui" font-size="11" text-anchor="middle" fill="#b45309">🔑</text>
+  </g>
+
+  <!-- Row 2 -->
+  <rect x="40" y="194" width="640" height="40" rx="6" fill="#f8fafc"/>
+  <text x="56" y="219" font-family="system-ui" font-size="11" fill="#1e293b">mlopez</text>
+  <text x="190" y="219" font-family="system-ui" font-size="11" fill="#1e293b">María López</text>
+  <rect x="320" y="206" width="92" height="18" rx="3" fill="#dbeafe"/>
+  <text x="366" y="219" font-family="system-ui" font-size="10" font-weight="700" text-anchor="middle" fill="#1e40af">Ag. Senior</text>
+  <circle cx="458" cy="215" r="5" fill="#22c55e"/>
+  <text x="468" y="219" font-family="system-ui" font-size="10" fill="#1e293b">Activo</text>
+  <g transform="translate(560,204)">
+    <rect width="22" height="20" rx="4" fill="#dbeafe"/>
+    <rect x="28" width="22" height="20" rx="4" fill="#e0e7ff"/>
+    <rect x="56" width="22" height="20" rx="4" fill="#fef3c7"/>
+  </g>
+
+  <!-- Row 3 -->
+  <rect x="40" y="240" width="640" height="40" rx="6" fill="#fff"/>
+  <text x="56" y="265" font-family="system-ui" font-size="11" fill="#1e293b">admin</text>
+  <text x="190" y="265" font-family="system-ui" font-size="11" fill="#1e293b">Ana Admin</text>
+  <rect x="320" y="252" width="92" height="18" rx="3" fill="#e0e7ff"/>
+  <text x="366" y="265" font-family="system-ui" font-size="10" font-weight="700" text-anchor="middle" fill="#3730a3">Admin</text>
+  <circle cx="458" cy="261" r="5" fill="#22c55e"/>
+  <text x="468" y="265" font-family="system-ui" font-size="10" fill="#1e293b">Activo</text>
+  <g transform="translate(560,250)">
+    <rect width="22" height="20" rx="4" fill="#dbeafe"/>
+    <rect x="28" width="22" height="20" rx="4" fill="#e0e7ff"/>
+    <rect x="56" width="22" height="20" rx="4" fill="#fef3c7"/>
+  </g>
+
+  <!-- Row 4 -->
+  <rect x="40" y="286" width="640" height="40" rx="6" fill="#f8fafc"/>
+  <text x="56" y="311" font-family="system-ui" font-size="11" fill="#1e293b">rgomez</text>
+  <text x="190" y="311" font-family="system-ui" font-size="11" fill="#1e293b">Roberto Gómez</text>
+  <rect x="320" y="298" width="92" height="18" rx="3" fill="#f1f5f9"/>
+  <text x="366" y="311" font-family="system-ui" font-size="10" font-weight="700" text-anchor="middle" fill="#475569">Solicitante</text>
+  <circle cx="458" cy="307" r="5" fill="#94a3b8"/>
+  <text x="468" y="311" font-family="system-ui" font-size="10" fill="#1e293b">Inactivo</text>
+  <g transform="translate(560,296)">
+    <rect width="22" height="20" rx="4" fill="#dbeafe"/>
+    <rect x="28" width="22" height="20" rx="4" fill="#e0e7ff"/>
+    <rect x="56" width="22" height="20" rx="4" fill="#fef3c7"/>
+  </g>
+</svg>
