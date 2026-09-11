@@ -1,0 +1,282 @@
+Estructura Base del Correo
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Cuerpo:
+
+Estimado/a [Nombre Completo],
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+A continuación, detallamos tus credenciales y datos de acceso:
+
+URL de acceso: [[https://grmv2.tu-dominio.cl](https://grmv2.tu-dominio.cl)] (reemplazar por URL oficial)
+
+Usuario: [Usuario]
+
+Contraseña provisoria: [Contraseña]
+
+Departamento: [Departamento]
+
+Perfil / Rol asignado: [Rol]
+
+Alcance de tu perfil:
+
+[Descripción según rol]
+
+Seguridad y primeros pasos:
+
+Al ingresar por primera vez, el sistema te solicitará actualizar tu contraseña temporal por una de tu conocimiento exclusivo.
+
+Por políticas de seguridad, no compartas estas credenciales con terceros.
+
+Ante cualquier duda o problema con el ingreso, favor responder directamente a este correo o canalizarlo a través del equipo de soporte.
+
+Saludos cordiales,
+
+Equipo de Soporte y Operaciones GRM v2
+
+Correos Personalizados por Usuario
+1. Jorge Andrés Signe Pou
+Para: jsigne@bancochile.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimado Jorge Andrés,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @jsigne
+
+Contraseña provisoria: Banco_1*
+
+Departamento: Desarrollo Sistemas Low Code
+
+Perfil asignado: SOLICITANTE
+
+Alcance de tu perfil:
+
+Como Solicitante, podrás ingresar nuevos tickets o requerimientos de incidencias, adjuntar antecedentes y dar seguimiento directo al estado y tiempos de atención de tus solicitudes.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
+
+2. Gustavo Baeza A.
+Para: gustavo.baeza@160k.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimado Gustavo,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @gbaeza
+
+Contraseña provisoria: Banco_1*
+
+Departamento: 160K
+
+Perfil asignado: AGENTE_SENIOR
+
+Alcance de tu perfil:
+
+Como Agente Senior, dispones de privilegios operativos para gestionar el ciclo de vida completo de las incidencias, administrar asignaciones, actualizar estados, documentar resoluciones y monitorear el cumplimiento de SLAs.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
+
+3. Marco Antonio Silva C.
+Para: marco.silva@160k.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimado Marco Antonio,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @msilva
+
+Contraseña provisoria: Banco_1*
+
+Departamento: 160K
+
+Perfil asignado: AGENTE_SENIOR
+
+Alcance de tu perfil:
+
+Como Agente Senior, dispones de privilegios operativos para gestionar el ciclo de vida completo de las incidencias, administrar asignaciones, actualizar estados, documentar resoluciones y monitorear el cumplimiento de SLAs.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
+
+4. Adolfo Ulloa V.
+Para: adolfo.ulloa@160k.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimado Adolfo,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @aulloa
+
+Contraseña provisoria: Banco_1*
+
+Departamento: 160K
+
+Perfil asignado: AGENTE_SENIOR
+
+Alcance de tu perfil:
+
+Como Agente Senior, dispones de privilegios operativos para gestionar el ciclo de vida completo de las incidencias, administrar asignaciones, actualizar estados, documentar resoluciones y monitorear el cumplimiento de SLAs.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
+
+5. Jasmin Alcalá
+Para: jasmin.alcala@160k.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimada Jasmin,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @jalcala
+
+Contraseña provisoria: Banco_1*
+
+Departamento: 160K
+
+Perfil asignado: OBSERVADOR
+
+Alcance de tu perfil:
+
+Como Observador, contarás con acceso de solo lectura al tablero e historial de incidencias para seguimiento, análisis de avance y reportería interna, sin permisos de edición operativa sobre los tickets.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
+
+6. Sergio Daniel Torrealba Venegas
+Para: storrealba@bancochile.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimado Sergio Daniel,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @storrealba
+
+Contraseña provisoria: Banco_1*
+
+Departamento: Gestion Riesgo Modelos
+
+Perfil asignado: SOLICITANTE
+
+Alcance de tu perfil:
+
+Como Solicitante, podrás ingresar nuevos requerimientos e incidencias asociadas a tu área, consultar el estado de avance en tiempo real y validar la conformidad de los cierres reportados.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
+
+7. Karina Verónica Muñoz Castillo
+Para: kamunozc@bancochile.cl
+
+Asunto: Acceso a Sistema de Monitoreo de Incidencias GRM v2 - Credenciales iniciales
+
+Estimada Karina Verónica,
+
+Junto con saludar, te informamos que se ha habilitado tu acceso a la plataforma Sistema de Monitoreo de Incidencias GRM v2.
+
+Tus credenciales y datos de acceso son los siguientes:
+
+URL de acceso: [URL_DEL_SISTEMA]
+
+Usuario: @kamunozc
+
+Contraseña provisoria: Banco_1*
+
+Departamento: 160K
+
+Perfil asignado: OBSERVADOR
+
+Alcance de tu perfil:
+
+Como Observadora, contarás con acceso de consulta al panel general e historial de casos para fines de visibilidad, trazabilidad y seguimiento de métricas, sin intervención directa en la edición de tickets.
+
+Instrucciones:
+
+Ingresa a la plataforma e introduce tus credenciales iniciales.
+
+Procede al cambio obligatorio de contraseña en el primer inicio de sesión.
+
+Saludos cordiales,
+
+Equipo GRM v2
