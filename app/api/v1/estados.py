@@ -841,3 +841,117 @@ def get_header(
             db.query(Usuario).filter(Usuario.id == estado.responsable_id).first()
         )
     return HTMLResponse(_render_column_header(estado))
+
+
+# ===========================================================================
+#  POST /estados/reordenar  (solo Administrador)
+#  Recibe la lista de IDs en el nuevo orden y actualiza el campo `orden`.
+#  Usado por SortableJS al arrastrar columnas horizontalmente.
+# ===========================================================================
+@router.post("/reordenar", response_class=HTMLResponse)
+async def reordenar_columnas(
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Reordena las columnas del Kanban (drag&drop horizontal)."""
+    # Permisos: SOLO Administrador
+    rol_legible = (
+        usuario.rol.value if hasattr(usuario.rol, "value") else usuario.rol
+    )
+    if str(rol_legible).lower() != "administrador":
+        return HTMLResponse(
+            content=(
+                '<div class="text-xs text-red-600 px-2 py-1">'
+                "Solo el rol Administrador puede reordenar columnas."
+                "</div>"
+            ),
+            status_code=403,
+            headers={"HX-Trigger": "ticket-error"},
+        )
+
+    # Aceptar tanto application/json (fetch) como form-data (HTMX)
+    ids: list[int] = []
+    try:
+        ctype = (request.headers.get("content-type") or "").lower()
+        if "application/json" in ctype:
+            data = await request.json()
+            raw = data.get("ids", data.get("orden", []))
+        else:
+            form = await request.form()
+            raw = form.get("ids") or form.get("orden") or form.get("payload") or ""
+    except Exception:
+        raw = ""
+
+    # Normalizar raw a list[int]
+    if isinstance(raw, list):
+        ids = [int(x) for x in raw if str(x).isdigit()]
+    elif isinstance(raw, str) and raw:
+        try:
+            import json as _json
+            parsed = _json.loads(raw)
+            if isinstance(parsed, list):
+                ids = [int(x) for x in parsed if str(x).lstrip("-").isdigit()]
+        except Exception:
+            # CSV
+            ids = [int(x) for x in raw.replace("[", "").replace("]", "")
+                                  .replace('"', "").replace("'", "").split(",")
+                   if x.strip().lstrip("-").isdigit()]
+
+    if not ids:
+        return HTMLResponse(
+            content=(
+                '<div class="text-xs text-amber-700 px-2 py-1">'
+                "Lista de IDs vacía o inválida."
+                "</div>"
+            ),
+            status_code=400,
+            headers={"HX-Trigger": "ticket-error"},
+        )
+
+    # Verificar que todos los IDs existan
+    existentes = {
+        e.id for e in db.query(Estado).filter(Estado.id.in_(ids)).all()
+    }
+    faltantes = [i for i in ids if i not in existentes]
+    if faltantes:
+        return HTMLResponse(
+            content=(
+                f'<div class="text-xs text-amber-700 px-2 py-1">'
+                f"IDs no encontrados: {faltantes}"
+                f"</div>"
+            ),
+            status_code=400,
+            headers={"HX-Trigger": "ticket-error"},
+        )
+
+    # Asignar el nuevo orden (1-based)
+    try:
+        for idx, estado_id in enumerate(ids, start=1):
+            db.query(Estado).filter(Estado.id == estado_id).update(
+                {"orden": idx}, synchronize_session=False
+            )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        return HTMLResponse(
+            content=(
+                f'<div class="text-xs text-red-700 px-2 py-1">'
+                f"Error al guardar: {exc}"
+                f"</div>"
+            ),
+            status_code=500,
+            headers={"HX-Trigger": "ticket-error"},
+        )
+
+    # Emitir trigger HTMX para que el frontend muestre confirmación
+    import json as _json
+    return HTMLResponse(
+        content=(
+            f'<div class="text-xs text-emerald-700 px-2 py-1" '
+            f'id="reordenar-ok">Orden guardado ({len(ids)} columnas).</div>'
+        ),
+        headers={"HX-Trigger": _json.dumps(
+            {"columnas-reordenadas": {"total": len(ids), "ids": ids}}
+        )},
+    )

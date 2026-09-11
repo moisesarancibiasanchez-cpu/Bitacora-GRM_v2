@@ -96,7 +96,7 @@
           {% set resp_initials = (resp_partes[0][0] if resp_partes else '?') ~ (resp_partes[1][0] if resp_partes|length > 1 else '') %}
         {% endif %}
         <div id="column-{{ estado.id }}"
-             class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col"
+             class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col cursor-grab active:cursor-grabbing"
              data-estado-id="{{ estado.id }}"
              data-estado-nombre="{{ estado.nombre }}">
           <div id="column-header-{{ estado.id }}"
@@ -309,4 +309,115 @@
   });
 })();
 </script>
+
+<!-- =====================================================================
+     DRAG & DROP HORIZONTAL DE COLUMNAS (solo Administrador)
+     - Usa SortableJS (ya cargado en base.html)
+     - Al soltar, envía la nueva lista de IDs a POST /api/v1/estados/reordenar
+     - Si la respuesta es OK, recarga la página para reflejar el nuevo orden
+     ===================================================================== -->
+<script>
+(function(){
+  // Esperar a que SortableJS y el board existan
+  function initColumnSortable(){
+    if (typeof Sortable === 'undefined'){
+      setTimeout(initColumnSortable, 80);
+      return;
+    }
+    const board = document.getElementById('kanban-board');
+    if (!board){
+      setTimeout(initColumnSortable, 80);
+      return;
+    }
+    if (board.dataset.columnSortableInit === '1') return;
+    board.dataset.columnSortableInit = '1';
+
+    // Solo admins pueden reordenar (definido en base.html como window.CURRENT_USER_ROL)
+    const esAdmin = (window.CURRENT_USER_ROL || '').toLowerCase() === 'administrador';
+    if (!esAdmin){
+      // Aún así dejamos el Sortable, pero la API rechazará a no-admins.
+      // Eso evita inconsistencias visuales.
+    }
+
+    Sortable.create(board, {
+      animation: 150,
+      // Solo arrastrar desde la zona "segura" (header o body de la columna),
+      // nunca desde el botón "+" o el modal de creación de tickets.
+      handle: '.kanban-column',
+      draggable: '.kanban-column',          // solo elementos con esta clase
+      filter: '.kanban-add-column, .kanban-list, button, input, select, a',
+      preventOnFilter: true,
+      direction: 'horizontal',
+      ghostClass: 'kanban-column-ghost',
+      chosenClass: 'kanban-column-chosen',
+      dragClass: 'kanban-column-drag',
+      onEnd: async function (evt) {
+        // Reconstruir el orden actual de las columnas reordenables
+        const nuevoOrden = Array.from(board.querySelectorAll('.kanban-column'))
+          .filter(c => !c.classList.contains('kanban-add-column'))
+          .map(c => parseInt(c.dataset.estadoId, 10))
+          .filter(n => Number.isFinite(n));
+
+        if (nuevoOrden.length < 2) return; // nada que reordenar
+
+        // Guardar orden previo para revertir si falla
+        const ordenAnterior = Array.from(board.querySelectorAll('.kanban-column'))
+          .filter(c => !c.classList.contains('kanban-add-column'))
+          .map(c => ({id: c.dataset.estadoId, html: c.outerHTML}));
+
+        try {
+          const r = await fetch('/api/v1/estados/reordenar', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Id': String(window.CURRENT_USER_ID || 1),
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ ids: nuevoOrden })
+          });
+          if (!r.ok){
+            const texto = await r.text();
+            if (window.showToast){
+              window.showToast('No se pudo reordenar: ' + (texto || r.status), 'error', 4000);
+            }
+            // Recargar para volver al estado real de la BD
+            window.location.reload();
+            return;
+          }
+          if (window.showToast){
+            window.showToast('Orden guardado', 'success', 1500);
+          }
+        } catch (err) {
+          if (window.showToast){
+            window.showToast('Error de red al reordenar: ' + err, 'error', 4000);
+          }
+          window.location.reload();
+        }
+      }
+    });
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', initColumnSortable);
+  } else {
+    initColumnSortable();
+  }
+})();
+</script>
+
+<style>
+  /* Estilos para el ghost mientras se arrastra la columna */
+  .kanban-column-ghost {
+    opacity: 0.4;
+    background: #e0e7ff !important;
+    border: 2px dashed #6366f1 !important;
+  }
+  .kanban-column-chosen {
+    cursor: grabbing !important;
+  }
+  .kanban-column-drag {
+    transform: rotate(1.5deg);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  }
+</style>
 {% endblock %}
