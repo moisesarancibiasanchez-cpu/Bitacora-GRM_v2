@@ -310,3 +310,171 @@ def registro_form(
         path="/",
     )
     return resp
+
+
+# ============== Cambio de contraseña (auto-servicio) ==============
+def _client_ip(request: Request) -> Optional[str]:
+    """Obtiene la IP del cliente respetando cabeceras de proxy."""
+    if not request:
+        return None
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()[:64] or None
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()[:64] or None
+    if request.client and request.client.host:
+        return request.client.host[:64]
+    return None
+
+
+def _registrar_cambio_password_auditoria(
+    db: Session, usuario_id: int, ip: Optional[str]
+) -> None:
+    """Inserta un registro de auditoría. Errores se ignoran para no bloquear el cambio."""
+    try:
+        db.add(
+            Auditoria(
+                ticket_id=None,
+                usuario_id=usuario_id,
+                accion="CAMBIO_PASSWORD",
+                valor_anterior=None,
+                valor_nuevo={"origen": "auto_servicio"},
+                comentario="El usuario cambió su propia contraseña.",
+                ip_origen=ip,
+            )
+        )
+    except Exception:
+        # Si el modelo no está disponible o la tabla falla, no interrumpimos
+        # el flujo principal (el cambio de contraseña ya es seguro).
+        pass
+
+
+@router.post("/cambiar-password", response_model=AuthResponse)
+def cambiar_password(
+    datos: CambiarPasswordRequest,
+    response: Response,
+    request: Request,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Cambia la contraseña del usuario autenticado (modo JSON / API).
+
+    - Requiere la contraseña actual.
+    - Rechaza si la nueva coincide con la actual.
+    - Persiste el hash y re-emite el JWT (la cookie de sesión se renueva).
+    - Registra la acción en la tabla de auditoría.
+    """
+    if datos.password_nuevo != datos.password_nuevo_confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="La nueva contraseña y su confirmación no coinciden.",
+        )
+
+    target = db.query(Usuario).filter(Usuario.id == usuario.id).first()
+    if not target or not target.is_active:
+        raise HTTPException(status_code=403, detail="Usuario no disponible.")
+
+    if not verify_password(datos.password_actual, target.hashed_password):
+        raise HTTPException(
+            status_code=401, detail="La contraseña actual es incorrecta."
+        )
+
+    if verify_password(datos.password_nuevo, target.hashed_password):
+        raise HTTPException(
+            status_code=400,
+            detail="La nueva contraseña debe ser diferente a la actual.",
+        )
+
+    target.hashed_password = hash_password(datos.password_nuevo)
+    _registrar_cambio_password_auditoria(db, target.id, _client_ip(request))
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo actualizar la contraseña. Intenta de nuevo.",
+        )
+
+    # Re-emitir cookie para mantener la sesión activa con el mismo usuario/rol
+    _set_session_cookie(response, target.id, target.rol.value)
+
+    return AuthResponse(
+        ok=True,
+        user_id=target.id,
+        username=target.username,
+        nombre_completo=target.nombre_completo,
+        rol=target.rol.value,
+        message="Contraseña actualizada correctamente.",
+    )
+
+
+@router.post("/cambiar-password-form", status_code=200)
+def cambiar_password_form(
+    request: Request,
+    password_actual: str = Form(...),
+    password_nuevo: str = Form(...),
+    password_nuevo_confirm: str = Form(...),
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Variante form-urlencoded para HTMX.
+
+    En éxito: emite cabecera `HX-Trigger: cambio-password-ok` con un payload JSON
+    que el frontend usa para cerrar el modal y mostrar un toast.
+    En fallo: devuelve un fragmento HTML con el mensaje de error.
+    """
+    pwd_actual = password_actual or ""
+    pwd_nuevo = password_nuevo or ""
+    pwd_confirm = password_nuevo_confirm or ""
+
+    if len(pwd_actual) < 6 or len(pwd_actual) > 128:
+        return _error_html("La contraseña actual debe tener entre 6 y 128 caracteres.")
+    if len(pwd_nuevo) < 6 or len(pwd_nuevo) > 128:
+        return _error_html("La nueva contraseña debe tener entre 6 y 128 caracteres.")
+    if pwd_nuevo != pwd_confirm:
+        return _error_html("La nueva contraseña y su confirmación no coinciden.")
+
+    target = db.query(Usuario).filter(Usuario.id == usuario.id).first()
+    if not target or not target.is_active:
+        return HTMLResponse(
+            content=(
+                '<div role="alert" class="text-xs text-yellow-800 bg-yellow-50 '
+                'border border-yellow-200 rounded p-2 mb-2">'
+                'Tu usuario no está disponible. Contacta al administrador.</div>'
+            ),
+            status_code=403,
+        )
+
+    if not verify_password(pwd_actual, target.hashed_password):
+        return _error_html("La contraseña actual es incorrecta.")
+
+    if verify_password(pwd_nuevo, target.hashed_password):
+        return _error_html("La nueva contraseña debe ser diferente a la actual.")
+
+    target.hashed_password = hash_password(pwd_nuevo)
+    _registrar_cambio_password_auditoria(db, target.id, _client_ip(request))
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return _error_html(
+            "No se pudo actualizar la contraseña. Intenta de nuevo."
+        )
+
+    # Re-emitir cookie y notificar al frontend
+    payload = _json.dumps(
+        {"message": "Contraseña actualizada correctamente."}
+    )
+    resp = Response(content="", status_code=200)
+    resp.headers["HX-Trigger"] = "cambio-password-ok"
+    resp.headers["HX-Trigger-Evento"] = "cambio-password-ok"
+    # Algunos clientes HTMX leen el JSON desde el header
+    resp.headers["HX-Trigger-Detalle"] = payload
+    _set_session_cookie(resp, target.id, target.rol.value)
+    return resp
