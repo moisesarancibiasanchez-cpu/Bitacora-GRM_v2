@@ -93,7 +93,6 @@
               <th class="px-4 py-3 text-left">Asignado</th>
               <th class="px-4 py-3 text-left">Fecha Vencimiento</th>
               <th class="px-4 py-3 text-left">SLA</th>
-              <th class="px-4 py-3 text-center">Archivado</th>
               <th class="px-4 py-3 text-center">Activo</th>
               <th class="px-4 py-3 text-center">Acción</th>
             </tr>
@@ -143,16 +142,7 @@
                     <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
                     Archivado
                   </span>
-                {% else %}
-                  <span class="text-slate-300">—</span>
-                {% endif %}
-              </td>
-              <td class="px-4 py-3 text-center">
-                {% if t.estado and t.estado.es_final %}
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-500 border border-slate-200">
-                    Inactivo
-                  </span>
-                {% elif t.archivado %}
+                {% elif t.estado and t.estado.es_final %}
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-500 border border-slate-200">
                     Inactivo
                   </span>
@@ -179,7 +169,7 @@
             {% endfor %}
             {% if not tickets %}
             <tr>
-              <td colspan="10" class="px-4 py-10 text-center text-slate-400 text-sm">
+              <td colspan="9" class="px-4 py-10 text-center text-slate-400 text-sm">
                 No hay tickets que coincidan con los filtros.
                 <a href="/kanban" class="text-indigo-600 hover:underline ml-1">Crear el primero →</a>
               </td>
