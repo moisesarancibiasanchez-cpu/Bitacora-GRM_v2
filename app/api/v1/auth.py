@@ -9,6 +9,7 @@ Soporta dos modos:
 El JWT contiene {"sub": <user_id>, "rol": <rol_value>} y se firma con
 SECRET_KEY (configurado en app.core.config).
 """
+import json as _json
 import re
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, Form
 from fastapi.responses import HTMLResponse
@@ -19,6 +20,7 @@ from typing import Optional
 from app.api.v1.deps import get_current_user
 from app.core.security import hash_password, verify_password, create_access_token
 from app.db.session import get_db
+from app.models.auditoria import Auditoria
 from app.models.usuario import Usuario, RolUsuario
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
@@ -46,6 +48,13 @@ class AuthResponse(BaseModel):
     nombre_completo: Optional[str] = None
     rol: Optional[str] = None
     message: Optional[str] = None
+
+
+class CambiarPasswordRequest(BaseModel):
+    """Payload para cambio de contraseña por el propio usuario."""
+    password_actual: str = Field(..., min_length=6, max_length=128)
+    password_nuevo: str = Field(..., min_length=6, max_length=128)
+    password_nuevo_confirm: str = Field(..., min_length=6, max_length=128)
 
 
 def _set_session_cookie(response: Response, user_id: int, rol: str) -> str:
