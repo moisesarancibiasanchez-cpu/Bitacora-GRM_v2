@@ -560,15 +560,23 @@ DETALLE_TEMPLATE = Template(r"""
         <div class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
           {% if adjuntos %}
             {% for a in adjuntos %}
-              {% set ext = (a.nombre_original or a.filename or a.nombre or '').split('.')[-1].lower() if (a.nombre_original or a.filename or a.nombre) else '' %}
-              {% set es_imagen = ext in ['png','jpg','jpeg','gif','webp','bmp','svg'] %}
+              {# Detección robusta: prioriza mime_type del backend; cae a extensión como fallback. #}
+              {% set _mime = (a.mime_type or '') %}
+              {% set _ext = (a.nombre_original or a.filename or a.nombre or '').split('.')[-1].lower() if (a.nombre_original or a.filename or a.nombre) else '' %}
+              {% set es_imagen = a.es_imagen if a.es_imagen is defined else (_mime.startswith('image/') or _ext in ['png','jpg','jpeg','gif','webp','bmp','svg','avif']) %}
               <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/40 p-2.5">
                 <div class="flex items-center gap-2 min-w-0">
                   {% if es_imagen %}
-                    <a href="/api/v1/adjuntos/{{ a.id }}/descargar" target="_blank" title="Vista previa">
+                    {# data-preview-image activa el lightbox de app/static/js/image-preview.js #}
+                    <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
+                       data-preview-image
+                       data-preview-title="{{ a.nombre_original or a.filename or a.nombre }}"
+                       title="Click para vista previa"
+                       class="flex-shrink-0">
                       <img src="/api/v1/adjuntos/{{ a.id }}/descargar"
                            alt="{{ a.nombre_original or a.filename or a.nombre }}"
-                           class="w-10 h-10 object-cover rounded border border-slate-200 hover:ring-2 hover:ring-indigo-400 transition-shadow" />
+                           loading="lazy"
+                           class="w-12 h-12 object-cover rounded border border-slate-200 hover:ring-2 hover:ring-indigo-400 transition-shadow cursor-zoom-in" />
                     </a>
                   {% else %}
                     <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

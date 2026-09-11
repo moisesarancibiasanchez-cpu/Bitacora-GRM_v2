@@ -478,3 +478,31 @@ def cambiar_password_form(
     resp.headers["HX-Trigger-Detalle"] = payload
     _set_session_cookie(resp, target.id, target.rol.value)
     return resp
+
+
+@router.get("/cambiar-password-modal", response_class=HTMLResponse)
+def cambiar_password_modal():
+    """
+    Devuelve el fragmento HTML del modal de cambio de contraseña.
+
+    Se carga por HTMX desde el botón en la navbar (`hx-get`).
+    """
+    import os
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidates = [
+        os.path.join(base_dir, "templates", "auth", "cambiar_password_modal.html"),
+        os.path.join(base_dir, "app", "templates", "auth", "cambiar_password_modal.html"),
+    ]
+    template_path = next((p for p in candidates if os.path.exists(p)), None)
+    if not template_path:
+        return HTMLResponse(
+            content=(
+                '<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">'
+                '<div class="bg-white rounded-xl p-6 max-w-md shadow-2xl">'
+                '<p class="text-sm text-red-700">No se encontró la plantilla del modal.</p>'
+                '</div></div>'
+            ),
+            status_code=500,
+        )
+    with open(template_path, "r", encoding="utf-8") as fh:
+        return HTMLResponse(content=fh.read(), status_code=200)
