@@ -36,7 +36,47 @@ _LOG_FILE = _LOG_DIR / "app.email.log"
 
 
 def _ensure_log_dir() -> None:
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    """
+    Crea el directorio ``tmp/`` de forma idempotente, tolerando:
+
+    1. Que el directorio ya exista (``exist_ok=True`` lo absorbe).
+    2. Que ``tmp`` exista como **archivo** y no como directorio: en ese
+       caso ``Path.mkdir(parents=True, exist_ok=True)`` reventaría con
+       ``FileExistsError: [Errno 17] File exists: 'tmp'``. Detectamos
+       ese caso y, en lugar de romper el endpoint, logueamos y
+       dejamos que el ``send_email`` siga su curso (el open() del log
+       ya está envuelto en su propio try/except, así que el correo
+       simplemente no se persistirá pero el flujo del API continúa).
+    3. Cualquier otra excepción de FS: se loguea y se continúa.
+    """
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    except FileExistsError as exc:
+        # 'tmp' existe pero NO es un directorio. En producción esto
+        # podría pasar si un deploy anterior dejó un archivo con ese
+        # nombre, o si una imagen montó tmp como archivo por error.
+        # No podemos crear el directorio encima, pero tampoco debemos
+        # romper el flujo: el resto de send_email maneja correctamente
+        # la ausencia del directorio de log.
+        logger.warning(
+            "[email] 'tmp' existe pero no es un directorio (%s); "
+            "se omite la persistencia del correo en log local.",
+            exc,
+        )
+    except OSError as exc:
+        # Permisos, read-only fs, etc.: no rompemos el endpoint.
+        logger.warning(
+            "[email] No se pudo crear/verificar el directorio 'tmp/' (%s); "
+            "el correo se intentará por SMTP y, si falla, seguirá sin log local.",
+            exc,
+        )
+    except Exception as exc:  # pragma: no cover - defensivo
+        # Cualquier otro error inesperado: log y seguir.
+        logger.warning(
+            "[email] Error inesperado al preparar 'tmp/' (%s); "
+            "el flujo de envío continúa.",
+            exc,
+        )
 
 
 def _smtp_configured() -> bool:
