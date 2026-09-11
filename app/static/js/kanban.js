@@ -144,6 +144,10 @@
   }
 
   // === Manejar drop de SortableJS ===
+  // MODO LIBRE: ya no se consulta /transicion-info antes del PATCH.
+  // Las tarjetas pueden moverse a cualquier columna en cualquier
+  // dirección y saltando etapas. Si el backend rechaza, se revierte
+  // la posición y se muestra el toast con el motivo.
   function handleDrop(tarjeta, evt) {
     const ticketId = tarjeta.dataset.ticketId;
     const estadoId = evt.to.dataset.estadoId;
@@ -181,25 +185,11 @@
       }
     };
 
-    // Consultar si requiere comentario
-    getTransicionInfo(ticketId, estadoId).then((info) => {
-      if (!info.valida) {
-        padreOriginal.insertBefore(tarjeta, padreOriginal.children[indexOriginal] || null);
-        toast(info.motivo || 'Transición no válida', 'warning');
-        return;
-      }
-      if (info.requiere_comentario) {
-        const codigo = tarjeta.querySelector('.font-mono')?.textContent?.trim() || `#${ticketId}`;
-        pedirComentario(codigo,
-          (comentario) => ejecutarCambio(comentario),
-          () => {
-            padreOriginal.insertBefore(tarjeta, padreOriginal.children[indexOriginal] || null);
-          }
-        );
-      } else {
-        ejecutarCambio(null);
-      }
-    });
+    // Modo libre: enviar el PATCH directamente, sin pre-validación de
+    // transiciones. Si el backend rechaza (ej. ticket/estado inexistente),
+    // el rollback optimista del propio `ejecutarCambio` repone la tarjeta
+    // en su columna original.
+    ejecutarCambio(null);
   }
 
   // === Inicializar SortableJS en las columnas ===

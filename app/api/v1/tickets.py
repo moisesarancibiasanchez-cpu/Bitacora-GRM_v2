@@ -264,6 +264,11 @@ def cambiar_estado(
 #  Helper: indica si una transición requiere comentario
 #  (el frontend lo consulta antes de hacer drag & drop para mostrar un prompt)
 # ===========================================================================
+#  MODO LIBRE: este endpoint se conserva por compatibilidad con integraciones
+#  externas, pero siempre devuelve ``valida: True`` y ``requiere_comentario:
+#  False``: el Kanban ahora permite mover tarjetas a cualquier columna en
+#  cualquier dirección y saltando etapas, sin flujo controlado.
+# ===========================================================================
 @router.get("/{ticket_id}/transicion-info/{estado_destino_id}")
 def transicion_info(
     ticket_id: int,
@@ -271,8 +276,8 @@ def transicion_info(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
-    """Devuelve metadata de la transición: si requiere comentario, rol permitido, etc."""
-    from app.models.estado import Estado, TransicionEstado
+    """Devuelve metadata de la transición (modo libre: siempre válida)."""
+    from app.models.estado import Estado
     from app.models.ticket import Ticket
 
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
@@ -283,28 +288,11 @@ def transicion_info(
     if not estado_destino:
         raise HTTPException(status_code=404, detail="Estado destino no encontrado")
 
-    transicion = (
-        db.query(TransicionEstado)
-        .filter(
-            TransicionEstado.estado_origen_id == ticket.estado_id,
-            TransicionEstado.estado_destino_id == estado_destino_id,
-        )
-        .first()
-    )
-
-    if not transicion:
-        return {
-            "valida": False,
-            "motivo": f"No existe una transición válida de '{ticket.estado.nombre}' a '{estado_destino.nombre}'.",
-            "requiere_comentario": False,
-            "rol_requerido": None,
-        }
-
     return {
         "valida": True,
-        "requiere_comentario": transicion.requiere_comentario,
-        "rol_requerido": transicion.rol_requerido,
-        "descripcion": transicion.descripcion,
+        "requiere_comentario": False,
+        "rol_requerido": "cualquiera",
+        "descripcion": "Modo libre: el movimiento entre columnas no está restringido.",
     }
 
 

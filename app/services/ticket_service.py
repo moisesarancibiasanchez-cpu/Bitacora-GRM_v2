@@ -126,9 +126,21 @@ class TicketService:
         ip_origen: Optional[str] = None,
     ) -> Tuple[Ticket, Optional[str]]:
         """
-        Cambia el estado de un ticket respetando todas las reglas ITSM.
-        Inserta registro en historial_estados y en auditoria.
-        Dispara tarea Celery en segundo plano (sin bloquear el request).
+        Cambia el estado de un ticket SIN restricciones de flujo (flujo libre).
+
+        Modo LIBRE: las tarjetas pueden moverse a cualquier columna en
+        cualquier dirección (izquierda, derecha) y saltando etapas
+        intermedias. No se valida contra la tabla ``transiciones_estado``,
+        ni rol mínimo, ni comentario obligatorio. Se conserva el registro
+        en ``historial_estados`` y ``auditoria`` (trazabilidad obligatoria)
+        y se siguen disparando las tareas Celery/Butler para notificar y
+        recalcular SLA.
+
+        Si el estado destino coincide con el actual, la operación se trata
+        como no-op silencioso: no se reescribe historial/auditoría para no
+        ensuciar la traza, pero igualmente se actualiza ``orden_columna``
+        si fue provisto (para soportar reordenar dentro de la misma
+        columna).
 
         Returns:
             (ticket actualizado, id de la tarea celery lanzada)
@@ -149,15 +161,17 @@ class TicketService:
                 f"Estado {estado_destino_id} no existe.", codigo="ESTADO_NO_ENCONTRADO"
             )
 
-        # 3. Validar transición (lanza excepción si falla)
-        transicion = self._validar_transicion(
-            ticket, estado_destino, usuario, comentario
-        )
+        # 3. (LIBRE) Sin validación de transiciones_estado, sin chequeo de
+        #    rol mínimo y sin comentario obligatorio: las tarjetas pueden
+        #    moverse a cualquier columna en cualquier dirección y saltando
+        #    etapas.
 
         # 4. Aplicar cambio
         estado_origen = ticket.estado
+        mismo_estado = ticket.estado_id == estado_destino.id
         valor_anterior = {"estado_id": estado_origen.id, "estado": estado_origen.nombre}
-        ticket.estado_id = estado_destino.id
+        if not mismo_estado:
+            ticket.estado_id = estado_destino.id
         if orden is not None:
             # Asegurar que datos_catalogo sea un dict (puede ser None o string antiguo)
             datos_actuales = ticket.datos_catalogo
@@ -177,30 +191,33 @@ class TicketService:
         if estado_destino.es_final:
             ticket.sla_cumplido = 1 if ticket.sla_cumplido == -1 else ticket.sla_cumplido
 
-        # 6. Insertar historial (obligatorio)
-        historial = HistorialEstado(
-            ticket_id=ticket.id,
-            estado_origen_id=estado_origen.id,
-            estado_destino_id=estado_destino.id,
-            usuario_id=usuario.id,
-            comentario=comentario,
-            origen=ip_origen or "web",
-            fecha=datetime.utcnow(),
-        )
-        self.db.add(historial)
+        # 6. Insertar historial (obligatorio). Se omite en no-op (mismo estado)
+        #    para no ensuciar la traza cuando el usuario reordena dentro de
+        #    la misma columna.
+        if not mismo_estado:
+            historial = HistorialEstado(
+                ticket_id=ticket.id,
+                estado_origen_id=estado_origen.id,
+                estado_destino_id=estado_destino.id,
+                usuario_id=usuario.id,
+                comentario=comentario,
+                origen=ip_origen or "web",
+                fecha=datetime.utcnow(),
+            )
+            self.db.add(historial)
 
-        # 7. Insertar auditoría (obligatorio)
-        registrar_auditoria(
-            db=self.db,
-            ticket_id=ticket.id,
-            usuario_id=usuario.id,
-            accion="CAMBIO_ESTADO",
-            valor_anterior=valor_anterior,
-            valor_nuevo={"estado_id": estado_destino.id, "estado": estado_destino.nombre},
-            comentario=comentario,
-            ip_origen=ip_origen,
-            commit=False,
-        )
+            # 7. Insertar auditoría (obligatorio)
+            registrar_auditoria(
+                db=self.db,
+                ticket_id=ticket.id,
+                usuario_id=usuario.id,
+                accion="CAMBIO_ESTADO",
+                valor_anterior=valor_anterior,
+                valor_nuevo={"estado_id": estado_destino.id, "estado": estado_destino.nombre},
+                comentario=comentario,
+                ip_origen=ip_origen,
+                commit=False,
+            )
 
         # 8. Commit transacción
         self.db.commit()
@@ -209,29 +226,30 @@ class TicketService:
         # 8.1) Notificar al responsable de la columna destino (in-app + email)
         #      Se hace ANTES de las tareas Celery para que, si la columna
         #      tiene responsable, la notificación quede persistida en la
-        #      misma transacción lógica.
-        try:
-            from app.services.notificacion_responsable_service import (
-                notificar_responsable_columna,
-            )
-            notificar_responsable_columna(
-                self.db,
-                ticket=ticket,
-                estado_destino=estado_destino,
-                estado_origen_nombre=estado_origen.nombre,
-                actor=usuario,
-            )
-            self.db.commit()
-        except Exception as exc:
-            # No debe romper el flujo principal
+        #      misma transacción lógica. Se omite en no-op (mismo estado).
+        if not mismo_estado:
             try:
-                self.db.rollback()
-            except Exception:
-                pass
-            import logging as _log
-            _log.getLogger(__name__).warning(
-                "notificar_responsable_columna falló (no crítico): %s", exc
-            )
+                from app.services.notificacion_responsable_service import (
+                    notificar_responsable_columna,
+                )
+                notificar_responsable_columna(
+                    self.db,
+                    ticket=ticket,
+                    estado_destino=estado_destino,
+                    estado_origen_nombre=estado_origen.nombre,
+                    actor=usuario,
+                )
+                self.db.commit()
+            except Exception as exc:
+                # No debe romper el flujo principal
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "notificar_responsable_columna falló (no crítico): %s", exc
+                )
 
         # 9. Disparar tarea Celery (segundo plano) - no bloquea el request
         task_id = None
