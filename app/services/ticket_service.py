@@ -131,10 +131,18 @@ class TicketService:
         Modo LIBRE: las tarjetas pueden moverse a cualquier columna en
         cualquier dirección (izquierda, derecha) y saltando etapas
         intermedias. No se valida contra la tabla ``transiciones_estado``,
-        ni rol mínimo, ni comentario obligatorio. Se conserva el registro
-        en ``historial_estados`` y ``auditoria`` (trazabilidad obligatoria)
+        ni comentario obligatorio. Se conserva el registro en
+        ``historial_estados`` y ``auditoria`` (trazabilidad obligatoria)
         y se siguen disparando las tareas Celery/Butler para notificar y
         recalcular SLA.
+
+        Permisos: solo los roles con permiso ``cambiar_estado`` pueden
+        mover tarjetas en el Kanban. Los roles ``observador`` y
+        ``solicitante`` son de solo lectura para el tablero y obtienen
+        ``PermisoInsuficienteError`` (HTTP 403) si intentan arrastrar
+        una tarjeta. Esto es una salvaguarda de seguridad independiente
+        del modo libre: el flujo es libre, pero el acceso a la operación
+        sigue protegido por RBAC.
 
         Si el estado destino coincide con el actual, la operación se trata
         como no-op silencioso: no se reescribe historial/auditoría para no
@@ -144,7 +152,31 @@ class TicketService:
 
         Returns:
             (ticket actualizado, id de la tarea celery lanzada)
+
+        Raises:
+            PermisoInsuficienteError: si el rol del usuario no tiene
+                permiso ``cambiar_estado`` (observador, solicitante).
+            TransicionInvalidaError: si el ticket o el estado destino no
+                existen.
         """
+        # 0. Validación de permisos por rol (RBAC). Esta salvaguarda se
+        #    evalúa ANTES de tocar la base de datos para no dejar efectos
+        #    colaterales en un intento no autorizado.
+        #    El "modo libre" del Kanban se refiere a la libertad de flujo
+        #    (transiciones), NO a la libertad de acceso: la operación
+        #    cambiar_estado sigue requiriendo el permiso correspondiente.
+        if not usuario.tiene_permiso_para("cambiar_estado"):
+            rol_legible = (
+                usuario.rol.value
+                if hasattr(usuario.rol, "value")
+                else usuario.rol
+            )
+            raise PermisoInsuficienteError(
+                f"El rol '{rol_legible}' no puede mover tarjetas en el "
+                f"Kanban. Se requiere permiso 'cambiar_estado' "
+                f"(roles permitidos: agente, agente_senior, administrador)."
+            )
+
         # 1. Cargar ticket
         ticket = self.db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -161,10 +193,10 @@ class TicketService:
                 f"Estado {estado_destino_id} no existe.", codigo="ESTADO_NO_ENCONTRADO"
             )
 
-        # 3. (LIBRE) Sin validación de transiciones_estado, sin chequeo de
-        #    rol mínimo y sin comentario obligatorio: las tarjetas pueden
-        #    moverse a cualquier columna en cualquier dirección y saltando
-        #    etapas.
+        # 3. (LIBRE) Sin validación de transiciones_estado y sin
+        #    comentario obligatorio: las tarjetas pueden moverse a
+        #    cualquier columna en cualquier dirección y saltando etapas.
+        #    El control de acceso se aplicó en el paso 0.
 
         # 4. Aplicar cambio
         estado_origen = ticket.estado

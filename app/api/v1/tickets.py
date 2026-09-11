@@ -276,7 +276,19 @@ def transicion_info(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
-    """Devuelve metadata de la transición (modo libre: siempre válida)."""
+    """Devuelve metadata de la transición para que el frontend sepa si
+    puede mover la tarjeta.
+
+    Modo LIBRE para los roles con permiso ``cambiar_estado``
+    (agente, agente_senior, administrador): siempre devuelve
+    ``valida: True`` y ``requiere_comentario: False``. El movimiento
+    entre columnas no está restringido.
+
+    Para los roles de solo lectura (``observador``, ``solicitante``)
+    devuelve ``valida: False`` y ``motivo`` con la explicación, para
+    que el frontend pueda mostrar el mensaje adecuado antes/después
+    del drag & drop.
+    """
     from app.models.estado import Estado
     from app.models.ticket import Ticket
 
@@ -287,6 +299,23 @@ def transicion_info(
     estado_destino = db.query(Estado).filter(Estado.id == estado_destino_id).first()
     if not estado_destino:
         raise HTTPException(status_code=404, detail="Estado destino no encontrado")
+
+    if not usuario.tiene_permiso_para("cambiar_estado"):
+        rol_legible = (
+            usuario.rol.value
+            if hasattr(usuario.rol, "value")
+            else usuario.rol
+        )
+        return {
+            "valida": False,
+            "requiere_comentario": False,
+            "rol_requerido": "agente",
+            "rol_actual": rol_legible,
+            "motivo": (
+                f"Tu rol '{rol_legible}' es de solo lectura y no puede "
+                f"mover tarjetas. Solicita a un agente o administrador."
+            ),
+        }
 
     return {
         "valida": True,

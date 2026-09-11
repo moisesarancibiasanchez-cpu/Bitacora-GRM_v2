@@ -198,15 +198,58 @@
   // dragged='1' en onStart, eso suprime el click handler para clicks
   // lentos (que es lo más común). Por eso solo marcamos dragged='1'
   // DESPUÉS de verificar que la posición realmente cambió en onEnd.
+  //
+  // Modo LECTURA para roles sin permiso 'cambiar_estado' (observador,
+  // solicitante): SortableJS se inicializa con `disabled: true` para que
+  // el drag & drop esté bloqueado desde el cliente. El backend además
+  // rechaza el PATCH con 403 si el cliente intenta saltarse esta
+  // restricción; la tarjeta revierte a su columna original.
+  function canMoveCards() {
+    const rol = (window.CURRENT_USER_ROL || '').toLowerCase();
+    // Roles con permiso 'cambiar_estado' en app/models/usuario.py
+    return ['administrador', 'agente_senior', 'agente'].indexOf(rol) !== -1;
+  }
+
+  function showReadOnlyBanner() {
+    // Si ya existe, no duplicar
+    if (document.getElementById('kanban-readonly-banner')) return;
+    const rol = (window.CURRENT_USER_ROL || '').toLowerCase();
+    const mensaje = rol === 'observador'
+      ? 'Estás en modo observador: solo puedes ver el tablero. Para mover tarjetas contacta a un agente.'
+      : 'Estás en modo lectura: tu rol no permite mover tarjetas. Puedes crear tickets y comentar.';
+    const banner = document.createElement('div');
+    banner.id = 'kanban-readonly-banner';
+    banner.className = 'mb-3 px-4 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-xs flex items-center gap-2';
+    banner.innerHTML = `
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+      <span><strong>Modo lectura:</strong> ${mensaje}</span>
+    `;
+    const target = document.querySelector('main .container, main, body');
+    if (target) {
+      const firstChild = target.firstElementChild;
+      if (firstChild) target.insertBefore(banner, firstChild);
+      else target.appendChild(banner);
+    }
+  }
+
   function initSortable() {
     const columns = document.querySelectorAll('.kanban-list');
     if (columns.length === 0) return;
+
+    const puedeMover = canMoveCards();
+    if (!puedeMover) {
+      // Mostrar banner informativo y deshabilitar drag en todas las columnas
+      showReadOnlyBanner();
+    }
 
     columns.forEach((col) => {
       if (col.dataset.sortableInit) return;
       col.dataset.sortableInit = '1';
 
       new Sortable(col, {
+        disabled: !puedeMover,
         group: 'kanban-tickets',
         animation: 150,
         ghostClass: 'kanban-ghost',
