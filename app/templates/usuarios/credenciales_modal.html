@@ -147,31 +147,55 @@
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
       })
-      .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, status: r.status, body: j }; }); })
+      .then(function(r) {
+        // Parseo tolerante: si la respuesta no es JSON (por ej. un 500 HTML
+        // de FastAPI), caemos al texto crudo en vez de reventar aquí.
+        var ct = (r.headers.get('content-type') || '').toLowerCase();
+        if (ct.indexOf('application/json') !== -1) {
+          return r.json().then(function(j) { return { ok: r.ok, status: r.status, body: j, isJson: true }; });
+        }
+        return r.text().then(function(t) {
+          return { ok: r.ok, status: r.status, body: { detail: t || ('HTTP ' + r.status) }, isJson: false };
+        });
+      })
       .then(function(out) {
+        // Helper de escape para evitar XSS al inyectar strings del server.
+        function esc(s) {
+          return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        }
         var body = out.body || {};
         if (out.ok && body.ok) {
           var transportIcon = body.transport === 'smtp'
             ? '<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
             : '<svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
           var pwdBlock = body.password_generada
-            ? '<div class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900"><b>Contraseña generada (solo dev):</b> <code class="font-mono">' + body.password_generada + '</code></div>'
+            ? '<div class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900"><b>Contraseña generada (solo dev):</b> <code class="font-mono">' + esc(body.password_generada) + '</code></div>'
             : '';
           resultado.innerHTML =
             '<div class="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-md text-[12px] text-emerald-800 flex items-start gap-2">' +
               transportIcon +
               '<div class="flex-1">' +
-                '<b>' + (body.message || 'Enviado') + '</b><br>' +
-                '<span class="text-[11px]">Para: ' + (body.to || '') + ' | Transport: ' + (body.transport || '') + '</span>' +
+                '<b>' + esc(body.message || 'Enviado') + '</b><br>' +
+                '<span class="text-[11px]">Para: ' + esc(body.to || '') + ' | Transport: ' + esc(body.transport || '') + '</span>' +
                 pwdBlock +
               '</div>' +
             '</div>';
           resultado.classList.remove('hidden');
           try { window.showToast && window.showToast('Credenciales enviadas', 'success'); } catch(e) {}
         } else {
+          // Error devuelto por el backend (puede venir con ok=false, status 200,
+          // o un 4xx/5xx con cuerpo no-JSON; mostramos el detail en cualquier caso)
+          var errMsg = body.detail || body.message || ('Error HTTP ' + out.status);
+          var nonJsonHint = out.isJson === false
+            ? ' <span class="text-[10px] text-red-500">(respuesta no-JSON del servidor)</span>' : '';
           resultado.innerHTML =
             '<div class="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-[12px] text-red-800">' +
-              '<b>Error:</b> ' + (body.detail || body.message || 'Error desconocido') +
+              '<b>Error:</b> ' + esc(errMsg) + nonJsonHint +
             '</div>';
           resultado.classList.remove('hidden');
           try { window.showToast && window.showToast('Error al enviar', 'error'); } catch(e) {}
@@ -180,7 +204,7 @@
       .catch(function(err) {
         resultado.innerHTML =
           '<div class="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-[12px] text-red-800">' +
-            '<b>Error de red:</b> ' + (err && err.message ? err.message : 'desconocido') +
+            '<b>Error de red:</b> ' + esc(err && err.message ? err.message : 'desconocido') +
           '</div>';
         resultado.classList.remove('hidden');
       })

@@ -288,6 +288,41 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     except Exception as e:
         logger.warning("[migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): %s", e)
 
+    # 4.4) Relajar la restricción NOT NULL de ``auditorias.ticket_id``.
+    #      La tabla registra eventos tanto de tickets como de
+    #      usuarios/seguridad (envío de credenciales, login, edición de
+    #      perfil). Cuando el evento NO está asociado a un ticket,
+    #      ``ticket_id`` debe poder quedar en NULL.
+    #      Esta migración es idempotente: si la columna ya acepta NULL,
+    #      ``DROP NOT NULL`` no hace nada.
+    try:
+        if is_pg:
+            # PostgreSQL: ``DROP NOT NULL`` es idempotente (si la columna
+            # ya es nullable, ALTER TABLE la deja igual sin error).
+            conn.execute(text(
+                "ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL"
+            ))
+            logger.info("[migrations] data: auditorias.ticket_id ahora permite NULL")
+            total += 1
+        else:
+            # SQLite no soporta ALTER COLUMN. Se hace un check de pragma
+            # para detectar si la columna ya es nullable; si no lo es,
+            # se omite (es una BD de tests, no de producción).
+            res = conn.execute(text("PRAGMA table_info(auditorias)"))
+            cols = res.fetchall() if hasattr(res, "fetchall") else []
+            for col in cols:
+                # PRAGMA table_info: (cid, name, type, notnull, dflt, pk)
+                if len(col) >= 4 and col[1] == "ticket_id" and col[3] == 1:
+                    logger.warning(
+                        "[migrations] data: SQLite: auditorias.ticket_id sigue siendo NOT NULL. "
+                        "No se modifica (requeriría recrear la tabla)."
+                    )
+                    break
+            else:
+                logger.info("[migrations] data: auditorias.ticket_id ya es nullable en SQLite")
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: %s", e)
+
     return total
 
 

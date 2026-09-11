@@ -15,12 +15,15 @@ Hay dos variantes de POST/PATCH:
 import re
 import secrets
 import string
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, Request
 from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import Optional, List
+
+logger = logging.getLogger(__name__)
 
 from app.api.v1.deps import get_current_user
 from app.core.config import settings
@@ -294,11 +297,40 @@ def enviar_credenciales(
             detail="El usuario no tiene email registrado.",
         )
 
-    result: CredencialesResult = enviar_credenciales_iniciales(
-        db,
-        target=target,
-        actor=usuario,
-    )
+    try:
+        result: CredencialesResult = enviar_credenciales_iniciales(
+            db,
+            target=target,
+            actor=usuario,
+        )
+    except Exception as exc:
+        # Cualquier excepción no controlada en el flujo de envío se
+        # traduce a una respuesta JSON limpia (en vez del 500 HTML por
+        # defecto de FastAPI), para que el frontend pueda parsear y
+        # mostrar el error al usuario.
+        logger.exception("[enviar_credenciales] Fallo inesperado: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        # Devolvemos ok=False con la misma forma que EnviarCredencialesResponse
+        # para que el modal del frontend pueda mostrar el detalle.
+        return JSONResponse(
+            status_code=200,
+            content={
+                "ok": False,
+                "sent": False,
+                "transport": "error",
+                "to": target.email,
+                "subject": "",
+                "detail": f"{type(exc).__name__}: {exc}",
+                "message": (
+                    "Ocurrió un error al enviar las credenciales. "
+                    "Revisa el log del servidor para más detalle."
+                ),
+                "password_generada": None,
+            },
+        )
 
     # En modo dev/log, devolvemos la contraseña generada para que el
     # admin la pueda ver (en SMTP real NUNCA se devuelve).

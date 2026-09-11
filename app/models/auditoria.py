@@ -18,9 +18,13 @@ class Auditoria(Base, TimestampMixin):
     __tablename__ = "auditorias"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # ticket_id es NULLABLE: la tabla registra eventos tanto de tickets
+    # (cambio de estado, asignación, cierre) como de usuarios/seguridad
+    # (envío de credenciales, login, edición de perfil). Para los eventos
+    # no asociados a un ticket, ticket_id queda en NULL.
     ticket_id = Column(
         Integer, ForeignKey("tickets.id", ondelete="CASCADE"),
-        nullable=False, index=True
+        nullable=True, index=True
     )
     usuario_id = Column(
         Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"),

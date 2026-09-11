@@ -88,6 +88,11 @@ def _auditar_envio_credenciales(
     """
     Inserta un registro de auditoría con la acción EMAIL_CREDENCIALES.
     Se hace best-effort: si la tabla no tiene el método, se omite.
+
+    IMPORTANTE: si el flush falla, hay que hacer rollback() para sacar
+    la sesión del estado "transaction failed". De lo contrario, el
+    próximo commit/flush del caller explota con ``PendingRollbackError``
+    y el endpoint devuelve 500.
     """
     try:
         registro = Auditoria(
@@ -113,7 +118,13 @@ def _auditar_envio_credenciales(
         db.flush()
     except Exception as exc:
         # La auditoría es opcional: no rompemos el flujo si falla.
+        # PERO hacemos rollback() para sacar la sesión del estado
+        # "transaction failed" y permitir que el caller siga trabajando.
         logger.debug("[credenciales] auditoría omitida: %s", exc)
+        try:
+            db.rollback()
+        except Exception as rb_exc:
+            logger.debug("[credenciales] rollback post-auditoría falló: %s", rb_exc)
 
 
 # ============== API principal ==============
