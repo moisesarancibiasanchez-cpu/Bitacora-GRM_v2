@@ -808,13 +808,16 @@ async def roles_funciones_page(request: Request):
             "ver_kanban", "ver_detalle", "ver_auditoria",
             "crear_ticket", "agregar_comentario",
             "cambiar_estado", "editar_ticket",
+            "ver_dashboard",
         ],
         RolUsuario.SOLICITANTE: [
             "ver_kanban", "ver_detalle", "ver_auditoria",
             "crear_ticket", "agregar_comentario",
+            "ver_dashboard",
         ],
         RolUsuario.OBSERVADOR: [
             "ver_kanban", "ver_detalle", "ver_auditoria",
+            "ver_dashboard",
         ],
     }
 

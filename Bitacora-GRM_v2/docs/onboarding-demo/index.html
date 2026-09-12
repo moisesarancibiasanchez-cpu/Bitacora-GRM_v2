@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guía de Onboarding — Bitácora GRM v2</title>
+  <meta name="description" content="Guía paso a paso para usuarios del sistema híbrido ITSM + Kanban Bitácora GRM v2.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    code, pre, kbd { font-family: 'JetBrains Mono', monospace; }
+    .nav-link { transition: all 0.15s ease; }
+    .nav-link:hover { background: #eef2ff; color: #4338ca; }
+    .nav-link.active { background: #e0e7ff; color: #4338ca; border-left-color: #4f46e5; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+    .ascii { font-family: 'JetBrains Mono', monospace; white-space: pre; overflow-x: auto; background: #f8fafc; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; font-size: 0.75rem; line-height: 1.2; }
+    h2 { scroll-margin-top: 5rem; }
+    h3 { scroll-margin-top: 5rem; }
+    .anchor-link { opacity: 0; transition: opacity 0.2s; }
+    h2:hover .anchor-link, h3:hover .anchor-link { opacity: 1; }
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 600; }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold">GRM</div>
+        <div>
+          <h1 class="text-base font-semibold text-slate-800">Bitácora GRM v2</h1>
+          <p class="text-[11px] text-slate-500 -mt-0.5">Guía de Onboarding para Usuarios</p>
+        </div>
+      </div>
+      <nav class="flex items-center gap-2 text-sm">
+        <a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener"
+           class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          GitHub
+        </a>
+        <a href="#sec-1" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Inicio</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="flex max-w-7xl mx-auto">
+
+    <!-- Sidebar -->
+    <aside class="hidden lg:block w-72 shrink-0 border-r border-slate-200 bg-white sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto">
+      <nav class="p-4 space-y-0.5 text-sm">
+        <p class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Secciones</p>
+        <a href="#sec-1"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">1. ¿Qué es Bitácora GRM?</a>
+        <a href="#sec-2"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">2. Registrarse e iniciar sesión</a>
+        <a href="#sec-3"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">3. Cambiar contraseña</a>
+        <a href="#sec-4"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">4. Conocer la interfaz</a>
+        <a href="#sec-5"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">5. Crear incidencia</a>
+        <a href="#sec-6"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">6. Detalle del ticket</a>
+        <a href="#sec-7"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">7. Mover tickets</a>
+        <a href="#sec-8"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">8. Filtrar el tablero</a>
+        <a href="#sec-9"  class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">9. Tickets archivados</a>
+        <a href="#sec-10" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">10. Búsqueda global ⌘K</a>
+        <a href="#sec-11" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">11. Roles y permisos</a>
+        <a href="#sec-12" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">12. Tareas de Administrador</a>
+        <a href="#sec-13" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">13. Cerrar sesión</a>
+        <a href="#sec-14" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">14. Atajos de teclado</a>
+        <a href="#sec-15" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">15. Errores frecuentes</a>
+        <a href="#sec-16" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">16. Buenas prácticas</a>
+        <a href="#sec-17" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">17. Glosario</a>
+        <a href="#sec-18" class="nav-link block pl-3 pr-2 py-1.5 rounded border-l-2 border-transparent text-slate-700">18. Soporte y contacto</a>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="flex-1 min-w-0 px-6 py-8 lg:px-10">
+
+      <!-- Hero -->
+      <div class="mb-10 pb-8 border-b border-slate-200">
+        <p class="text-xs uppercase tracking-widest font-semibold text-indigo-600 mb-2">Documentación oficial</p>
+        <h1 class="text-4xl font-bold text-slate-900 mb-3">Guía de Onboarding — Bitácora GRM v2</h1>
+        <p class="text-lg text-slate-600 max-w-3xl">Para usuarios finales del sistema. Esta guía explica paso a paso cómo usar Bitácora GRM para registrar, gestionar y resolver incidencias, combinando la formalidad de un ITSM con la agilidad de un tablero Kanban.</p>
+      </div>
+
+      <!-- 01 -->
+      <section id="sec-1" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">01</span>
+          ¿Qué es Bitácora GRM?
+        </h2>
+        <p class="mb-3 text-slate-700"><strong>Bitácora GRM</strong> es una plataforma web de <em>gestión de incidencias</em> que combina dos enfoques:</p>
+        <ul class="space-y-2 list-disc pl-6 text-slate-700 mb-4">
+          <li><strong class="text-indigo-700">ITSM (gestión estricta):</strong> cada cambio de estado de un ticket se valida contra reglas de negocio, queda registrado en una auditoría inalterable y se mide contra Acuerdos de Nivel de Servicio (SLA).</li>
+          <li><strong class="text-purple-700">Kanban (visualización ágil):</strong> el tablero principal muestra los tickets como tarjetas que se arrastran entre columnas para cambiar su estado.</li>
+        </ul>
+        <p class="mb-4 text-slate-700">Todo funciona desde el navegador, sin instalar nada. La URL de acceso te la entrega el equipo de soporte de tu organización (ej.: <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">https://bitacora.tuempresa.com</code>).</p>
+        <div class="bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded-r-lg text-sm text-slate-700">
+          <p><em>Arquitectura del flujo de datos: la tarjeta se arrastra en el frontend, el backend valida la transición, registra auditoría y recalcula los SLA.</em></p>
+        </div>
+      </section>
+
+      <!-- 02 -->
+      <section id="sec-2" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">02</span>
+          Tu primera vez: registrarse e iniciar sesión
+        </h2>
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">2.1. Si tu cuenta ya existe</h3>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Abre el navegador y entra a la URL del sistema.</li>
+          <li>En la pantalla de <strong>Iniciar sesión</strong> escribe tu <strong>usuario o email</strong> y tu <strong>contraseña</strong>.</li>
+          <li>Haz clic en <strong>Entrar</strong>. Quedas autenticado por 8 horas (luego te pedirá volver a iniciar sesión).</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-6">*Pantalla de login con campos usuario/email y contraseña.*</p>
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">2.2. Si NO tienes cuenta aún</h3>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-3">
+          <li>En la pantalla de login, haz clic en el enlace <strong>"Regístrate aquí"</strong>.</li>
+          <li>Completa:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li><strong>Usuario</strong> (3–64 caracteres, sin espacios; ej. <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">jperez</code>)</li>
+              <li><strong>Email</strong> corporativo</li>
+              <li><strong>Nombre completo</strong></li>
+              <li><strong>Contraseña</strong> (mínimo 6 caracteres, máximo 128)</li>
+              <li><strong>Confirmar contraseña</strong></li>
+            </ul>
+          </li>
+          <li>Haz clic en <strong>Registrarme</strong>. Tu cuenta queda creada con rol <strong>Solicitante</strong> por defecto; un Administrador la elevará de rol si corresponde.</li>
+          <li>El sistema te autentica de forma automática y te redirige al tablero.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-4">*Formulario de alta de cuenta — el rol inicial es Solicitante.*</p>
+        <div class="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg text-sm text-slate-700">
+          <p><strong>Tip:</strong> si el registro está deshabilitado en tu organización, contacta al Administrador para que te cree la cuenta (ver <a href="#sec-12" class="text-amber-700 underline">sección 12 · Tareas de Administrador</a>).</p>
+        </div>
+      </section>
+
+      <!-- 03 -->
+      <section id="sec-3" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">03</span>
+          Cambiar tu contraseña
+        </h2>
+        <p class="text-slate-700 mb-3">Recomendado hacerlo apenas ingreses por primera vez.</p>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>En la barra superior, haz clic en el ícono de <strong>llave</strong> con el texto <strong>"Cambiar contraseña"</strong> (esquina superior derecha).</li>
+          <li>En el modal que aparece, completa:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li><strong>Contraseña actual</strong></li>
+              <li><strong>Nueva contraseña</strong> (6–128 caracteres, distinta de la actual)</li>
+              <li><strong>Confirmar nueva contraseña</strong></li>
+            </ul>
+          </li>
+          <li>Haz clic en <strong>Actualizar contraseña</strong>.</li>
+          <li>Al guardar, el modal se cierra y aparece un toast verde confirmando. Tu sesión sigue activa.</li>
+        </ol>
+        <p class="text-slate-700">Si la nueva clave es igual a la actual, el sistema rechaza con un mensaje de error y mantiene el modal abierto.</p>
+      </section>
+
+      <!-- 04 -->
+      <section id="sec-4" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">04</span>
+          Conocer la interfaz principal
+        </h2>
+        <div class="ascii mb-4">┌────────────────────────────────────────────────────────────────┐
+│  Bitácora GRM     Tablero  Tickets  Usuarios [Buscar ⌘K]      │
+│                                              ●Online  Juan    │
+├────────────────────────────────────────────────────────────────┤
+│ [Filtros 1] [Archivados]                    [+ Nueva Inc.]    │
+├────────────────────────────────────────────────────────────────┤
+│  NUEVO   ║  EN CURSO   ║  EN ESPERA  ║  RESUELTO  ║ CERRADO  │
+│  (2)     ║  (1)        ║  (1)        ║  (1)       ║ (12)     │
+│  ┌─────┐ ║  ┌─────┐    ║  ┌─────┐    ║  ┌─────┐   ║          │
+│  │Tarj.│ ║  │Tarj.│    ║  │Tarj.│    ║  │Tarj.│   ║          │
+│  └─────┘ ║  └─────┘    ║  └─────┘    ║  └─────┘   ║          │
+│  ┌─────┐ ║             ║             ║             ║          │
+│  │Tarj.│ ║             ║             ║             ║          │
+│  └─────┘ ║             ║             ║             ║          │
+└────────────────────────────────────────────────────────────────┘</div>
+        <ul class="space-y-2 list-disc pl-6 text-slate-700 mb-4">
+          <li><strong>Columnas:</strong> cada columna representa un <strong>estado</strong> del flujo de trabajo. El nombre, color y orden los define el Administrador.</li>
+          <li><strong>Tarjetas:</strong> cada tarjeta es un <strong>ticket</strong> (incidencia). Tiene un código (ej. <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">INC-0042</code>), título, prioridad, asignado, etiquetas y un indicador de SLA.</li>
+        </ul>
+        <p class="text-sm text-slate-500 italic mb-4">*Vista general del tablero Kanban con cinco columnas en distintos colores.*</p>
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">Indicador de SLA</h3>
+        <p class="text-slate-700 mb-2">Es la esquina inferior derecha de cada tarjeta:</p>
+        <p class="text-slate-700">🟢 Verde → SLA cumplido, dentro de plazo · 🟡 Ámbar → próximo a vencer · 🔴 Rojo → vencido.</p>
+      </section>
+
+      <!-- 05 -->
+      <section id="sec-5" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">05</span>
+          Crear una nueva incidencia
+        </h2>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Haz clic en el botón <strong>"+ Nueva Incidencia"</strong> (esquina superior derecha del tablero).</li>
+          <li>Se abre un modal con un formulario. Completa:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li><strong>Título</strong> <em>(obligatorio)</em>: resumen breve (ej. "No puedo acceder al sistema SAP").</li>
+              <li><strong>Descripción detallada</strong>: acepta <strong>Markdown</strong> — puedes usar <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">**negrita**</code>, <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">*itálica*</code>, <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">`código`</code>, <code class="px-1.5 py-0.5 rounded bg-slate-100 text-pink-600">[link](url)</code>, listas y saltos de línea.</li>
+              <li><strong>Tipo</strong>: Incidencia, Solicitud, Problema o Cambio.</li>
+              <li><strong>Prioridad</strong>: Crítica, Alta, Media o Baja.</li>
+              <li><strong>Fecha de vencimiento (SLA)</strong>: opcional, deadline esperado.</li>
+              <li><strong>Adjuntos</strong>: arrastra archivos al cuadro punteado o haz clic para seleccionar.</li>
+              <li><strong>Checklist inicial</strong> <em>(opcional)</em>: ítems a verificar al trabajar el ticket.</li>
+            </ul>
+          </li>
+          <li>Haz clic en <strong>Crear Incidencia</strong>.</li>
+          <li>El modal se cierra, aparece un toast verde y <strong>la tarjeta aparece en la primera columna</strong> del tablero (estado "Nuevo") sin recargar la página.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-4">*Modal de creación con título, descripción Markdown, tipo, prioridad, vencimiento y dropzone de adjuntos.*</p>
+        <div class="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg text-sm text-slate-700">
+          <p><strong>Atajo:</strong> el botón <strong>"Crear y abrir detalle"</strong> (si está habilitado) crea el ticket y abre el modal de detalle para empezar a editar de inmediato.</p>
+        </div>
+      </section>
+
+      <!-- 06 -->
+      <section id="sec-6" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">06</span>
+          Ver y editar el detalle de un ticket
+        </h2>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Haz clic en cualquier parte de la tarjeta (o en el ícono de ojo 👁 en su esquina).</li>
+          <li>Se abre un modal con toda la información del ticket, organizada en secciones:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li><strong>Cabecera:</strong> código, título, prioridad, asignado, fecha de creación, fecha de vencimiento.</li>
+              <li><strong>Descripción</strong> (Markdown renderizado).</li>
+              <li><strong>Comentarios</strong> (en orden cronológico).</li>
+              <li><strong>Checklist</strong> (ítems a marcar / desmarcar).</li>
+              <li><strong>Adjuntos</strong> (imágenes con vista previa ampliable, archivos descargables).</li>
+              <li><strong>Etiquetas</strong> (colores).</li>
+              <li><strong>Historial</strong> (auditoría de cambios).</li>
+            </ul>
+          </li>
+          <li>Para <strong>editar un campo en línea</strong>: haz clic en el valor (ej. la prioridad) y elige otro. El cambio se guarda de forma automática (HTMX) y aparece un toast confirmando.</li>
+          <li>Para <strong>agregar un comentario</strong>: escribe en el cuadro "Escribir un comentario…" (admite Markdown) y haz clic en <strong>Enviar</strong>.</li>
+          <li>Para <strong>subir un adjunto</strong>: arrastra un archivo al cuadro de dropzone, o haz clic para elegir. Las imágenes se previsualizan y se pueden ampliar con un clic (lightbox).</li>
+          <li>Para <strong>cerrar el modal</strong>: clic en la X, en el fondo oscuro, o tecla <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Esc</kbd>.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic">*Detalle del ticket con pestañas (Descripción, Comentarios, Checklist, Adjuntos, Etiquetas, Historial).*</p>
+      </section>
+
+      <!-- 07 -->
+      <section id="sec-7" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">07</span>
+          Mover un ticket entre columnas (cambiar su estado)
+        </h2>
+        <div class="bg-purple-50 border-l-4 border-purple-500 p-4 rounded-r-lg text-sm text-slate-700 mb-4">
+          <p><strong>Esta es la acción principal del flujo Kanban.</strong></p>
+        </div>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Haz clic y mantén presionada una tarjeta.</li>
+          <li><strong>Arrastra</strong> la tarjeta a otra columna y suéltala encima.</li>
+          <li>Si la transición de estado es válida para tu rol:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li>El backend valida, actualiza el ticket, registra en auditoría y <strong>devuelve el HTML actualizado</strong>.</li>
+              <li>La tarjeta aparece en la nueva columna sin recargar la página.</li>
+              <li>Toast verde: "Ticket movido".</li>
+            </ul>
+          </li>
+          <li>Si la transición <strong>no está permitida</strong> para tu rol o el estado de origen/destino no existe en la matriz de transiciones:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li>La tarjeta <strong>vuelve sola a su columna original</strong> (rollback visual de SortableJS).</li>
+              <li>Toast rojo: "No tienes permisos para esta transición" o mensaje específico.</li>
+            </ul>
+          </li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-4">*Drag & drop: la tarjeta se arrastra, el backend valida y la nueva ubicación queda confirmada con un toast verde.*</p>
+        <div class="bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded-r-lg text-sm text-slate-700">
+          <p><strong>Buenas prácticas:</strong></p>
+          <ul class="list-disc pl-6 mt-1 space-y-1">
+            <li>Si el cambio de estado exige un comentario (ej. "Cancelar" o "Reabrir"), el modal te lo pedirá antes de confirmar.</li>
+            <li>Cada movimiento queda asentado en la pestaña <strong>Historial</strong> del ticket con timestamp y usuario que lo hizo.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 08 -->
+      <section id="sec-8" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">08</span>
+          Filtrar el tablero
+        </h2>
+        <p class="text-slate-700 mb-3">El tablero puede tener cientos de tarjetas. Para encontrar lo que buscas:</p>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Haz clic en <strong>"Filtros"</strong> en la barra superior (esquina izquierda del tablero). Aparece un panel plegable.</li>
+          <li>Puedes combinar:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li><strong>Búsqueda</strong> por texto (título, código o descripción).</li>
+              <li><strong>Prioridad</strong> (Crítica / Alta / Media / Baja).</li>
+              <li><strong>Asignado</strong> (un agente específico).</li>
+              <li><strong>Etiqueta</strong> (un color / categoría).</li>
+              <li><strong>Solo mis tickets</strong> (casilla) → filtra a los asignados a ti.</li>
+              <li><strong>Solo críticos</strong> (casilla).</li>
+            </ul>
+          </li>
+          <li>El contador en el chip <strong>"Filtros N"</strong> muestra cuántos filtros tienes activos.</li>
+          <li>Haz clic en <strong>Limpiar</strong> para borrar todos los filtros.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-3">*Panel de filtros con búsqueda, prioridad, asignado, etiqueta y toggles.*</p>
+        <p class="text-slate-700">Los filtros son <strong>client-side</strong>: aplican de forma instantánea, sin recargar.</p>
+      </section>
+
+      <!-- 09 -->
+      <section id="sec-9" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">09</span>
+          Tickets archivados
+        </h2>
+        <p class="text-slate-700 mb-3">Los tickets cerrados (o cancelados) se mueven al archivo:</p>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Haz clic en <strong>"Archivados"</strong> en la barra superior.</li>
+          <li>Se abre un modal con todos los tickets archivados.</li>
+          <li>Desde ahí puedes buscar, filtrar y <strong>reabrir</strong> un ticket si necesitas volver a trabajarlo.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-3">*Listado de tickets cerrados con búsqueda y acción de reabrir.*</p>
+        <p class="text-slate-700">Los archivados no ocupan espacio visual en el tablero principal.</p>
+      </section>
+
+      <!-- 10 -->
+      <section id="sec-10" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">10</span>
+          Búsqueda global (atajo ⌘K / Ctrl+K)
+        </h2>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>Haz clic en el cuadro <strong>"Buscar…"</strong> en la barra superior, o presiona <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Ctrl</kbd>+<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">K</kbd> (Windows/Linux) o <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">⌘</kbd>+<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">K</kbd> (Mac).</li>
+          <li>Se abre un <strong>Command Palette</strong>: empieza a escribir.</li>
+          <li>La búsqueda recorre: tickets (código / título / descripción), usuarios (solo si eres admin) y comandos rápidos (ej. "crear ticket", "ir a usuarios").</li>
+          <li>Navega con ↑/↓ y presiona <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Enter</kbd> para abrir el resultado.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic">*Paleta de comandos con resultados de tickets y comandos rápidos.*</p>
+      </section>
+
+      <!-- 11 -->
+      <section id="sec-11" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">11</span>
+          Roles y permisos
+        </h2>
+        <p class="text-slate-700 mb-3">El sistema tiene <strong>5 roles</strong> con permisos crecientes:</p>
+        <p class="text-sm text-slate-500 italic mb-3">*Pirámide de roles: cada nivel hereda los permisos del inferior.*</p>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm border border-slate-200 rounded-lg">
+            <thead class="bg-slate-100">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Rol</th>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Puede</th>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">No puede</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr><td class="px-3 py-2 font-medium"><span class="badge bg-emerald-100 text-emerald-700">Solicitante</span></td><td class="px-3 py-2">Crear tickets, comentar en los suyos, agregar adjuntos.</td><td class="px-3 py-2">Cambiar estado, asignar, cerrar tickets ajenos, ver tablero global.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><span class="badge bg-slate-100 text-slate-700">Observador</span></td><td class="px-3 py-2">Ver el tablero y la auditoría en modo lectura.</td><td class="px-3 py-2">Crear, editar, comentar o mover nada.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><span class="badge bg-sky-100 text-sky-700">Agente</span></td><td class="px-3 py-2">Atender tickets asignados: cambiar estado, comentar, adjuntar, marcar checklist.</td><td class="px-3 py-2">Reasignar, cerrar tickets no asignados, ver auditoría global.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><span class="badge bg-indigo-100 text-indigo-700">Agente Senior</span></td><td class="px-3 py-2">Todo lo anterior + reasignar, cerrar tickets, editar la mayoría de campos.</td><td class="px-3 py-2">Gestionar usuarios ni crear columnas.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><span class="badge bg-purple-100 text-purple-700">Administrador</span></td><td class="px-3 py-2">Acceso total: gestionar usuarios, columnas, catálogos, ver toda la auditoría y reportes.</td><td class="px-3 py-2">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-slate-700 mt-3">Tu rol aparece como un chip de color en la barra superior, al lado de tu nombre.</p>
+      </section>
+
+      <!-- 12 -->
+      <section id="sec-12" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">12</span>
+          Si eres Administrador: tareas adicionales
+        </h2>
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">12.1. Crear / editar usuarios</h3>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>En la barra superior, haz clic en <strong>"Usuarios"</strong> (solo visible para administradores).</li>
+          <li>Acciones por fila:
+            <ul class="list-disc pl-6 mt-2 space-y-1">
+              <li>✉️ <strong>Email</strong>: previsualizar y enviar credenciales por correo al usuario (genera una contraseña provisoria aleatoria).</li>
+              <li>✏️ <strong>Editar</strong>: cambiar nombre, email, departamento, rol o estado activo/inactivo.</li>
+              <li>🔑 <strong>Cambiar contraseña</strong>: resetear la contraseña de otro usuario (tú defines el valor; no necesitas conocer la actual).</li>
+              <li>🟢/🔴 <strong>Activar / Desactivar</strong>: soft-delete del usuario.</li>
+            </ul>
+          </li>
+          <li><strong>Crear un usuario nuevo</strong>: haz clic en <strong>"+ Nuevo Usuario"</strong>, completa el formulario y haz clic en <strong>Crear</strong>.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-4">*Tabla de usuarios con columnas: usuario, nombre, rol, estado y acciones (email, editar, reset, activar).*</p>
+        <p class="text-sm text-slate-500 italic mb-6">*Modal de reset de contraseña: el admin define el nuevo valor, sin necesidad de conocer la actual.*</p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">12.2. Gestionar el flujo (columnas)</h3>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-4">
+          <li>En el tablero, haz clic en el botón <strong>"+ Añadir columna"</strong> (esquina derecha). Completa nombre y color.</li>
+          <li>Para <strong>renombrar</strong> una columna: clic en el título o en el ícono de lápiz.</li>
+          <li>Para <strong>asignar un responsable</strong> a una columna: clic en "responsable" dentro del header; elige un agente. A partir de ese momento, <strong>todos los tickets que caigan en esa columna disparan un correo electrónico automático</strong> al responsable.</li>
+          <li>Para <strong>reordenar</strong> columnas: arrastra de forma horizontal por el body de la columna. El nuevo orden se guarda de manera automática. Si la API falla, el tablero se recarga para volver al estado real de la BD.</li>
+        </ol>
+        <p class="text-sm text-slate-500 italic mb-4">*Configuración de columnas: color, responsable y acciones (editar, eliminar).*</p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">12.3. Eliminar / desactivar una columna</h3>
+        <p class="text-slate-700">Antes de eliminar una columna, <strong>mueve todos sus tickets a otra columna</strong>. Si la columna aún tiene tickets, el sistema te advertirá al intentar eliminarla.</p>
+
+        <h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2">12.4. Ver la auditoría</h3>
+        <p class="text-slate-700">La auditoría está disponible en cada ticket (pestaña <em>"Historial"</em>). Cada cambio registra: timestamp, usuario, acción, valor anterior y valor nuevo.</p>
+      </section>
+
+      <!-- 13 -->
+      <section id="sec-13" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">13</span>
+          Cerrar sesión
+        </h2>
+        <ol class="space-y-2 list-decimal pl-6 text-slate-700 mb-3">
+          <li>Haz clic en <strong>"Salir"</strong> (esquina superior derecha).</li>
+          <li>El sistema invalida tu sesión y te redirige a la pantalla de login.</li>
+        </ol>
+        <p class="text-slate-700">La sesión también expira de forma automática después de <strong>8 horas de inactividad</strong>.</p>
+      </section>
+
+      <!-- 14 -->
+      <section id="sec-14" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">14</span>
+          Atajos de teclado útiles
+        </h2>
+        <p class="text-sm text-slate-500 italic mb-3">*Resumen visual de los atajos principales.*</p>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm border border-slate-200 rounded-lg">
+            <thead class="bg-slate-100">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Atajo</th>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Acción</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr><td class="px-3 py-2"><kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Ctrl</kbd>+<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">K</kbd> / <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">⌘</kbd>+<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">K</kbd></td><td class="px-3 py-2">Abre la búsqueda global</td></tr>
+              <tr><td class="px-3 py-2"><kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Esc</kbd></td><td class="px-3 py-2">Cierra cualquier modal abierto</td></tr>
+              <tr><td class="px-3 py-2"><kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Enter</kbd> en un input</td><td class="px-3 py-2">Confirma el formulario del modal</td></tr>
+              <tr><td class="px-3 py-2">Clic + arrastrar en tarjeta</td><td class="px-3 py-2">Mueve el ticket a otra columna</td></tr>
+              <tr><td class="px-3 py-2">Clic + arrastrar en columna <em>(admin)</em></td><td class="px-3 py-2">Reordena columnas</td></tr>
+              <tr><td class="px-3 py-2">Clic en tarjeta</td><td class="px-3 py-2">Abre el detalle</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 15 -->
+      <section id="sec-15" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">15</span>
+          Errores frecuentes y cómo resolverlos
+        </h2>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm border border-slate-200 rounded-lg">
+            <thead class="bg-slate-100">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Síntoma</th>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Causa probable</th>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Qué hacer</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr><td class="px-3 py-2">Toast rojo "No tienes permisos para realizar esta acción"</td><td class="px-3 py-2">Tu rol no permite esa acción</td><td class="px-3 py-2">Pide a un administrador que te otorgue el rol correspondiente</td></tr>
+              <tr><td class="px-3 py-2">Toast rojo "La transición no es válida"</td><td class="px-3 py-2">El estado destino no es alcanzable desde el estado actual para tu rol</td><td class="px-3 py-2">Consulta la matriz de transiciones del flujo con tu admin</td></tr>
+              <tr><td class="px-3 py-2">La tarjeta vuelve a su columna original al soltarla</td><td class="px-3 py-2">La transición fue rechazada por el backend</td><td class="px-3 py-2">Revisa el toast para ver el motivo exacto</td></tr>
+              <tr><td class="px-3 py-2">"Sesión expirada — Recarga la página"</td><td class="px-3 py-2">Pasaron 8 horas sin actividad</td><td class="px-3 py-2">Recarga la página y vuelve a iniciar sesión</td></tr>
+              <tr><td class="px-3 py-2">La pantalla se queda en "Cargando…"</td><td class="px-3 py-2">Fallo de red transitorio</td><td class="px-3 py-2">Espera unos segundos; si persiste, recarga</td></tr>
+              <tr><td class="px-3 py-2">Las imágenes de los adjuntos no se ven</td><td class="px-3 py-2">Tu navegador bloqueó el lightbox (cookies/storage)</td><td class="px-3 py-2">Habilita almacenamiento local para el dominio</td></tr>
+              <tr><td class="px-3 py-2">No puedes crear columnas / usuarios</td><td class="px-3 py-2">No eres Administrador</td><td class="px-3 py-2">Pide a un Admin que haga el cambio, o solicita elevación de rol</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 16 -->
+      <section id="sec-16" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">16</span>
+          Buenas prácticas
+        </h2>
+        <ul class="space-y-2 list-disc pl-6 text-slate-700">
+          <li><strong>Título claro y específico:</strong> evita "Ayuda" o "No anda"; prefiere "Error 500 al guardar pedido en módulo ventas".</li>
+          <li><strong>Descripción reproducible:</strong> incluye pasos para reproducir el problema, mensajes de error textuales, capturas y URLs afectadas.</li>
+          <li><strong>Prioridad correcta:</strong> Crítica = negocio detenido. Alta = bloqueo importante. Media = afecta, pero hay workaround. Baja = mejora o consulta.</li>
+          <li><strong>Asignación temprana:</strong> si sabes quién debe resolver, asigna directamente al soltarlo en su columna.</li>
+          <li><strong>Comentarios contextuales:</strong> cada vez que avances en el ticket, deja un comentario (incluso para "sigo investigando"). Eso permite a tu equipo y al solicitante ver el avance.</li>
+          <li><strong>Checklist para tareas complejas:</strong> si el ticket tiene varios pasos, usa el checklist. Cada ítem es una subtarea clara.</li>
+          <li><strong>Cierra tickets cuando corresponda:</strong> un ticket "resuelto" sin cerrar termina ocupando capacidad del tablero.</li>
+        </ul>
+      </section>
+
+      <!-- 17 -->
+      <section id="sec-17" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">17</span>
+          Glosario
+        </h2>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm border border-slate-200 rounded-lg">
+            <thead class="bg-slate-100">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200 w-48">Término</th>
+                <th class="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Definición</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr><td class="px-3 py-2 font-medium"><strong>Ticket / Incidencia</strong></td><td class="px-3 py-2">Unidad de trabajo. Representa un problema, solicitud, cambio o problema conocido.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Estado</strong></td><td class="px-3 py-2">Columna del Kanban. Define en qué fase está el ticket.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Prioridad</strong></td><td class="px-3 py-2">Urgencia del ticket (Crítica / Alta / Media / Baja).</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>SLA</strong></td><td class="px-3 py-2">Service Level Agreement — tiempo objetivo de resolución. Si vence, el indicador se pone rojo.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Asignado</strong></td><td class="px-3 py-2">Agente responsable de resolver el ticket.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Solicitante</strong></td><td class="px-3 py-2">Quien reporta la incidencia.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Auditoría</strong></td><td class="px-3 py-2">Registro inalterable de todos los cambios (quién, cuándo, qué).</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Columna con responsable</strong></td><td class="px-3 py-2">Cada vez que un ticket cae en esa columna, se notifica por correo electrónico al responsable.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Archivado</strong></td><td class="px-3 py-2">Ticket cerrado que ya no aparece en el tablero principal.</td></tr>
+              <tr><td class="px-3 py-2 font-medium"><strong>Command Palette</strong></td><td class="px-3 py-2">Buscador global (<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">⌘</kbd>+<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">K</kbd> / <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">Ctrl</kbd>+<kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">K</kbd>).</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 18 -->
+      <section id="sec-18" class="mb-12">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 text-sm font-bold">18</span>
+          Soporte y contacto
+        </h2>
+        <ul class="space-y-2 list-disc pl-6 text-slate-700">
+          <li><strong>Soporte de primer nivel:</strong> equipo de Mesa de Ayuda de tu organización.</li>
+          <li><strong>Errores del sistema / solicitudes de mejora:</strong> crear un ticket en Bitácora GRM con prioridad "Media" o "Baja".</li>
+          <li><strong>Problemas críticos del propio sistema:</strong> contacta directamente al equipo de desarrollo (ver <a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener" class="text-indigo-600 hover:underline">README en GitHub</a>).</li>
+        </ul>
+        <div class="mt-6 p-4 bg-slate-900 text-slate-100 rounded-lg text-sm">
+          <p><strong>Bitácora GRM v2</strong> — Sistema híbrido ITSM + Kanban.</p>
+          <p class="text-slate-400 mt-1"><em>Hecho con FastAPI · PostgreSQL · Redis/Celery · HTMX.</em></p>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="mt-12 pt-8 border-t border-slate-200 text-sm text-slate-500">
+        <p>© Bitácora GRM v2 · Documentación generada por MiniMax Agent</p>
+      </footer>
+
+    </main>
+  </div>
+
+  <script>
+    // Highlight active section in sidebar
+    const sections = document.querySelectorAll('main section');
+    const navLinks = document.querySelectorAll('aside .nav-link');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          navLinks.forEach(link => link.classList.remove('active'));
+          const id = entry.target.id;
+          const active = document.querySelector(`aside .nav-link[href="#${id}"]`);
+          if (active) active.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-20% 0px -75% 0px' });
+    sections.forEach(section => observer.observe(section));
+  </script>
+
+<script>
+/**
+ * Iframe 元素高亮注入脚本
+ * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
+ *
+ * 使用方法：
+ * 1. 将此脚本添加到目标网站的 HTML 中
+ * 2. 或通过浏览器扩展、用户脚本等方式注入
+ */
+
+(function () {
+  "use strict";
+
+  // 检查是否在 iframe 中
+  if (window.self === window.top) {
+    return; // 不在 iframe 中，不执行
+  }
+
+  // 检查是否已经初始化过
+  if (window.__iframeHighlightInitialized) {
+    return;
+  }
+  window.__iframeHighlightInitialized = true;
+  console.log("Iframe 高亮脚本已加载");
+
+  // 创建高亮覆盖层
+  var overlay = document.createElement("div");
+  overlay.id = "iframe-highlight-overlay";
+  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
+
+  // 创建悬停高亮框（虚线边框）
+  var highlightBox = document.createElement("div");
+  highlightBox.id = "iframe-highlight-box";
+  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
+
+  // 创建选中节点的常驻高亮框（实线边框）
+  var selectedBox = document.createElement("div");
+  selectedBox.id = "iframe-selected-box";
+  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
+
+  // 创建悬停标签显示
+  var tagLabel = document.createElement("div");
+  tagLabel.id = "iframe-tag-label";
+  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
+
+  // 创建选中节点标签
+  var selectedLabel = document.createElement("div");
+  selectedLabel.id = "iframe-selected-label";
+  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
+  overlay.appendChild(highlightBox);
+  overlay.appendChild(selectedBox);
+  overlay.appendChild(tagLabel);
+  overlay.appendChild(selectedLabel);
+  document.body.appendChild(overlay);
+
+  // 存储当前选中的元素
+  var selectedElement = null;
+  var highlightEnabled = false;
+
+  // 更新选中元素的高亮显示
+  function updateSelectedHighlight(element) {
+    console.log("updateSelectedHighlight called with:", element);
+    if (!element) {
+      selectedBox.style.display = "none";
+      selectedLabel.style.display = "none";
+      selectedElement = null;
+      console.log("Cleared selected highlight");
+      return;
+    }
+    selectedElement = element;
+    var rect = element.getBoundingClientRect();
+    console.log("Selected element rect:", rect);
+
+    // 更新选中高亮框位置
+    selectedBox.style.display = "block";
+    selectedBox.style.left = "".concat(rect.left - 2, "px");
+    selectedBox.style.top = "".concat(rect.top - 2, "px");
+    selectedBox.style.width = "".concat(rect.width + 4, "px");
+    selectedBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新选中标签位置和内容
+    selectedLabel.style.display = "block";
+    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 28;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 5) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
+    if (labelLeft + labelWidth > window.innerWidth - 10) {
+      labelLeft = window.innerWidth - labelWidth - 10;
+    }
+    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
+    selectedLabel.style.top = "".concat(labelTop, "px");
+    console.log("Selected highlight positioned at:", {
+      left: selectedBox.style.left,
+      top: selectedBox.style.top,
+      width: selectedBox.style.width,
+      height: selectedBox.style.height
+    });
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
+    var segments = [];
+    var current = element;
+    while (current !== document.documentElement) {
+      var selector = '';
+      // 优先检查唯一ID
+      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
+        segments.unshift("#".concat(current.id));
+        break; // ID唯一，无需继续向上
+      }
+
+      // 生成类名选择器（取第一个有效类名）
+      var classes = Array.from(current.classList).filter(function (c) {
+        return !c.startsWith('js-');
+      });
+      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
+
+      // 生成位置索引（nth-child）
+      var tag = current.tagName.toLowerCase();
+      if (!className) {
+        var siblings = Array.from(current.parentNode.children);
+        var index = siblings.findIndex(function (el) {
+          return el === current;
+        }) + 1;
+        selector = "".concat(tag, ":nth-child(").concat(index, ")");
+      } else {
+        selector = className;
+      }
+      segments.unshift(selector);
+      current = current.parentElement;
+    }
+
+    // 处理根元素
+    if (current === document.documentElement) {
+      segments.unshift('html');
+    }
+    return segments.join(' > ');
+  }
+
+  // 获取元素文本内容
+  function getElementText(element) {
+    var _element$textContent;
+    if (element.tagName === "INPUT") {
+      return element.value || element.placeholder || "";
+    }
+    if (element.tagName === "TEXTAREA") {
+      return element.value || element.placeholder || "";
+    }
+    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
+    return text.length > 50 ? text.substring(0, 50) + "..." : text;
+  }
+
+  // 获取元素属性信息
+  function getElementAttributes(element) {
+    var attrs = {};
+    for (var i = 0; i < element.attributes.length; i++) {
+      var attr = element.attributes[i];
+      attrs[attr.name] = attr.value;
+    }
+    return attrs;
+  }
+
+  // 鼠标悬停事件处理
+  function handleMouseOver(e) {
+    if (!highlightEnabled) return;
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免高亮 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 如果是已选中的元素，不显示悬停高亮
+    if (target === selectedElement) {
+      highlightBox.style.display = "none";
+      tagLabel.style.display = "none";
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+
+    // 更新悬停高亮框位置
+    highlightBox.style.display = "block";
+    highlightBox.style.left = "".concat(rect.left - 2, "px");
+    highlightBox.style.top = "".concat(rect.top - 2, "px");
+    highlightBox.style.width = "".concat(rect.width + 4, "px");
+    highlightBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新标签位置和内容
+    tagLabel.style.display = "block";
+    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 22;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 0) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
+      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
+    }
+    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
+    tagLabel.style.top = "".concat(labelTop, "px");
+
+    // 发送消息到父窗口
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 鼠标离开事件处理
+  function handleMouseOut(e) {
+    if (!highlightEnabled) return;
+    var relatedTarget = e.relatedTarget;
+
+    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
+    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
+      return;
+    }
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: null,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 点击事件处理
+  function handleClick(e) {
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免处理 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 检查是否是交互元素，这些元素需要保留默认行为
+    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
+
+    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
+    if (highlightEnabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+    console.log("Element clicked:", {
+      tagName: target.tagName,
+      selector: selector,
+      rect: rect
+    });
+
+    // 立即更新选中高亮
+    updateSelectedHighlight(target);
+
+    // 隐藏悬停高亮，因为现在是选中状态
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-click",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 监听来自父窗口的消息
+  function handleParentMessage(event) {
+    console.log("Received message from parent:", event.data);
+    if (event.data.type === "iframe-highlight-toggle") {
+      var enabled = event.data.enabled;
+      console.log("Highlight toggle:", enabled);
+      if (enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "enable-iframe-highlight") {
+      console.log("Enable iframe highlight");
+      enableHighlight();
+    } else if (event.data.type === "disable-iframe-highlight") {
+      console.log("Disable iframe highlight");
+      disableHighlight();
+    } else if (event.data.type === "toggle-iframe-highlight") {
+      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
+      console.log("Toggle iframe highlight to:", _enabled);
+      if (_enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "update-selected-element") {
+      var selector = event.data.selector;
+      console.log("Update selected element with selector:", selector);
+      if (selector) {
+        try {
+          var element = document.querySelector(selector);
+          console.log("Found element by selector:", element);
+          updateSelectedHighlight(element);
+        } catch (error) {
+          console.warn("Failed to select element:", error);
+          updateSelectedHighlight(null);
+        }
+      } else {
+        updateSelectedHighlight(null);
+      }
+    } else if (event.data.type === "clear-selected-element") {
+      console.log("Clear selected element");
+      updateSelectedHighlight(null);
+    }
+  }
+
+  // 启用高亮功能
+  function enableHighlight() {
+    console.log("Enabling highlight");
+    document.addEventListener("mouseover", handleMouseOver, true);
+    document.addEventListener("mouseout", handleMouseOut, true);
+    document.addEventListener("click", handleClick, true);
+    highlightEnabled = true;
+    overlay.style.display = "block";
+  }
+
+  // 禁用高亮功能
+  function disableHighlight() {
+    console.log("Disabling highlight");
+    highlightEnabled = false;
+    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
+    // 这样可以保留选中状态的显示
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
+  }
+
+  // 完全禁用高亮功能（移除所有监听器）
+  function fullyDisableHighlight() {
+    console.log("Fully disabling highlight");
+    highlightEnabled = false;
+    document.removeEventListener("mouseover", handleMouseOver, true);
+    document.removeEventListener("mouseout", handleMouseOut, true);
+    document.removeEventListener("click", handleClick, true);
+    overlay.style.display = "none";
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    selectedBox.style.display = "none";
+    selectedLabel.style.display = "none";
+  }
+
+  // 添加事件监听
+  enableHighlight();
+  window.addEventListener("message", handleParentMessage);
+
+  // 暴露全局函数供外部调用
+  window.__iframeHighlightControl = {
+    enable: enableHighlight,
+    disable: disableHighlight,
+    fullyDisable: fullyDisableHighlight,
+    isEnabled: function isEnabled() {
+      return highlightEnabled;
+    },
+    getSelectedElement: function getSelectedElement() {
+      return selectedElement;
+    },
+    updateSelected: updateSelectedHighlight,
+    // 通过消息发送开关控制
+    sendToggleMessage: function sendToggleMessage(enabled) {
+      window.parent.postMessage({
+        type: 'iframe-highlight-status',
+        enabled: enabled || highlightEnabled,
+        source: 'iframe-highlight-injector'
+      }, '*');
+    }
+  };
+
+  // 通知父窗口脚本已加载
+  try {
+    window.parent.postMessage({
+      type: "iframe-highlight-ready",
+      data: {
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now()
+      },
+      source: "iframe-highlight-injector"
+    }, "*");
+  } catch (error) {
+    console.warn("无法发送就绪消息到父窗口:", error);
+  }
+
+  // 清理函数
+  window.__iframeHighlightCleanup = function () {
+    fullyDisableHighlight();
+    window.removeEventListener("message", handleParentMessage);
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    delete window.__iframeHighlightInitialized;
+    delete window.__iframeHighlightCleanup;
+  };
+})();
+
+</script>
+</body>
+</html>
