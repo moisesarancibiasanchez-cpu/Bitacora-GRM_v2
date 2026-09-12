@@ -153,6 +153,30 @@ def listar_usuarios(
     return [UsuarioRead.from_orm_user(u) for u in usuarios]
 
 
+@router.get("/smtp-status")
+def smtp_status(usuario: Usuario = Depends(get_current_user)):
+    """
+    Devuelve el estado actual de la configuración SMTP.
+    Solo Administrador (datos operativos).
+
+    NOTA: esta ruta DEBE declararse ANTES de ``/{usuario_id}`` para que
+    FastAPI la prefiera sobre el path-paramétrico (de lo contrario
+    ``/smtp-status`` se parsea como ``usuario_id`` y devuelve 422).
+    """
+    _require_admin(usuario)
+    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
+    return {
+        "smtp_configured": smtp_ok,
+        "host": settings.SMTP_HOST or None,
+        "port": settings.SMTP_PORT,
+        "user": settings.SMTP_USER or None,
+        "from": settings.SMTP_FROM or None,
+        "use_tls": settings.SMTP_USE_TLS,
+        "public_base_url": settings.PUBLIC_BASE_URL,
+        "mode": "smtp" if smtp_ok else "log",
+    }
+
+
 @router.get("/{usuario_id}", response_model=UsuarioRead)
 def obtener_usuario(usuario_id: int, db: Session = Depends(get_db),
                     usuario: Usuario = Depends(get_current_user)):
@@ -423,26 +447,6 @@ def preview_email_credenciales(
         smtp_configured=smtp_ok,
         password_preview=pwd_preview,
     )
-
-
-@router.get("/smtp-status")
-def smtp_status(usuario: Usuario = Depends(get_current_user)):
-    """
-    Devuelve el estado actual de la configuración SMTP.
-    Solo Administrador (datos operativos).
-    """
-    _require_admin(usuario)
-    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
-    return {
-        "smtp_configured": smtp_ok,
-        "host": settings.SMTP_HOST or None,
-        "port": settings.SMTP_PORT,
-        "user": settings.SMTP_USER or None,
-        "from": settings.SMTP_FROM or None,
-        "use_tls": settings.SMTP_USE_TLS,
-        "public_base_url": settings.PUBLIC_BASE_URL,
-        "mode": "smtp" if smtp_ok else "log",
-    }
 
 
 @router.get(
