@@ -27,6 +27,14 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Optional
 
+# Captura opcional de correos cuando no hay SMTP (Dev Inbox).
+# No requiere dependencias nuevas; ver app/services/dev_inbox.py.
+try:
+    from app.services.dev_inbox import add as _dev_inbox_add
+    _HAS_DEV_INBOX = True
+except ImportError:  # pragma: no cover
+    _HAS_DEV_INBOX = False
+
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +140,8 @@ def send_email(
 
     # ---- Modo desarrollo: persistir a archivo y devolver sent=False. ----
     if not _smtp_configured():
+        # Persistencia tradicional en archivo de texto (legado, conserva
+        # el comportamiento original para quien ya dependa de leerlo).
         _ensure_log_dir()
         try:
             with _LOG_FILE.open("a", encoding="utf-8") as fh:
@@ -147,6 +157,24 @@ def send_email(
                 fh.write("\n")
         except Exception as exc:  # pragma: no cover
             logger.warning("[email] No se pudo escribir en log: %s", exc)
+
+        # Persistencia estructurada en el Dev Inbox (consultable por
+        # HTTP en /dev/inbox). Es la ruta preferida para QA: permite ver
+        # todos los correos enviados sin necesidad de SMTP real ni de
+        # un dominio verificado en servicios como Resend.
+        if _HAS_DEV_INBOX:
+            try:
+                _dev_inbox_add(
+                    to=to,
+                    subject=subject,
+                    body=body,
+                    html_body=html_body,
+                    cc=cc,
+                    transport="log",
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("[email] No se pudo capturar en Dev Inbox: %s", exc)
+
         logger.info("[email:log] -> %s | %s", to, subject)
         return EmailResult(False, "log", to, subject)
 

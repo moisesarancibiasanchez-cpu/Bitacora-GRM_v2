@@ -99,6 +99,11 @@ from app.core.jinja_filters import ALL_FILTERS  # noqa: E402
 for _fname, _ffunc in ALL_FILTERS.items():
     templates.env.filters[_fname] = _ffunc
 
+# Globals expuestos a TODAS las plantillas (Jinja2).
+# Mantener livianos: nada de I/O pesado, solo decisiones de UI.
+from app.services.dev_inbox import is_enabled as _dev_inbox_enabled  # noqa: E402
+templates.env.globals["dev_inbox_enabled"] = _dev_inbox_enabled
+
 
 # === Routers API ===
 app.include_router(api_router, prefix="/api/v1")
