@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
     SMTP_USE_TLS: bool = True
+    # SMTP_USE_SSL=True fuerza SMTPS (TLS implícito, típico puerto 465).
+    # Si se deja vacío/vacío, se autodetecta: puerto 465 → SSL, resto → STARTTLS.
+    SMTP_USE_SSL: bool = False
 
     # === URL pública del sistema (para los correos) ===
     PUBLIC_BASE_URL: str = "http://localhost:8000"

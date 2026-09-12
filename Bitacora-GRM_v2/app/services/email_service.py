@@ -156,6 +156,20 @@ def send_email(
     user = os.getenv("SMTP_USER", "")
     password = os.getenv("SMTP_PASSWORD", "")
     sender = os.getenv("SMTP_FROM", user)
+
+    # Resolución del modo TLS:
+    #   - SMTP_USE_SSL=true  → SMTPS (TLS implícito, típico puerto 465 / Resend).
+    #   - Si NO se define SMTP_USE_SSL, se autodetecta por puerto:
+    #       * puerto 465  → SMTPS (implícito)
+    #       * cualquier otro → SMTP plano + STARTTLS si SMTP_USE_TLS=true
+    #   - SMTP_USE_TLS=true → STARTTLS sobre SMTP plano (típico puerto 587).
+    # Esto evita el clásico bug "port 465 + STARTTLS" donde el servidor
+    # espera el handshake TLS antes del primer comando SMTP.
+    use_ssl_env = os.getenv("SMTP_USE_SSL")
+    if use_ssl_env is not None and use_ssl_env != "":
+        use_ssl = use_ssl_env.lower() == "true"
+    else:
+        use_ssl = (port == 465)
     use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
     msg = EmailMessage()
@@ -169,12 +183,29 @@ def send_email(
         msg.add_alternative(html_body, subtype="html")
 
     try:
-        with smtplib.SMTP(host, port, timeout=20) as smtp:
-            if use_tls:
-                smtp.starttls()
-            if user and password:
-                smtp.login(user, password)
-            smtp.send_message(msg)
+        if use_ssl:
+            # SMTPS: TLS implícito desde el inicio (puerto 465 / Resend).
+            logger.info(
+                "[email:smtp] Conectando vía SMTPS (SSL implícito) a %s:%s",
+                host, port,
+            )
+            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+                if user and password:
+                    smtp.login(user, password)
+                smtp.send_message(msg)
+        else:
+            # SMTP plano (+ STARTTLS si está habilitado). Puerto típico: 587.
+            logger.info(
+                "[email:smtp] Conectando vía SMTP%s a %s:%s",
+                "+STARTTLS" if use_tls else "", host, port,
+            )
+            with smtplib.SMTP(host, port, timeout=20) as smtp:
+                if use_tls:
+                    smtp.starttls()
+                if user and password:
+                    smtp.login(user, password)
+                smtp.send_message(msg)
+
         logger.info("[email:smtp] OK -> %s | %s", to, subject)
         return EmailResult(True, "smtp", to, subject)
     except Exception as exc:
