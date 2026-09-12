@@ -1,562 +1,437 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Guía de Onboarding — Bitácora GRM v2</title>
-  <meta name="description" content="Guía paso a paso para usuarios del sistema híbrido ITSM + Kanban Bitácora GRM v2.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    /* === Tipografía y resets base === */
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      margin: 0;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-size: 16px;
-      line-height: 1.65;
-      color: #24292e;
-      background: #ffffff;
-      -webkit-font-smoothing: antialiased;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitácora GRM v2 — Guía de Onboarding para Usuarios</title>
+<meta name="description" content="Documentación oficial para usuarios finales de Bitácora GRM v2: sistema híbrido ITSM + Kanban para gestión de incidencias.">
+<meta name="author" content="MiniMax Agent">
+<link rel="icon" type="image/svg+xml" href="imgs/logo.svg">
+<style>
+  /* ---------- Tokens ---------- */
+  :root{
+    --bg:#f8fafc; --surface:#ffffff; --ink:#0f172a; --ink-2:#1e293b;
+    --muted:#64748b; --line:#e2e8f0; --line-2:#cbd5e1;
+    --indigo:#4f46e5; --indigo-2:#6366f1; --indigo-3:#e0e7ff;
+    --amber:#f59e0b; --amber-2:#b45309; --amber-3:#fef3c7;
+    --green:#16a34a; --green-3:#dcfce7;
+    --red:#dc2626;   --red-3:#fee2e2;
+    --blue:#2563eb;  --blue-3:#dbeafe;
+    --purple:#9333ea; --purple-3:#f3e8ff;
+    --shadow-sm:0 1px 2px rgba(15,23,42,.06);
+    --shadow-md:0 6px 20px rgba(15,23,42,.08);
+    --shadow-lg:0 18px 48px rgba(15,23,42,.12);
+    --radius:14px; --radius-sm:8px;
+  }
 
-    /* === Tipografías especiales === */
-    code, pre, kbd, .ascii, .mono {
-      font-family: 'JetBrains Mono', SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
-    }
+  /* ---------- Reset ---------- */
+  *,*::before,*::after{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:96px}
+  body{
+    margin:0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    background:var(--bg); color:var(--ink);
+    line-height:1.65; font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  img,svg{max-width:100%; height:auto; display:block}
+  a{color:var(--indigo); text-decoration:none; transition:color .15s ease}
+  a:hover{color:var(--indigo-2); text-decoration:underline}
+  code,kbd{font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size:.92em}
 
-    /* === Layout principal === */
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+  /* ---------- Layout ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    background:linear-gradient(180deg,#0f172a 0%, #1e293b 100%);
+    color:#fff; padding:14px 24px;
+    box-shadow:var(--shadow-md);
+  }
+  .topbar-inner{
+    max-width:1240px; margin:0 auto;
+    display:flex; align-items:center; gap:18px;
+  }
+  .brand{display:flex; align-items:center; gap:12px; font-weight:700; font-size:18px}
+  .brand img{width:36px; height:36px}
+  .topbar nav{margin-left:auto; display:flex; gap:18px; flex-wrap:wrap}
+  .topbar nav a{color:#cbd5e1; font-size:14px}
+  .topbar nav a:hover{color:#fff; text-decoration:none}
+  .gh-badge{
+    display:inline-flex; align-items:center; gap:6px;
+    background:#334155; color:#fbbf24;
+    padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600;
+  }
 
-    /* === HEADER (estilo GitHub) === */
-    .site-header {
-      position: sticky;
-      top: 0;
-      z-index: 30;
-      background: #ffffff;
-      border-bottom: 1px solid #e1e4e8;
-    }
-    .site-header .inner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 24px;
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #24292e;
-      text-decoration: none;
-      font-weight: 700;
-      font-size: 16px;
-    }
-    .brand-mark {
-      width: 28px; height: 28px;
-      border-radius: 6px;
-      background: #24292e;
-      color: #fff;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }
-    .nav-links {
-      display: flex;
-      gap: 22px;
-      list-style: none;
-      margin: 0; padding: 0;
-      font-size: 14px;
-    }
-    .nav-links a {
-      color: #24292e;
-      text-decoration: none;
-      font-weight: 500;
-    }
-    .nav-links a:hover { color: #0366d6; }
-    .btn-github {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      background: #24292e;
-      color: #ffffff !important;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-    }
-    .btn-github:hover { background: #1b1f23; }
-    .btn-github svg { width: 14px; height: 14px; }
+  .hero{
+    max-width:1240px; margin:24px auto 0; padding:0 24px;
+  }
+  .hero img{border-radius:var(--radius); box-shadow:var(--shadow-lg)}
 
-    /* === Breadcrumb === */
-    .breadcrumb {
-      padding: 18px 0 4px;
-      font-size: 14px;
-      color: #6a737d;
-    }
-    .breadcrumb a {
-      color: #0366d6;
-      text-decoration: none;
-    }
-    .breadcrumb a:hover { text-decoration: underline; }
-    .breadcrumb .sep { margin: 0 6px; color: #6a737d; }
+  .container{
+    max-width:1240px; margin:0 auto;
+    padding:32px 24px 80px;
+    display:grid; grid-template-columns: 260px minmax(0,1fr);
+    gap:32px;
+  }
 
-    /* === Título principal === */
-    h1.page-title {
-      margin: 8px 0 12px;
-      font-size: 38px;
-      font-weight: 700;
-      color: #1f2328;
-      letter-spacing: -0.02em;
-      line-height: 1.2;
-    }
-    .page-subtitle {
-      margin: 0 0 24px;
-      font-size: 17px;
-      color: #57606a;
-      max-width: 760px;
-    }
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    position:sticky; top:96px;
+    align-self:start;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px 14px;
+    max-height:calc(100vh - 120px);
+    overflow-y:auto;
+    box-shadow:var(--shadow-sm);
+  }
+  .sidebar h4{
+    margin:0 0 10px 4px;
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted);
+  }
+  .toc{list-style:none; padding:0; margin:0}
+  .toc li{margin:2px 0}
+  .toc a{
+    display:flex; align-items:flex-start; gap:10px;
+    padding:7px 10px; border-radius:8px;
+    font-size:13.5px; color:var(--ink-2);
+    line-height:1.35;
+  }
+  .toc a:hover{background:var(--indigo-3); color:var(--indigo); text-decoration:none}
+  .toc a .num{
+    flex:none;
+    width:22px; height:22px; border-radius:6px;
+    background:var(--indigo-3); color:var(--indigo);
+    font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .toc a.is-active{background:var(--indigo-3); color:var(--indigo); font-weight:600}
 
-    /* === Layout 2 columnas: TOC + contenido === */
-    .layout {
-      display: grid;
-      grid-template-columns: 260px 1fr;
-      gap: 40px;
-      padding: 24px 0 64px;
-    }
-    @media (max-width: 900px) {
-      .layout { grid-template-columns: 1fr; gap: 24px; }
-      .toc { position: static !important; }
-    }
+  /* ---------- Content ---------- */
+  main{min-width:0}
+  .breadcrumb{font-size:13px; color:var(--muted); margin:0 0 18px}
+  .breadcrumb a{color:var(--muted)}
+  h1.section-title{
+    font-size:34px; line-height:1.2; margin:0 0 12px;
+    color:var(--ink);
+  }
+  .lead{font-size:17px; color:var(--muted); margin:0 0 28px}
 
-    /* === Sidebar TOC === */
-    .toc {
-      position: sticky;
-      top: 72px;
-      align-self: start;
-      max-height: calc(100vh - 88px);
-      overflow-y: auto;
-      padding-right: 8px;
-    }
-    .toc-title {
-      margin: 0 0 10px;
-      font-size: 13px;
-      font-weight: 700;
-      color: #6a737d;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .toc ul { list-style: none; padding: 0; margin: 0; }
-    .toc li { margin: 0; }
-    .toc a {
-      display: block;
-      padding: 5px 10px;
-      font-size: 14px;
-      color: #24292e;
-      text-decoration: none;
-      border-left: 2px solid transparent;
-      border-radius: 0 4px 4px 0;
-      line-height: 1.4;
-    }
-    .toc a:hover { background: #f6f8fa; color: #0366d6; }
-    .toc a.active {
-      background: #fff8c5;
-      border-left-color: #f59e0b;
-      color: #24292e;
-      font-weight: 600;
-    }
+  section{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:28px 30px;
+    margin-bottom:24px;
+    box-shadow:var(--shadow-sm);
+    scroll-margin-top:96px;
+  }
+  section h2{
+    margin:0 0 18px;
+    font-size:26px;
+    color:var(--ink);
+    display:flex; align-items:center; gap:12px;
+    border-bottom:1px solid var(--line);
+    padding-bottom:12px;
+  }
+  section h2 .pill{
+    font-size:12px; font-weight:700;
+    background:var(--indigo-3); color:var(--indigo);
+    padding:4px 10px; border-radius:999px;
+  }
+  section h3{
+    font-size:18px; margin:22px 0 10px;
+    color:var(--ink-2);
+  }
+  section p{margin:8px 0 14px; color:var(--ink-2)}
+  section ul, section ol{margin:8px 0 14px; padding-left:22px}
+  section li{margin:4px 0; color:var(--ink-2)}
+  section hr{border:none; border-top:1px solid var(--line); margin:18px 0}
 
-    /* === Tipografía del contenido === */
-    .content { max-width: 820px; }
-    h2.section-title {
-      margin: 56px 0 16px;
-      padding-bottom: 8px;
-      font-size: 26px;
-      font-weight: 700;
-      color: #1f2328;
-      letter-spacing: -0.01em;
-      border-bottom: 1px solid #e1e4e8;
-      scroll-margin-top: 80px;
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-    }
-    .section-num {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 22px;
-      font-weight: 700;
-      color: #0366d6;
-      letter-spacing: 0;
-    }
-    h3 {
-      margin: 28px 0 10px;
-      font-size: 18px;
-      font-weight: 600;
-      color: #1f2328;
-      scroll-margin-top: 80px;
-    }
-    h4 {
-      margin: 20px 0 8px;
-      font-size: 15px;
-      font-weight: 600;
-      color: #1f2328;
-    }
+  .fig{
+    margin:18px -10px 22px;
+    border-radius:var(--radius-sm);
+    overflow:hidden;
+    border:1px solid var(--line);
+    background:#f1f5f9;
+  }
+  .fig img{width:100%}
+  .fig-caption{
+    font-size:12px; color:var(--muted);
+    padding:8px 12px; background:#f8fafc;
+    border-top:1px solid var(--line);
+  }
 
-    p { margin: 0 0 14px; color: #1f2328; }
-    strong { font-weight: 600; color: #1f2328; }
-    em { color: #1f2328; }
-    a { color: #0366d6; text-decoration: none; }
-    a:hover { text-decoration: underline; }
+  /* ---------- Code & kbd ---------- */
+  code{
+    background:#f1f5f9; color:var(--ink-2);
+    padding:1px 6px; border-radius:5px;
+  }
+  kbd{
+    background:#0f172a; color:#fff;
+    padding:2px 8px; border-radius:5px;
+    font-size:12px; font-weight:600;
+    border-bottom:2px solid #475569;
+    box-shadow:0 1px 0 rgba(255,255,255,.05) inset;
+  }
+  pre{
+    background:#0f172a; color:#e2e8f0;
+    padding:16px 18px; border-radius:var(--radius-sm);
+    overflow:auto; font-size:13px; line-height:1.55;
+  }
 
-    /* === Listas === */
-    ul, ol { margin: 0 0 16px; padding-left: 26px; }
-    li { margin-bottom: 6px; }
-    li > ul, li > ol { margin-top: 6px; margin-bottom: 6px; }
+  /* ---------- Tip / warning / ok ---------- */
+  .tip, .warn, .ok, .info{
+    border-left:4px solid;
+    padding:12px 16px; border-radius:var(--radius-sm);
+    margin:14px 0;
+    font-size:14.5px;
+  }
+  .tip{background:var(--indigo-3); border-color:var(--indigo); color:#1e1b4b}
+  .warn{background:var(--amber-3); border-color:var(--amber); color:#7c2d12}
+  .ok{background:var(--green-3); border-color:var(--green); color:#14532d}
+  .info{background:var(--blue-3); border-color:var(--blue); color:#1e3a8a}
 
-    /* === Código en línea === */
-    code {
-      padding: 2px 6px;
-      background: #f6f8fa;
-      border-radius: 4px;
-      font-size: 0.88em;
-      color: #d73a49;
-    }
-    pre {
-      padding: 14px 16px;
-      background: #f6f8fa;
-      border-radius: 6px;
-      font-size: 13px;
-      line-height: 1.5;
-      overflow-x: auto;
-      margin: 0 0 16px;
-      color: #24292e;
-      border: 1px solid #e1e4e8;
-    }
-    pre code { padding: 0; background: transparent; color: inherit; font-size: inherit; }
+  /* ---------- Tables ---------- */
+  .table-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius-sm); margin:14px 0}
+  table{
+    width:100%; border-collapse:collapse; font-size:14.5px;
+    background:var(--surface);
+  }
+  th{
+    background:#f1f5f9; color:var(--ink-2);
+    text-align:left; padding:11px 14px; font-weight:700;
+    border-bottom:1px solid var(--line);
+  }
+  td{padding:11px 14px; border-bottom:1px solid var(--line); color:var(--ink-2)}
+  tr:last-child td{border-bottom:none}
+  tr:nth-child(even) td{background:#fafbfc}
 
-    /* === ASCII art (mantener el wireframe de la sección 04) === */
-    .ascii {
-      display: block;
-      padding: 14px 16px;
-      background: #f6f8fa;
-      border: 1px solid #e1e4e8;
-      border-radius: 6px;
-      font-size: 12px;
-      line-height: 1.3;
-      white-space: pre;
-      overflow-x: auto;
-      color: #24292e;
-      margin: 0 0 16px;
-    }
+  /* ---------- Inline diagram (ASCII) ---------- */
+  pre.diagram{
+    background:#0b1220; color:#a7f3d0;
+    font-size:13px; line-height:1.45;
+    white-space:pre;
+    padding:16px;
+    border-radius:var(--radius-sm);
+    overflow:auto;
+  }
 
-    /* === kbd (teclas) === */
-    kbd {
-      display: inline-block;
-      padding: 2px 6px;
-      font-size: 12px;
-      font-weight: 600;
-      line-height: 1.4;
-      color: #24292e;
-      background: #f6f8fa;
-      border: 1px solid #d1d5da;
-      border-radius: 4px;
-      box-shadow: inset 0 -1px 0 #d1d5da;
-    }
+  /* ---------- Back to top ---------- */
+  .back-top{
+    display:inline-flex; align-items:center; gap:6px;
+    margin-top:18px; font-size:13px; color:var(--muted);
+  }
+  .back-top:hover{color:var(--indigo)}
 
-    /* === Tablas (estilo GitHub) === */
-    .table-wrap { overflow-x: auto; margin: 0 0 16px; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-      background: #ffffff;
-    }
-    thead { background: #f6f8fa; }
-    th, td {
-      padding: 8px 12px;
-      border: 1px solid #d1d5da;
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      font-weight: 600;
-      color: #1f2328;
-    }
-    tbody tr:nth-child(even) { background: #f6f8fa; }
-    tbody tr:hover { background: #f0f3f6; }
+  /* ---------- Footer ---------- */
+  footer{
+    background:#0f172a; color:#94a3b8;
+    margin-top:60px; padding:36px 24px;
+  }
+  footer .wrap{max-width:1240px; margin:0 auto; display:grid; grid-template-columns: 2fr 1fr 1fr; gap:32px}
+  footer h5{color:#fff; margin:0 0 10px; font-size:14px}
+  footer a{color:#cbd5e1; font-size:14px}
+  footer a:hover{color:#fbbf24; text-decoration:none}
+  footer .copy{
+    border-top:1px solid #1e293b; margin-top:24px; padding-top:16px;
+    font-size:13px; color:#64748b;
+    max-width:1240px; margin-left:auto; margin-right:auto;
+  }
 
-    /* === Bloques destacados (Tip / Atajo / Buenas prácticas / Importante) === */
-    .note {
-      padding: 12px 16px;
-      margin: 0 0 16px;
-      border-left: 4px solid;
-      border-radius: 4px;
-      background: #f6f8fa;
-      font-size: 15px;
-    }
-    .note p:last-child { margin-bottom: 0; }
-    .note-tip      { border-color: #f59e0b; background: #fff8e1; }
-    .note-tip strong { color: #b45309; }
-    .note-atajo    { border-color: #3b82f6; background: #eff6ff; }
-    .note-atajo strong { color: #1d4ed8; }
-    .note-practica { border-color: #10b981; background: #ecfdf5; }
-    .note-practica strong { color: #047857; }
-    .note-info     { border-color: #6366f1; background: #eef2ff; }
-    .note-info strong { color: #4338ca; }
-    .note-warn     { border-color: #ef4444; background: #fef2f2; }
-    .note-warn strong { color: #b91c1c; }
+  /* ---------- Responsive ---------- */
+  @media (max-width: 960px){
+    .container{grid-template-columns:1fr}
+    .sidebar{position:static; max-height:none}
+    .hero{padding:0 16px}
+    .container{padding:20px 16px}
+    section{padding:20px}
+    h1.section-title{font-size:26px}
+    section h2{font-size:20px}
+    .topbar-inner{flex-wrap:wrap}
+    .topbar nav{width:100%}
+    footer .wrap{grid-template-columns:1fr}
+  }
 
-    /* === Pies de imagen (texto italic gris) === */
-    .caption {
-      display: block;
-      margin: -8px 0 16px;
-      font-size: 13px;
-      color: #6a737d;
-      font-style: italic;
-    }
-
-    /* === "↑ Volver arriba" === */
-    .back-to-top {
-      display: inline-block;
-      margin-top: 12px;
-      font-size: 13px;
-      color: #0366d6;
-      text-decoration: none;
-    }
-    .back-to-top:hover { text-decoration: underline; }
-
-    /* === Footer (3 columnas) === */
-    .site-footer {
-      border-top: 1px solid #e1e4e8;
-      background: #f6f8fa;
-      padding: 32px 0 24px;
-      margin-top: 48px;
-      color: #57606a;
-      font-size: 14px;
-    }
-    .footer-grid {
-      display: grid;
-      grid-template-columns: 1.4fr 1fr 1fr;
-      gap: 32px;
-    }
-    @media (max-width: 700px) {
-      .footer-grid { grid-template-columns: 1fr; gap: 24px; }
-    }
-    .footer-col h5 {
-      margin: 0 0 10px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #1f2328;
-    }
-    .footer-col p { margin: 0 0 8px; color: #57606a; }
-    .footer-col ul { list-style: none; padding: 0; margin: 0; }
-    .footer-col li { margin-bottom: 6px; }
-    .footer-col a { color: #0366d6; text-decoration: none; }
-    .footer-col a:hover { text-decoration: underline; }
-    .footer-bottom {
-      max-width: 1200px;
-      margin: 24px auto 0;
-      padding: 16px 24px 0;
-      border-top: 1px solid #e1e4e8;
-      font-size: 13px;
-      color: #6a737d;
-      display: flex;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    /* === Badge / chips suaves (estilo GitHub) === */
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      font-size: 12px;
-      font-weight: 600;
-      border-radius: 12px;
-      border: 1px solid transparent;
-    }
-    .badge-gray    { background: #f6f8fa; color: #57606a; border-color: #d1d5da; }
-    .badge-blue    { background: #ddf4ff; color: #0969da; border-color: #54aeff; }
-    .badge-green   { background: #dafbe1; color: #1a7f37; border-color: #74e094; }
-    .badge-purple  { background: #fbefff; color: #8250df; border-color: #d8b9ff; }
-    .badge-orange  { background: #fff1e5; color: #bc4c00; border-color: #ff9a4d; }
-    .badge-indigo  { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
-
-    /* === Stack banner final === */
-    .stack-banner {
-      margin-top: 24px;
-      padding: 14px 18px;
-      border: 1px solid #d1d5da;
-      border-radius: 6px;
-      background: #f6f8fa;
-      font-size: 14px;
-    }
-    .stack-banner strong { color: #1f2328; }
-    .stack-banner em { color: #6a737d; font-style: italic; }
-
-    /* === Responsive tweaks === */
-    @media (max-width: 700px) {
-      .site-header .inner { flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
-      .nav-links { order: 3; flex-basis: 100%; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-      h1.page-title { font-size: 30px; }
-      h2.section-title { font-size: 22px; }
-      .container { padding: 0 16px; }
-    }
-  </style>
+  /* ---------- Print ---------- */
+  @media print{
+    .topbar,.sidebar,.back-top,.gh-badge{display:none !important}
+    .container{grid-template-columns:1fr; padding:0}
+    section{break-inside:avoid; box-shadow:none; border:1px solid #ccc}
+    body{background:#fff}
+  }
+</style>
 </head>
 <body>
 
-  <!-- ===== HEADER ===== -->
-  <header class="site-header" id="top">
-    <div class="inner">
-      <a href="#top" class="brand">
-        <span class="brand-mark">GRM</span>
-        <span>Bitácora GRM v2</span>
-      </a>
-      <nav>
-        <ul class="nav-links">
-          <li><a href="#sec-1">Inicio</a></li>
-          <li><a href="#sec-4">Tablero</a></li>
-          <li><a href="#sec-7">Drag &amp; Drop</a></li>
-          <li><a href="#sec-11">Roles</a></li>
-          <li><a href="#sec-12">Admin</a></li>
-          <li><a href="#sec-15">Errores</a></li>
-          <li><a href="#sec-18">Soporte</a></li>
-        </ul>
-      </nav>
-      <a class="btn-github" href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        <span>★ GitHub</span>
-      </a>
-    </div>
-  </header>
-
-  <main class="container">
-
-    <!-- ===== Breadcrumb ===== -->
-    <nav class="breadcrumb" aria-label="breadcrumb">
-      <a href="#top">Inicio</a>
-      <span class="sep">›</span>
-      <span>Guía de Onboarding</span>
+<!-- ============== TOPBAR ============== -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="#top" class="brand">
+      <img src="imgs/logo.svg" alt="Bitácora GRM">
+      Bitácora GRM v2
+    </a>
+    <nav aria-label="Navegación principal">
+      <a href="#sec-1">Inicio</a>
+      <a href="#sec-4">Tablero</a>
+      <a href="#sec-7">Drag & Drop</a>
+      <a href="#sec-11">Roles</a>
+      <a href="#sec-12">Admin</a>
+      <a href="#sec-15">Errores</a>
+      <a href="#sec-18">Soporte</a>
     </nav>
+    <a class="gh-badge" href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener">★ GitHub</a>
+  </div>
+</header>
 
-    <!-- ===== Título + subtítulo ===== -->
-    <h1 class="page-title">Guía de Onboarding — Bitácora GRM v2</h1>
-    <p class="page-subtitle">
+<a id="top"></a>
+
+<!-- ============== HERO ============== -->
+<div class="hero">
+  <img src="imgs/hero.svg" alt="Bitácora GRM v2 — sistema híbrido ITSM + Kanban">
+</div>
+
+<!-- ============== LAYOUT ============== -->
+<div class="container">
+
+  <!-- =========== SIDEBAR =========== -->
+  <aside class="sidebar" aria-label="Índice">
+    <h4>Contenido</h4>
+    <ul class="toc" id="toc">
+      <li><a href="#sec-1"><span class="num">1</span>¿Qué es Bitácora GRM?</a></li>
+      <li><a href="#sec-2"><span class="num">2</span>Registrarse e iniciar sesión</a></li>
+      <li><a href="#sec-3"><span class="num">3</span>Cambiar contraseña</a></li>
+      <li><a href="#sec-4"><span class="num">4</span>Conocer la interfaz</a></li>
+      <li><a href="#sec-5"><span class="num">5</span>Crear incidencia</a></li>
+      <li><a href="#sec-6"><span class="num">6</span>Detalle del ticket</a></li>
+      <li><a href="#sec-7"><span class="num">7</span>Mover tickets</a></li>
+      <li><a href="#sec-8"><span class="num">8</span>Filtrar el tablero</a></li>
+      <li><a href="#sec-9"><span class="num">9</span>Tickets archivados</a></li>
+      <li><a href="#sec-10"><span class="num">10</span>Búsqueda global ⌘K</a></li>
+      <li><a href="#sec-11"><span class="num">11</span>Roles y permisos</a></li>
+      <li><a href="#sec-12"><span class="num">12</span>Tareas de Administrador</a></li>
+      <li><a href="#sec-13"><span class="num">13</span>Cerrar sesión</a></li>
+      <li><a href="#sec-14"><span class="num">14</span>Atajos de teclado</a></li>
+      <li><a href="#sec-15"><span class="num">15</span>Errores frecuentes</a></li>
+      <li><a href="#sec-16"><span class="num">16</span>Buenas prácticas</a></li>
+      <li><a href="#sec-17"><span class="num">17</span>Glosario</a></li>
+      <li><a href="#sec-18"><span class="num">18</span>Soporte y contacto</a></li>
+    </ul>
+  </aside>
+
+  <!-- =========== MAIN =========== -->
+  <main>
+
+    <p class="breadcrumb">
+      <a href="#top">Inicio</a> &nbsp;›&nbsp; Guía de Onboarding
+    </p>
+
+    <h1 class="section-title">Guía de Onboarding — Bitácora GRM v2</h1>
+    <p class="lead">
       Para usuarios finales del sistema. Esta guía explica paso a paso cómo usar
-      Bitácora GRM para registrar, gestionar y resolver incidencias, combinando
+      Bitácora GRM para registrar, gestionar y resolver incidencias combinando
       la formalidad de un ITSM con la agilidad de un tablero Kanban.
     </p>
 
-    <!-- ===== Layout TOC + Contenido ===== -->
-    <div class="layout">
+    <!-- ====== 1 ====== -->
+    <section id="sec-1">
+      <h2><span class="pill">01</span> ¿Qué es Bitácora GRM?</h2>
+      <p>
+        <strong>Bitácora GRM</strong> es una plataforma web de <em>gestión de incidencias</em>
+        que combina dos enfoques:
+      </p>
+      <ul>
+        <li><strong>ITSM (gestión estricta):</strong> cada cambio de estado de un ticket se valida contra reglas de negocio, queda registrado en una auditoría inalterable y se mide contra Acuerdos de Nivel de Servicio (SLA).</li>
+        <li><strong>Kanban (visualización ágil):</strong> el tablero principal muestra los tickets como tarjetas que se arrastran entre columnas para cambiar su estado.</li>
+      </ul>
+      <p>
+        Todo funciona desde el navegador, sin instalar nada. La URL de acceso te la entrega
+        el equipo de soporte de tu organización (ej.: <code>https://bitacora.tuempresa.com</code>).
+      </p>
 
-      <!-- ===== Sidebar TOC ===== -->
-      <aside class="toc" aria-label="Tabla de contenidos">
-        <h4 class="toc-title">Contenido</h4>
-        <ul>
-          <li><a href="#sec-1">1 ¿Qué es Bitácora GRM?</a></li>
-          <li><a href="#sec-2">2 Registrarse e iniciar sesión</a></li>
-          <li><a href="#sec-3">3 Cambiar contraseña</a></li>
-          <li><a href="#sec-4">4 Conocer la interfaz</a></li>
-          <li><a href="#sec-5">5 Crear incidencia</a></li>
-          <li><a href="#sec-6">6 Detalle del ticket</a></li>
-          <li><a href="#sec-7">7 Mover tickets</a></li>
-          <li><a href="#sec-8">8 Filtrar el tablero</a></li>
-          <li><a href="#sec-9">9 Tickets archivados</a></li>
-          <li><a href="#sec-10">10 Búsqueda global ⌘K</a></li>
-          <li><a href="#sec-11">11 Roles y permisos</a></li>
-          <li><a href="#sec-12">12 Tareas de Administrador</a></li>
-          <li><a href="#sec-13">13 Cerrar sesión</a></li>
-          <li><a href="#sec-14">14 Atajos de teclado</a></li>
-          <li><a href="#sec-15">15 Errores frecuentes</a></li>
-          <li><a href="#sec-16">16 Buenas prácticas</a></li>
-          <li><a href="#sec-17">17 Glosario</a></li>
-          <li><a href="#sec-18">18 Soporte y contacto</a></li>
-        </ul>
-      </aside>
+      <div class="fig">
+        <img src="imgs/flow.svg" alt="Flujo SortableJS → HTMX → FastAPI → PostgreSQL / Celery">
+        <div class="fig-caption">Arquitectura del flujo de datos: la tarjeta se arrastra en el frontend, el backend valida la transición, registra auditoría y recalcula SLAs.</div>
+      </div>
 
-      <!-- ===== Contenido ===== -->
-      <article class="content">
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
 
-        <!-- 01 -->
-        <section id="sec-1">
-          <h2 class="section-title"><span class="section-num">01</span> ¿Qué es Bitácora GRM?</h2>
-          <p><strong>Bitácora GRM</strong> es una plataforma web de <em>gestión de incidencias</em> que combina dos enfoques:</p>
+    <!-- ====== 2 ====== -->
+    <section id="sec-2">
+      <h2><span class="pill">02</span> Tu primera vez: registrarse e iniciar sesión</h2>
+
+      <h3>2.1. Si tu cuenta ya existe</h3>
+      <ol>
+        <li>Abre el navegador y entra a la URL del sistema.</li>
+        <li>En la pantalla de <strong>Iniciar sesión</strong> escribe tu <strong>usuario o email</strong> y tu <strong>contraseña</strong>.</li>
+        <li>Haz clic en <strong>Entrar</strong>. Quedas autenticado por 8 horas (luego te pedirá volver a iniciar sesión).</li>
+      </ol>
+
+      <div class="fig">
+        <img src="imgs/login.svg" alt="Pantalla de inicio de sesión de Bitácora GRM">
+        <div class="fig-caption">Pantalla de login con campos usuario/email y contraseña.</div>
+      </div>
+
+      <h3>2.2. Si NO tienes cuenta aún</h3>
+      <ol>
+        <li>En la pantalla de login, haz clic en el link <strong>"Regístrate aquí"</strong>.</li>
+        <li>Completa:
           <ul>
-            <li><strong>ITSM (gestión estricta):</strong> cada cambio de estado de un ticket se valida contra reglas de negocio, queda registrado en una auditoría inalterable y se mide contra Acuerdos de Nivel de Servicio (SLA).</li>
-            <li><strong>Kanban (visualización ágil):</strong> el tablero principal muestra los tickets como tarjetas que se arrastran entre columnas para cambiar su estado.</li>
+            <li><strong>Usuario</strong> (3–64 caracteres, sin espacios; ej. <code>jperez</code>)</li>
+            <li><strong>Email</strong> corporativo</li>
+            <li><strong>Nombre completo</strong></li>
+            <li><strong>Contraseña</strong> (mínimo 6 caracteres, máximo 128)</li>
+            <li><strong>Confirmar contraseña</strong></li>
           </ul>
-          <p>Todo funciona desde el navegador, sin instalar nada. La URL de acceso te la entrega el equipo de soporte de tu organización (ej.: <code>https://bitacora.tuempresa.com</code>).</p>
-          <div class="note note-info">
-            <p><strong>Arquitectura del flujo de datos:</strong> la tarjeta se arrastra en el frontend, el backend valida la transición, registra auditoría y recalcula los SLA.</p>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+        </li>
+        <li>Haz clic en <strong>Registrarme</strong>. Tu cuenta queda creada con rol <strong>Solicitante</strong> por defecto; un Administrador la elevará de rol si corresponde.</li>
+        <li>El sistema te autentica automáticamente y te redirige al tablero.</li>
+      </ol>
 
-        <!-- 02 -->
-        <section id="sec-2">
-          <h2 class="section-title"><span class="section-num">02</span> Tu primera vez: registrarse e iniciar sesión</h2>
-          <h3>2.1. Si tu cuenta ya existe</h3>
-          <ol>
-            <li>Abre el navegador y entra a la URL del sistema.</li>
-            <li>En la pantalla de <strong>Iniciar sesión</strong> escribe tu <strong>usuario o email</strong> y tu <strong>contraseña</strong>.</li>
-            <li>Haz clic en <strong>Entrar</strong>. Quedas autenticado por 8 horas (luego te pedirá volver a iniciar sesión).</li>
-          </ol>
-          <span class="caption">*Pantalla de login con campos usuario/email y contraseña.*</span>
-          <h3>2.2. Si NO tienes cuenta aún</h3>
-          <ol>
-            <li>En la pantalla de login, haz clic en el enlace <strong>"Regístrate aquí"</strong>.</li>
-            <li>Completa:
-              <ul>
-                <li><strong>Usuario</strong> (3–64 caracteres, sin espacios; ej. <code>jperez</code>)</li>
-                <li><strong>Email</strong> corporativo</li>
-                <li><strong>Nombre completo</strong></li>
-                <li><strong>Contraseña</strong> (mínimo 6 caracteres, máximo 128)</li>
-                <li><strong>Confirmar contraseña</strong></li>
-              </ul>
-            </li>
-            <li>Haz clic en <strong>Registrarme</strong>. Tu cuenta queda creada con rol <strong>Solicitante</strong> por defecto; un Administrador la elevará de rol si corresponde.</li>
-            <li>El sistema te autentica de forma automática y te redirige al tablero.</li>
-          </ol>
-          <span class="caption">*Formulario de alta de cuenta — el rol inicial es Solicitante.*</span>
-          <div class="note note-tip">
-            <p><strong>Tip:</strong> si el registro está deshabilitado en tu organización, contacta al Administrador para que te cree la cuenta (ver <a href="#sec-12">sección 12 · Tareas de Administrador</a>).</p>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+      <div class="fig">
+        <img src="imgs/register.svg" alt="Formulario de registro de cuenta nueva">
+        <div class="fig-caption">Formulario de alta de cuenta — el rol inicial es Solicitante.</div>
+      </div>
 
-        <!-- 03 -->
-        <section id="sec-3">
-          <h2 class="section-title"><span class="section-num">03</span> Cambiar tu contraseña</h2>
-          <p>Recomendado hacerlo apenas ingreses por primera vez.</p>
-          <ol>
-            <li>En la barra superior, haz clic en el ícono de <strong>llave</strong> con el texto <strong>"Cambiar contraseña"</strong> (esquina superior derecha).</li>
-            <li>En el modal que aparece, completa:
-              <ul>
-                <li><strong>Contraseña actual</strong></li>
-                <li><strong>Nueva contraseña</strong> (6–128 caracteres, distinta de la actual)</li>
-                <li><strong>Confirmar nueva contraseña</strong></li>
-              </ul>
-            </li>
-            <li>Haz clic en <strong>Actualizar contraseña</strong>.</li>
-            <li>Al guardar, el modal se cierra y aparece un toast verde confirmando. Tu sesión sigue activa.</li>
-          </ol>
-          <p>Si la nueva clave es igual a la actual, el sistema rechaza con un mensaje de error y mantiene el modal abierto.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+      <div class="tip">
+        <strong>Tip:</strong> si el registro está deshabilitado en tu organización,
+        contacta al Administrador para que te cree la cuenta
+        (ver <a href="#sec-12">sección 12 · Tareas de Administrador</a>).
+      </div>
 
-        <!-- 04 -->
-        <section id="sec-4">
-          <h2 class="section-title"><span class="section-num">04</span> Conocer la interfaz principal</h2>
-<pre class="ascii">┌────────────────────────────────────────────────────────────────┐
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 3 ====== -->
+    <section id="sec-3">
+      <h2><span class="pill">03</span> Cambiar tu contraseña</h2>
+      <p>Recomendado hacerlo apenas ingreses por primera vez.</p>
+      <ol>
+        <li>En la barra superior, haz clic en el ícono de <strong>llave</strong> con el texto <strong>"Cambiar contraseña"</strong> (esquina superior derecha).</li>
+        <li>En el modal que aparece, completa:
+          <ul>
+            <li><strong>Contraseña actual</strong></li>
+            <li><strong>Nueva contraseña</strong> (6–128 caracteres, distinta de la actual)</li>
+            <li><strong>Confirmar nueva contraseña</strong></li>
+          </ul>
+        </li>
+        <li>Haz clic en <strong>Actualizar contraseña</strong>.</li>
+        <li>Al guardar, el modal se cierra y aparece un toast verde confirmando. Tu sesión sigue activa.</li>
+      </ol>
+      <div class="warn">
+        Si la nueva clave es igual a la actual, el sistema rechaza con un mensaje de error y mantiene el modal abierto.
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 4 ====== -->
+    <section id="sec-4">
+      <h2><span class="pill">04</span> Conocer la interfaz principal</h2>
+
+      <pre class="diagram">┌────────────────────────────────────────────────────────────────┐
 │  Bitácora GRM     Tablero  Tickets  Usuarios [Buscar ⌘K]      │
 │                                              ●Online  Juan    │
 ├────────────────────────────────────────────────────────────────┤
@@ -571,415 +446,502 @@
 │  │Tarj.│ ║             ║             ║             ║          │
 │  └─────┘ ║             ║             ║             ║          │
 └────────────────────────────────────────────────────────────────┘</pre>
+
+      <ul>
+        <li><strong>Columnas:</strong> cada columna representa un <strong>estado</strong> del flujo de trabajo. El nombre, color y orden los define el Administrador.</li>
+        <li><strong>Tarjetas:</strong> cada tarjeta es un <strong>ticket</strong> (incidencia). Tiene un código (ej. <code>INC-0042</code>), título, prioridad, asignado, etiquetas y un indicador de SLA.</li>
+      </ul>
+
+      <div class="fig">
+        <img src="imgs/interface.svg" alt="Captura del tablero principal con columnas Nuevo, En curso, En espera, Resuelto y Cerrado">
+        <div class="fig-caption">Vista general del tablero Kanban con cinco columnas en distintos colores.</div>
+      </div>
+
+      <h3>Indicador de SLA</h3>
+      <p>Es la esquina inferior derecha de cada tarjeta:</p>
+      <div class="fig">
+        <img src="imgs/sla-indicators.svg" alt="Tres estados del indicador de SLA: verde, ámbar y rojo">
+        <div class="fig-caption">🟢 Verde → SLA cumplido, dentro de plazo · 🟡 Ámbar → próximo a vencer · 🔴 Rojo → vencido.</div>
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 5 ====== -->
+    <section id="sec-5">
+      <h2><span class="pill">05</span> Crear una nueva incidencia</h2>
+      <ol>
+        <li>Haz clic en el botón <strong>"+ Nueva Incidencia"</strong> (esquina superior derecha del tablero).</li>
+        <li>Se abre un modal con un formulario. Completa:
           <ul>
-            <li><strong>Columnas:</strong> cada columna representa un <strong>estado</strong> del flujo de trabajo. El nombre, color y orden los define el Administrador.</li>
-            <li><strong>Tarjetas:</strong> cada tarjeta es un <strong>ticket</strong> (incidencia). Tiene un código (ej. <code>INC-0042</code>), título, prioridad, asignado, etiquetas y un indicador de SLA.</li>
+            <li><strong>Título</strong> <em>(obligatorio)</em>: resumen breve (ej. "No puedo acceder al sistema SAP").</li>
+            <li><strong>Descripción detallada</strong>: acepta <strong>Markdown</strong> — puedes usar <code>**negrita**</code>, <code>*itálica*</code>, <code>`código`</code>, <code>[link](url)</code>, listas y saltos de línea.</li>
+            <li><strong>Tipo</strong>: Incidencia, Solicitud, Problema o Cambio.</li>
+            <li><strong>Prioridad</strong>: Crítica, Alta, Media o Baja.</li>
+            <li><strong>Fecha de vencimiento (SLA)</strong>: opcional, deadline esperado.</li>
+            <li><strong>Adjuntos</strong>: arrastra archivos al cuadro punteado o haz clic en para seleccionar.</li>
+            <li><strong>Checklist inicial</strong> <em>(opcional)</em>: items a verificar al trabajar el ticket.</li>
           </ul>
-          <span class="caption">*Vista general del tablero Kanban con cinco columnas en distintos colores.*</span>
-          <h3>Indicador de SLA</h3>
-          <p>Es la esquina inferior derecha de cada tarjeta:</p>
-          <p>🟢 Verde → SLA cumplido, dentro de plazo · 🟡 Ámbar → próximo a vencer · 🔴 Rojo → vencido.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+        </li>
+        <li>Haz clic en <strong>Crear Incidencia</strong>.</li>
+        <li>El modal se cierra, aparece un toast verde y <strong>la tarjeta aparece en la primera columna</strong> del tablero (estado "Nuevo") sin recargar la página.</li>
+      </ol>
 
-        <!-- 05 -->
-        <section id="sec-5">
-          <h2 class="section-title"><span class="section-num">05</span> Crear una nueva incidencia</h2>
-          <ol>
-            <li>Haz clic en el botón <strong>"+ Nueva Incidencia"</strong> (esquina superior derecha del tablero).</li>
-            <li>Se abre un modal con un formulario. Completa:
-              <ul>
-                <li><strong>Título</strong> <em>(obligatorio)</em>: resumen breve (ej. "No puedo acceder al sistema SAP").</li>
-                <li><strong>Descripción detallada</strong>: acepta <strong>Markdown</strong> — puedes usar <code>**negrita**</code>, <code>*itálica*</code>, <code>`código`</code>, <code>[link](url)</code>, listas y saltos de línea.</li>
-                <li><strong>Tipo</strong>: Incidencia, Solicitud, Problema o Cambio.</li>
-                <li><strong>Prioridad</strong>: Crítica, Alta, Media o Baja.</li>
-                <li><strong>Fecha de vencimiento (SLA)</strong>: opcional, deadline esperado.</li>
-                <li><strong>Adjuntos</strong>: arrastra archivos al cuadro punteado o haz clic para seleccionar.</li>
-                <li><strong>Checklist inicial</strong> <em>(opcional)</em>: ítems a verificar al trabajar el ticket.</li>
-              </ul>
-            </li>
-            <li>Haz clic en <strong>Crear Incidencia</strong>.</li>
-            <li>El modal se cierra, aparece un toast verde y <strong>la tarjeta aparece en la primera columna</strong> del tablero (estado "Nuevo") sin recargar la página.</li>
-          </ol>
-          <span class="caption">*Modal de creación con título, descripción Markdown, tipo, prioridad, vencimiento y dropzone de adjuntos.*</span>
-          <div class="note note-atajo">
-            <p><strong>Atajo:</strong> el botón <strong>"Crear y abrir detalle"</strong> (si está habilitado) crea el ticket y abre el modal de detalle para empezar a editar de inmediato.</p>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+      <div class="fig">
+        <img src="imgs/new-ticket-modal.svg" alt="Modal de creación de nueva incidencia">
+        <div class="fig-caption">Modal de creación con título, descripción Markdown, tipo, prioridad, vencimiento y dropzone de adjuntos.</div>
+      </div>
 
-        <!-- 06 -->
-        <section id="sec-6">
-          <h2 class="section-title"><span class="section-num">06</span> Ver y editar el detalle de un ticket</h2>
-          <ol>
-            <li>Haz clic en cualquier parte de la tarjeta (o en el ícono de ojo 👁 en su esquina).</li>
-            <li>Se abre un modal con toda la información del ticket, organizada en secciones:
-              <ul>
-                <li><strong>Cabecera:</strong> código, título, prioridad, asignado, fecha de creación, fecha de vencimiento.</li>
-                <li><strong>Descripción</strong> (Markdown renderizado).</li>
-                <li><strong>Comentarios</strong> (en orden cronológico).</li>
-                <li><strong>Checklist</strong> (ítems a marcar / desmarcar).</li>
-                <li><strong>Adjuntos</strong> (imágenes con vista previa ampliable, archivos descargables).</li>
-                <li><strong>Etiquetas</strong> (colores).</li>
-                <li><strong>Historial</strong> (auditoría de cambios).</li>
-              </ul>
-            </li>
-            <li>Para <strong>editar un campo en línea</strong>: haz clic en el valor (ej. la prioridad) y elige otro. El cambio se guarda de forma automática (HTMX) y aparece un toast confirmando.</li>
-            <li>Para <strong>agregar un comentario</strong>: escribe en el cuadro "Escribir un comentario…" (admite Markdown) y haz clic en <strong>Enviar</strong>.</li>
-            <li>Para <strong>subir un adjunto</strong>: arrastra un archivo al cuadro de dropzone, o haz clic para elegir. Las imágenes se previsualizan y se pueden ampliar con un clic (lightbox).</li>
-            <li>Para <strong>cerrar el modal</strong>: clic en la X, en el fondo oscuro, o tecla <kbd>Esc</kbd>.</li>
-          </ol>
-          <span class="caption">*Detalle del ticket con pestañas (Descripción, Comentarios, Checklist, Adjuntos, Etiquetas, Historial).*</span>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+      <div class="tip">
+        <strong>Atajo:</strong> el botón <strong>"Crear y abrir detalle"</strong> (si está habilitado) crea el ticket y abre el modal de detalle para empezar a editar inmediatamente.
+      </div>
 
-        <!-- 07 -->
-        <section id="sec-7">
-          <h2 class="section-title"><span class="section-num">07</span> Mover un ticket entre columnas (cambiar su estado)</h2>
-          <div class="note note-info">
-            <p><strong>Esta es la acción principal del flujo Kanban.</strong></p>
-          </div>
-          <ol>
-            <li>Haz clic y mantén presionada una tarjeta.</li>
-            <li><strong>Arrastra</strong> la tarjeta a otra columna y suéltala encima.</li>
-            <li>Si la transición de estado es válida para tu rol:
-              <ul>
-                <li>El backend valida, actualiza el ticket, registra en auditoría y <strong>devuelve el HTML actualizado</strong>.</li>
-                <li>La tarjeta aparece en la nueva columna sin recargar la página.</li>
-                <li>Toast verde: "Ticket movido".</li>
-              </ul>
-            </li>
-            <li>Si la transición <strong>no está permitida</strong> para tu rol o el estado de origen/destino no existe en la matriz de transiciones:
-              <ul>
-                <li>La tarjeta <strong>vuelve sola a su columna original</strong> (rollback visual de SortableJS).</li>
-                <li>Toast rojo: "No tienes permisos para esta transición" o mensaje específico.</li>
-              </ul>
-            </li>
-          </ol>
-          <span class="caption">*Drag &amp; drop: la tarjeta se arrastra, el backend valida y la nueva ubicación queda confirmada con un toast verde.*</span>
-          <div class="note note-practica">
-            <p><strong>Buenas prácticas:</strong></p>
-            <ul>
-              <li>Si el cambio de estado exige un comentario (ej. "Cancelar" o "Reabrir"), el modal te lo pedirá antes de confirmar.</li>
-              <li>Cada movimiento queda asentado en la pestaña <strong>Historial</strong> del ticket con timestamp y usuario que lo hizo.</li>
-            </ul>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
 
-        <!-- 08 -->
-        <section id="sec-8">
-          <h2 class="section-title"><span class="section-num">08</span> Filtrar el tablero</h2>
-          <p>El tablero puede tener cientos de tarjetas. Para encontrar lo que buscas:</p>
-          <ol>
-            <li>Haz clic en <strong>"Filtros"</strong> en la barra superior (esquina izquierda del tablero). Aparece un panel plegable.</li>
-            <li>Puedes combinar:
-              <ul>
-                <li><strong>Búsqueda</strong> por texto (título, código o descripción).</li>
-                <li><strong>Prioridad</strong> (Crítica / Alta / Media / Baja).</li>
-                <li><strong>Asignado</strong> (un agente específico).</li>
-                <li><strong>Etiqueta</strong> (un color / categoría).</li>
-                <li><strong>Solo mis tickets</strong> (casilla) → filtra a los asignados a ti.</li>
-                <li><strong>Solo críticos</strong> (casilla).</li>
-              </ul>
-            </li>
-            <li>El contador en el chip <strong>"Filtros N"</strong> muestra cuántos filtros tienes activos.</li>
-            <li>Haz clic en <strong>Limpiar</strong> para borrar todos los filtros.</li>
-          </ol>
-          <span class="caption">*Panel de filtros con búsqueda, prioridad, asignado, etiqueta y toggles.*</span>
-          <p>Los filtros son <strong>client-side</strong>: aplican de forma instantánea, sin recargar.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 09 -->
-        <section id="sec-9">
-          <h2 class="section-title"><span class="section-num">09</span> Tickets archivados</h2>
-          <p>Los tickets cerrados (o cancelados) se mueven al archivo:</p>
-          <ol>
-            <li>Haz clic en <strong>"Archivados"</strong> en la barra superior.</li>
-            <li>Se abre un modal con todos los tickets archivados.</li>
-            <li>Desde ahí puedes buscar, filtrar y <strong>reabrir</strong> un ticket si necesitas volver a trabajarlo.</li>
-          </ol>
-          <span class="caption">*Listado de tickets cerrados con búsqueda y acción de reabrir.*</span>
-          <p>Los archivados no ocupan espacio visual en el tablero principal.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 10 -->
-        <section id="sec-10">
-          <h2 class="section-title"><span class="section-num">10</span> Búsqueda global (atajo ⌘K / Ctrl+K)</h2>
-          <ol>
-            <li>Haz clic en el cuadro <strong>"Buscar…"</strong> en la barra superior, o presiona <kbd>Ctrl</kbd>+<kbd>K</kbd> (Windows/Linux) o <kbd>⌘</kbd>+<kbd>K</kbd> (Mac).</li>
-            <li>Se abre un <strong>Command Palette</strong>: empieza a escribir.</li>
-            <li>La búsqueda recorre: tickets (código / título / descripción), usuarios (solo si eres admin) y comandos rápidos (ej. "crear ticket", "ir a usuarios").</li>
-            <li>Navega con ↑/↓ y presiona <kbd>Enter</kbd> para abrir el resultado.</li>
-          </ol>
-          <span class="caption">*Paleta de comandos con resultados de tickets y comandos rápidos.*</span>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 11 -->
-        <section id="sec-11">
-          <h2 class="section-title"><span class="section-num">11</span> Roles y permisos</h2>
-          <p>El sistema tiene <strong>5 roles</strong> con permisos crecientes:</p>
-          <span class="caption">*Pirámide de roles: cada nivel hereda los permisos del inferior.*</span>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Rol</th>
-                  <th>Puede</th>
-                  <th>No puede</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><span class="badge badge-green">Solicitante</span></td>
-                  <td>Crear tickets, comentar en los suyos, agregar adjuntos.</td>
-                  <td>Cambiar estado, asignar, cerrar tickets ajenos, ver tablero global.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-gray">Observador</span></td>
-                  <td>Ver el tablero y la auditoría en modo lectura.</td>
-                  <td>Crear, editar, comentar o mover nada.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-blue">Agente</span></td>
-                  <td>Atender tickets asignados: cambiar estado, comentar, adjuntar, marcar checklist.</td>
-                  <td>Reasignar, cerrar tickets no asignados, ver auditoría global.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-indigo">Agente Senior</span></td>
-                  <td>Todo lo anterior + reasignar, cerrar tickets, editar la mayoría de campos.</td>
-                  <td>Gestionar usuarios ni crear columnas.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-purple">Administrador</span></td>
-                  <td>Acceso total: gestionar usuarios, columnas, catálogos, ver toda la auditoría y reportes.</td>
-                  <td>—</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p>Tu rol aparece como un chip de color en la barra superior, al lado de tu nombre.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 12 -->
-        <section id="sec-12">
-          <h2 class="section-title"><span class="section-num">12</span> Si eres Administrador: tareas adicionales</h2>
-          <h3>12.1. Crear / editar usuarios</h3>
-          <ol>
-            <li>En la barra superior, haz clic en <strong>"Usuarios"</strong> (solo visible para administradores).</li>
-            <li>Acciones por fila:
-              <ul>
-                <li>✉️ <strong>Email</strong>: previsualizar y enviar credenciales por correo al usuario (genera una contraseña provisoria aleatoria).</li>
-                <li>✏️ <strong>Editar</strong>: cambiar nombre, email, departamento, rol o estado activo/inactivo.</li>
-                <li>🔑 <strong>Cambiar contraseña</strong>: resetear la contraseña de otro usuario (tú defines el valor; no necesitas conocer la actual).</li>
-                <li>🟢/🔴 <strong>Activar / Desactivar</strong>: soft-delete del usuario.</li>
-              </ul>
-            </li>
-            <li><strong>Crear un usuario nuevo</strong>: haz clic en <strong>"+ Nuevo Usuario"</strong>, completa el formulario y haz clic en <strong>Crear</strong>.</li>
-          </ol>
-          <span class="caption">*Tabla de usuarios con columnas: usuario, nombre, rol, estado y acciones (email, editar, reset, activar).*</span>
-          <span class="caption">*Modal de reset de contraseña: el admin define el nuevo valor, sin necesidad de conocer la actual.*</span>
-
-          <h3>12.2. Gestionar el flujo (columnas)</h3>
-          <ol>
-            <li>En el tablero, haz clic en el botón <strong>"+ Añadir columna"</strong> (esquina derecha). Completa nombre y color.</li>
-            <li>Para <strong>renombrar</strong> una columna: clic en el título o en el ícono de lápiz.</li>
-            <li>Para <strong>asignar un responsable</strong> a una columna: clic en "responsable" dentro del header; elige un agente. A partir de ese momento, <strong>todos los tickets que caigan en esa columna disparan un correo electrónico automático</strong> al responsable.</li>
-            <li>Para <strong>reordenar</strong> columnas: arrastra de forma horizontal por el body de la columna. El nuevo orden se guarda de manera automática. Si la API falla, el tablero se recarga para volver al estado real de la BD.</li>
-          </ol>
-          <span class="caption">*Configuración de columnas: color, responsable y acciones (editar, eliminar).*</span>
-
-          <h3>12.3. Eliminar / desactivar una columna</h3>
-          <p>Antes de eliminar una columna, <strong>mueve todos sus tickets a otra columna</strong>. Si la columna aún tiene tickets, el sistema te advertirá al intentar eliminarla.</p>
-
-          <h3>12.4. Ver la auditoría</h3>
-          <p>La auditoría está disponible en cada ticket (pestaña <em>"Historial"</em>). Cada cambio registra: timestamp, usuario, acción, valor anterior y valor nuevo.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 13 -->
-        <section id="sec-13">
-          <h2 class="section-title"><span class="section-num">13</span> Cerrar sesión</h2>
-          <ol>
-            <li>Haz clic en <strong>"Salir"</strong> (esquina superior derecha).</li>
-            <li>El sistema invalida tu sesión y te redirige a la pantalla de login.</li>
-          </ol>
-          <p>La sesión también expira de forma automática después de <strong>8 horas de inactividad</strong>.</p>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 14 -->
-        <section id="sec-14">
-          <h2 class="section-title"><span class="section-num">14</span> Atajos de teclado útiles</h2>
-          <span class="caption">*Resumen visual de los atajos principales.*</span>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Atajo</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd> / <kbd>⌘</kbd>+<kbd>K</kbd></td><td>Abre la búsqueda global</td></tr>
-                <tr><td><kbd>Esc</kbd></td><td>Cierra cualquier modal abierto</td></tr>
-                <tr><td><kbd>Enter</kbd> en un input</td><td>Confirma el formulario del modal</td></tr>
-                <tr><td>Clic + arrastrar en tarjeta</td><td>Mueve el ticket a otra columna</td></tr>
-                <tr><td>Clic + arrastrar en columna <em>(admin)</em></td><td>Reordena columnas</td></tr>
-                <tr><td>Clic en tarjeta</td><td>Abre el detalle</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 15 -->
-        <section id="sec-15">
-          <h2 class="section-title"><span class="section-num">15</span> Errores frecuentes y cómo resolverlos</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Síntoma</th>
-                  <th>Causa probable</th>
-                  <th>Qué hacer</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td>Toast rojo "No tienes permisos para realizar esta acción"</td><td>Tu rol no permite esa acción</td><td>Pide a un administrador que te otorgue el rol correspondiente</td></tr>
-                <tr><td>Toast rojo "La transición no es válida"</td><td>El estado destino no es alcanzable desde el estado actual para tu rol</td><td>Consulta la matriz de transiciones del flujo con tu admin</td></tr>
-                <tr><td>La tarjeta vuelve a su columna original al soltarla</td><td>La transición fue rechazada por el backend</td><td>Revisa el toast para ver el motivo exacto</td></tr>
-                <tr><td>"Sesión expirada — Recarga la página"</td><td>Pasaron 8 horas sin actividad</td><td>Recarga la página y vuelve a iniciar sesión</td></tr>
-                <tr><td>La pantalla se queda en "Cargando…"</td><td>Fallo de red transitorio</td><td>Espera unos segundos; si persiste, recarga</td></tr>
-                <tr><td>Las imágenes de los adjuntos no se ven</td><td>Tu navegador bloqueó el lightbox (cookies/storage)</td><td>Habilita almacenamiento local para el dominio</td></tr>
-                <tr><td>No puedes crear columnas / usuarios</td><td>No eres Administrador</td><td>Pide a un Admin que haga el cambio, o solicita elevación de rol</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
-
-        <!-- 16 -->
-        <section id="sec-16">
-          <h2 class="section-title"><span class="section-num">16</span> Buenas prácticas</h2>
+    <!-- ====== 6 ====== -->
+    <section id="sec-6">
+      <h2><span class="pill">06</span> Ver y editar el detalle de un ticket</h2>
+      <ol>
+        <li>Haz clic en cualquier parte de la tarjeta (o el ícono de ojo 👁 en su esquina).</li>
+        <li>Se abre un modal con toda la información del ticket, organizada en secciones:
           <ul>
-            <li><strong>Título claro y específico:</strong> evita "Ayuda" o "No anda"; prefiere "Error 500 al guardar pedido en módulo ventas".</li>
-            <li><strong>Descripción reproducible:</strong> incluye pasos para reproducir el problema, mensajes de error textuales, capturas y URLs afectadas.</li>
-            <li><strong>Prioridad correcta:</strong> Crítica = negocio detenido. Alta = bloqueo importante. Media = afecta, pero hay workaround. Baja = mejora o consulta.</li>
-            <li><strong>Asignación temprana:</strong> si sabes quién debe resolver, asigna directamente al soltarlo en su columna.</li>
-            <li><strong>Comentarios contextuales:</strong> cada vez que avances en el ticket, deja un comentario (incluso para "sigo investigando"). Eso permite a tu equipo y al solicitante ver el avance.</li>
-            <li><strong>Checklist para tareas complejas:</strong> si el ticket tiene varios pasos, usa el checklist. Cada ítem es una subtarea clara.</li>
-            <li><strong>Cierra tickets cuando corresponda:</strong> un ticket "resuelto" sin cerrar termina ocupando capacidad del tablero.</li>
+            <li><strong>Cabecera:</strong> código, título, prioridad, asignado, fecha de creación, fecha de vencimiento.</li>
+            <li><strong>Descripción</strong> (Markdown renderizado).</li>
+            <li><strong>Comentarios</strong> (en orden cronológico).</li>
+            <li><strong>Checklist</strong> (items a marcar / desmarcar).</li>
+            <li><strong>Adjuntos</strong> (imágenes con preview ampliable, archivos descargables).</li>
+            <li><strong>Etiquetas</strong> (colores).</li>
+            <li><strong>Historial</strong> (auditoría de cambios).</li>
           </ul>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+        </li>
+        <li>Para <strong>editar un campo en línea</strong>: haz clic en el valor (ej. la prioridad) y elige otro. El cambio se guarda automáticamente (HTMX) y aparece un toast confirmando.</li>
+        <li>Para <strong>agregar un comentario</strong>: escribe en el cuadro "Escribir un comentario…" (admite Markdown) y haz clic en <strong>Enviar</strong>.</li>
+        <li>Para <strong>subir un adjunto</strong>: arrastra un archivo al cuadro de dropzone, o haz clic en para elegir. Las imágenes se previsualizan y se pueden ampliar cliqueando (lightbox).</li>
+        <li>Para <strong>cerrar el modal</strong>: clic en la X, en el fondo oscuro, o tecla <kbd>Esc</kbd>.</li>
+      </ol>
 
-        <!-- 17 -->
-        <section id="sec-17">
-          <h2 class="section-title"><span class="section-num">17</span> Glosario</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 220px;">Término</th>
-                  <th>Definición</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td><strong>Ticket / Incidencia</strong></td><td>Unidad de trabajo. Representa un problema, solicitud, cambio o problema conocido.</td></tr>
-                <tr><td><strong>Estado</strong></td><td>Columna del Kanban. Define en qué fase está el ticket.</td></tr>
-                <tr><td><strong>Prioridad</strong></td><td>Urgencia del ticket (Crítica / Alta / Media / Baja).</td></tr>
-                <tr><td><strong>SLA</strong></td><td>Service Level Agreement — tiempo objetivo de resolución. Si vence, el indicador se pone rojo.</td></tr>
-                <tr><td><strong>Asignado</strong></td><td>Agente responsable de resolver el ticket.</td></tr>
-                <tr><td><strong>Solicitante</strong></td><td>Quien reporta la incidencia.</td></tr>
-                <tr><td><strong>Auditoría</strong></td><td>Registro inalterable de todos los cambios (quién, cuándo, qué).</td></tr>
-                <tr><td><strong>Columna con responsable</strong></td><td>Cada vez que un ticket cae en esa columna, se notifica por correo electrónico al responsable.</td></tr>
-                <tr><td><strong>Archivado</strong></td><td>Ticket cerrado que ya no aparece en el tablero principal.</td></tr>
-                <tr><td><strong>Command Palette</strong></td><td>Buscador global (<kbd>⌘</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd>).</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+      <div class="fig">
+        <img src="imgs/ticket-detail.svg" alt="Modal de detalle de ticket con tabs y comentarios">
+        <div class="fig-caption">Detalle del ticket con tabs (Descripción, Comentarios, Checklist, Adjuntos, Etiquetas, Historial).</div>
+      </div>
 
-        <!-- 18 -->
-        <section id="sec-18">
-          <h2 class="section-title"><span class="section-num">18</span> Soporte y contacto</h2>
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 7 ====== -->
+    <section id="sec-7">
+      <h2><span class="pill">07</span> Mover un ticket entre columnas (cambiar su estado)</h2>
+      <p><strong>Esta es la acción principal del flujo Kanban.</strong></p>
+      <ol>
+        <li>Haz clic y mantén presionada una tarjeta.</li>
+        <li><strong>Arrastra</strong> la tarjeta a otra columna y suéltala encima.</li>
+        <li>Si la transición de estado es válida para tu rol:
           <ul>
-            <li><strong>Soporte de primer nivel:</strong> equipo de Mesa de Ayuda de tu organización.</li>
-            <li><strong>Errores del sistema / solicitudes de mejora:</strong> crear un ticket en Bitácora GRM con prioridad "Media" o "Baja".</li>
-            <li><strong>Problemas críticos del propio sistema:</strong> contacta directamente al equipo de desarrollo (ver <a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener">README en GitHub</a>).</li>
+            <li>El backend valida, actualiza el ticket, registra en auditoría y <strong>devuelve el HTML actualizado</strong>.</li>
+            <li>La tarjeta aparece en la nueva columna sin recargar la página.</li>
+            <li>Toast verde: "Ticket movido".</li>
           </ul>
-          <div class="stack-banner">
-            <p><strong>Bitácora GRM v2</strong> — Sistema híbrido ITSM + Kanban.</p>
-            <p><em>Hecho con FastAPI · PostgreSQL · Redis/Celery · HTMX.</em></p>
-          </div>
-          <a href="#top" class="back-to-top">↑ Volver arriba</a>
-        </section>
+        </li>
+        <li>Si la transición <strong>no está permitida</strong> para tu rol o el estado de origen/destino no existe en la matriz de transiciones:
+          <ul>
+            <li>La tarjeta <strong>vuelve sola a su columna original</strong> (rollback visual de SortableJS).</li>
+            <li>Toast rojo: "No tienes permisos para esta transición" o mensaje específico.</li>
+          </ul>
+        </li>
+      </ol>
 
-      </article>
-    </div>
+      <div class="fig">
+        <img src="imgs/drag-drop.svg" alt="Animación de arrastre desde la columna Nuevo hacia En curso">
+        <div class="fig-caption">Drag &amp; drop: la tarjeta se arrastra, el backend valida y la nueva ubicación queda confirmada con un toast verde.</div>
+      </div>
+
+      <div class="tip">
+        <strong>Buenas prácticas:</strong>
+        <ul>
+          <li>Si el cambio de estado exige un comentario (ej. "Cancelar" o "Reabrir"), el modal te lo pedirá antes de confirmar.</li>
+          <li>Cada movimiento queda asentado en la pestaña <strong>Historial</strong> del ticket con timestamp y usuario que lo hizo.</li>
+        </ul>
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 8 ====== -->
+    <section id="sec-8">
+      <h2><span class="pill">08</span> Filtrar el tablero</h2>
+      <p>El tablero puede tener cientos de tarjetas. Para encontrar lo que buscas:</p>
+      <ol>
+        <li>Haz clic en <strong>"Filtros"</strong> en la barra superior (esquina izquierda del tablero). Aparece un panel plegable.</li>
+        <li>Puedes combinar:
+          <ul>
+            <li><strong>Búsqueda</strong> por texto (título, código o descripción).</li>
+            <li><strong>Prioridad</strong> (Crítica / Alta / Media / Baja).</li>
+            <li><strong>Asignado</strong> (un agente específico).</li>
+            <li><strong>Etiqueta</strong> (un color / categoría).</li>
+            <li><strong>Solo mis tickets</strong> (casilla) → filtra a los asignados a ti.</li>
+            <li><strong>Solo críticos</strong> (casilla).</li>
+          </ul>
+        </li>
+        <li>El contador en el chip <strong>"Filtros N"</strong> muestra cuántos filtros tienes activos.</li>
+        <li>Haz clic en <strong>Limpiar</strong> para borrar todos los filtros.</li>
+      </ol>
+
+      <div class="fig">
+        <img src="imgs/filters.svg" alt="Panel de filtros del tablero">
+        <div class="fig-caption">Panel de filtros con búsqueda, prioridad, asignado, etiqueta y toggles.</div>
+      </div>
+
+      <div class="info">Los filtros son <strong>client-side</strong>: aplican instantáneamente, sin recargar.</div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 9 ====== -->
+    <section id="sec-9">
+      <h2><span class="pill">09</span> Tickets archivados</h2>
+      <p>Los tickets cerrados (o cancelados) se mueven al archivo:</p>
+      <ol>
+        <li>Haz clic en <strong>"Archivados"</strong> en la barra superior.</li>
+        <li>Se abre un modal con todos los tickets archivados.</li>
+        <li>Desde ahí puedes buscar, filtrar y <strong>reabrir</strong> un ticket si necesitas volver a trabajarlo.</li>
+      </ol>
+
+      <div class="fig">
+        <img src="imgs/archived.svg" alt="Modal de tickets archivados con botón Reabrir">
+        <div class="fig-caption">Listado de tickets cerrados con búsqueda y acción de reabrir.</div>
+      </div>
+
+      <div class="tip">Los archivados no ocupan espacio visual en el tablero principal.</div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 10 ====== -->
+    <section id="sec-10">
+      <h2><span class="pill">10</span> Búsqueda global (atajo ⌘K / Ctrl+K)</h2>
+      <ol>
+        <li>Haz clic en el cuadro <strong>"Buscar…"</strong> en la barra superior, o presiona <kbd>Ctrl</kbd>+<kbd>K</kbd> (Windows/Linux) o <kbd>⌘</kbd>+<kbd>K</kbd> (Mac).</li>
+        <li>Se abre un <strong>Command Palette</strong>: empieza a escribir.</li>
+        <li>La búsqueda recorre: tickets (código / título / descripción), usuarios (solo si sos admin) y comandos rápidos (ej. "crear ticket", "ir a usuarios").</li>
+        <li>Navega con ↑/↓ y presiona <kbd>Enter</kbd> para abrir el resultado.</li>
+      </ol>
+
+      <div class="fig">
+        <img src="imgs/search.svg" alt="Command Palette abierto sobre fondo oscuro">
+        <div class="fig-caption">Paleta de comandos con resultados de tickets y comandos rápidos.</div>
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 11 ====== -->
+    <section id="sec-11">
+      <h2><span class="pill">11</span> Roles y permisos</h2>
+      <p>El sistema tiene <strong>5 roles</strong> con permisos crecientes:</p>
+
+      <div class="fig">
+        <img src="imgs/roles.svg" alt="Pirámide de roles con 5 niveles">
+        <div class="fig-caption">Pirámide de roles: cada nivel hereda los permisos del inferior.</div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Rol</th><th>Puede</th><th>No puede</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Solicitante</strong></td>
+              <td>Crear tickets, comentar en los suyos, agregar adjuntos.</td>
+              <td>Cambiar estado, asignar, cerrar tickets ajenos, ver tablero global.</td>
+            </tr>
+            <tr>
+              <td><strong>Observador</strong></td>
+              <td>Ver el tablero y la auditoría en modo lectura.</td>
+              <td>Crear, editar, comentar o mover nada.</td>
+            </tr>
+            <tr>
+              <td><strong>Agente</strong></td>
+              <td>Atender tickets asignados: cambiar estado, comentar, adjuntar, marcar checklist.</td>
+              <td>Reasignar, cerrar tickets no asignados, ver auditoría global.</td>
+            </tr>
+            <tr>
+              <td><strong>Agente Senior</strong></td>
+              <td>Todo lo anterior + reasignar, cerrar tickets, editar la mayoría de campos.</td>
+              <td>Gestionar usuarios ni crear columnas.</td>
+            </tr>
+            <tr>
+              <td><strong>Administrador</strong></td>
+              <td>Acceso total: gestionar usuarios, columnas, catálogos, ver toda la auditoría y reportes.</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="info">Tu rol aparece como un chip de color en la barra superior, al lado de tu nombre.</div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 12 ====== -->
+    <section id="sec-12">
+      <h2><span class="pill">12</span> Si eres Administrador: tareas adicionales</h2>
+
+      <h3>12.1. Crear / editar usuarios</h3>
+      <ol>
+        <li>En la barra superior, haz clic en <strong>"Usuarios"</strong> (solo visible para administradores).</li>
+        <li>Acciones por fila:
+          <ul>
+            <li>✉️ <strong>Email</strong>: previsualizar y enviar credenciales por correo al usuario (genera una contraseña provisoria aleatoria).</li>
+            <li>✏️ <strong>Editar</strong>: cambiar nombre, email, departamento, rol o estado activo/inactivo.</li>
+            <li>🔑 <strong>Cambiar contraseña</strong>: resetear la contraseña de otro usuario (vos defines el valor; no necesitas conocer la actual).</li>
+            <li>🟢/🔴 <strong>Activar / Desactivar</strong>: soft-delete del usuario.</li>
+          </ul>
+        </li>
+        <li><strong>Crear un usuario nuevo</strong>: haz clic en <strong>"+ Nuevo Usuario"</strong>, completa el formulario y haz clic en <strong>Crear</strong>.</li>
+      </ol>
+
+      <div class="fig">
+        <img src="imgs/admin-users.svg" alt="Tabla de gestión de usuarios con acciones por fila">
+        <div class="fig-caption">Tabla de usuarios con columnas: usuario, nombre, rol, estado y acciones (email, editar, reset, activar).</div>
+      </div>
+
+      <div class="fig">
+        <img src="imgs/admin-reset-modal.svg" alt="Modal para resetear contraseña de un usuario">
+        <div class="fig-caption">Modal de reset de contraseña: el admin define el nuevo valor, sin necesidad de conocer la actual.</div>
+      </div>
+
+      <h3>12.2. Gestionar el flujo (columnas)</h3>
+      <ol>
+        <li>En el tablero, haz clic en el botón <strong>"+ Añadir columna"</strong> (esquina derecha). Completa nombre y color.</li>
+        <li>Para <strong>renombrar</strong> una columna: clic en el título o en el ícono de lápiz.</li>
+        <li>Para <strong>asignar un responsable</strong> a una columna: clic en "responsable" dentro del header; elige un agente. A partir de ese momento, <strong>todos los tickets que caigan en esa columna disparan un email automático</strong> al responsable.</li>
+        <li>Para <strong>reordenar</strong> columnas: arrastra horizontalmente por el body de la columna. El nuevo orden se guarda automáticamente. Si la API falla, el tablero se recarga para volver al estado real de la BD.</li>
+      </ol>
+
+      <div class="fig">
+        <img src="imgs/admin-columns.svg" alt="Panel de gestión de columnas del tablero">
+        <div class="fig-caption">Configuración de columnas: color, responsable y acciones (editar, eliminar).</div>
+      </div>
+
+      <h3>12.3. Eliminar / desactivar una columna</h3>
+      <div class="warn">
+        Antes de eliminar una columna, <strong>mueve todos sus tickets a otra columna</strong>. Si la columna aún tiene tickets, el sistema te advertirá al intentar eliminarla.
+      </div>
+
+      <h3>12.4. Ver la auditoría</h3>
+      <p>La auditoría está disponible en cada ticket (pestaña <em>"Historial"</em>). Cada cambio registra: timestamp, usuario, acción, valor anterior y valor nuevo.</p>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 13 ====== -->
+    <section id="sec-13">
+      <h2><span class="pill">13</span> Cerrar sesión</h2>
+      <ol>
+        <li>Haz clic en <strong>"Salir"</strong> (esquina superior derecha).</li>
+        <li>El sistema invalida tu sesión y te redirige a la pantalla de login.</li>
+      </ol>
+      <div class="tip">La sesión también expira automáticamente después de <strong>8 horas de inactividad</strong>.</div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 14 ====== -->
+    <section id="sec-14">
+      <h2><span class="pill">14</span> Atajos de teclado útiles</h2>
+
+      <div class="fig">
+        <img src="imgs/shortcuts.svg" alt="Visual de atajos de teclado sobre fondo oscuro">
+        <div class="fig-caption">Resumen visual de los atajos principales.</div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Atajo</th><th>Acción</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd> / <kbd>⌘</kbd> + <kbd>K</kbd></td><td>Abre la búsqueda global</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Cierra cualquier modal abierto</td></tr>
+            <tr><td><kbd>Enter</kbd> en un input</td><td>Confirma el formulario del modal</td></tr>
+            <tr><td>Click + arrastrar en tarjeta</td><td>Mueve el ticket a otra columna</td></tr>
+            <tr><td>Click + arrastrar en columna <em>(admin)</em></td><td>Reordena columnas</td></tr>
+            <tr><td>Click en tarjeta</td><td>Abre el detalle</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 15 ====== -->
+    <section id="sec-15">
+      <h2><span class="pill">15</span> Errores frecuentes y cómo resolverlos</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Síntoma</th><th>Causa probable</th><th>Qué hacer</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Toast rojo "No tienes permisos para realizar esta acción"</td>
+              <td>Tu rol no permite esa acción</td>
+              <td>Pide a un administrador que te otorgue el rol correspondiente</td>
+            </tr>
+            <tr>
+              <td>Toast rojo "La transición no es válida"</td>
+              <td>El estado destino no es alcanzable desde el estado actual para tu rol</td>
+              <td>Consulta la matriz de transiciones del flujo con tu admin</td>
+            </tr>
+            <tr>
+              <td>La tarjeta vuelve a su columna original al soltarla</td>
+              <td>La transición fue rechazada por el backend</td>
+              <td>Revisa el toast para ver el motivo exacto</td>
+            </tr>
+            <tr>
+              <td>"Sesión expirada — Recarga la página"</td>
+              <td>Pasaron 8 horas sin actividad</td>
+              <td>Recarga la página y vuelve a iniciar sesión</td>
+            </tr>
+            <tr>
+              <td>La pantalla se queda en "Cargando…"</td>
+              <td>Fallo de red transitorio</td>
+              <td>Espera unos segundos; si persiste, recarga</td>
+            </tr>
+            <tr>
+              <td>Las imágenes de los adjuntos no se ven</td>
+              <td>Tu navegador bloqueó el lightbox (cookies/storage)</td>
+              <td>Habilita almacenamiento local para el dominio</td>
+            </tr>
+            <tr>
+              <td>No puedes crear columnas / usuarios</td>
+              <td>No sos Administrador</td>
+              <td>Pide a un Admin que haga el cambio, o solicita elevación de rol</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 16 ====== -->
+    <section id="sec-16">
+      <h2><span class="pill">16</span> Buenas prácticas</h2>
+      <ul>
+        <li><strong>Título claro y específico:</strong> evita "Ayuda" o "No anda"; prefiere "Error 500 al guardar pedido en módulo ventas".</li>
+        <li><strong>Descripción reproducible:</strong> incluye pasos para reproducir el problema, mensajes de error textuales, capturas y URLs afectadas.</li>
+        <li><strong>Prioridad correcta:</strong> Crítica = negocio detenido. Alta = bloqueo importante. Media = afecta pero hay workaround. Baja = mejora o consulta.</li>
+        <li><strong>Asignación temprana:</strong> si sabes quién debe resolver, asigna directamente al soltarlo en su columna.</li>
+        <li><strong>Comentarios contextuales:</strong> cada vez que avances en el ticket, deja un comentario (incluso para "sigo investigando"). Eso permite a tu equipo y al solicitante ver el avance.</li>
+        <li><strong>Checklist para tareas complejas:</strong> si el ticket tiene varios pasos, usa el checklist. Cada ítem es una subtarea clara.</li>
+        <li><strong>Cierra tickets cuando corresponda:</strong> un ticket "resuelto" sin cerrar termina ocupando capacidad del tablero.</li>
+      </ul>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 17 ====== -->
+    <section id="sec-17">
+      <h2><span class="pill">17</span> Glosario</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Término</th><th>Definición</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Ticket / Incidencia</strong></td><td>Unidad de trabajo. Representa un problema, solicitud, cambio o problema conocido.</td></tr>
+            <tr><td><strong>Estado</strong></td><td>Columna del Kanban. Define en qué fase está el ticket.</td></tr>
+            <tr><td><strong>Prioridad</strong></td><td>Urgencia del ticket (Crítica / Alta / Media / Baja).</td></tr>
+            <tr><td><strong>SLA</strong></td><td>Service Level Agreement — tiempo objetivo de resolución. Si vence, el indicador se pone rojo.</td></tr>
+            <tr><td><strong>Asignado</strong></td><td>Agente responsable de resolver el ticket.</td></tr>
+            <tr><td><strong>Solicitante</strong></td><td>Quien reporta la incidencia.</td></tr>
+            <tr><td><strong>Auditoría</strong></td><td>Registro inalterable de todos los cambios (quién, cuándo, qué).</td></tr>
+            <tr><td><strong>Columna con responsable</strong></td><td>Cada vez que un ticket cae en esa columna, se notifica por email al responsable.</td></tr>
+            <tr><td><strong>Archivado</strong></td><td>Ticket cerrado que ya no aparece en el tablero principal.</td></tr>
+            <tr><td><strong>Command Palette</strong></td><td>Buscador global (<kbd>⌘</kbd>+<kbd>K</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd>).</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
+
+    <!-- ====== 18 ====== -->
+    <section id="sec-18">
+      <h2><span class="pill">18</span> Soporte y contacto</h2>
+      <ul>
+        <li><strong>Soporte de primer nivel:</strong> equipo de Mesa de Ayuda de tu organización.</li>
+        <li><strong>Errores del sistema / solicitudes de mejora:</strong> crear un ticket en Bitácora GRM con prioridad "Media" o "Baja".</li>
+        <li><strong>Problemas críticos del propio sistema:</strong> contacta directamente al equipo de desarrollo (ver <a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener">README en GitHub</a>).</li>
+      </ul>
+
+      <div class="ok">
+        <strong>Bitácora GRM v2</strong> — Sistema híbrido ITSM + Kanban.<br>
+        Hecho con FastAPI · PostgreSQL · Redis/Celery · HTMX.
+      </div>
+
+      <a class="back-top" href="#top">↑ Volver arriba</a>
+    </section>
 
   </main>
+</div>
 
-  <!-- ===== FOOTER ===== -->
-  <footer class="site-footer">
-    <div class="container">
-      <div class="footer-grid">
-        <div class="footer-col">
-          <h5>Bitácora GRM v2</h5>
-          <p>Sistema híbrido de gestión de incidencias que combina la formalidad de un ITSM con la agilidad de un tablero Kanban. Desplegado en Railway.</p>
-        </div>
-        <div class="footer-col">
-          <h5>Documentación</h5>
-          <ul>
-            <li><a href="#sec-1">¿Qué es?</a></li>
-            <li><a href="#sec-4">Interfaz</a></li>
-            <li><a href="#sec-11">Roles</a></li>
-            <li><a href="#sec-17">Glosario</a></li>
-          </ul>
-        </div>
-        <div class="footer-col">
-          <h5>Proyecto</h5>
-          <ul>
-            <li><a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener">Repositorio en GitHub</a></li>
-            <li><a href="#sec-18">Soporte</a></li>
-            <li><a href="#sec-15">Errores frecuentes</a></li>
-          </ul>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <span>© Bitácora GRM v2 · Documentación generada por MiniMax Agent</span>
-        <span>Hecho con FastAPI · PostgreSQL · Redis/Celery · HTMX</span>
-      </div>
+<!-- ============== FOOTER ============== -->
+<footer>
+  <div class="wrap">
+    <div>
+      <h5>Bitácora GRM v2</h5>
+      <p style="margin:0">
+        Sistema híbrido de gestión de incidencias que combina la formalidad de un
+        ITSM con la agilidad de un tablero Kanban. Desplegado en Railway.
+      </p>
     </div>
-  </footer>
+    <div>
+      <h5>Documentación</h5>
+      <a href="#sec-1">¿Qué es?</a><br>
+      <a href="#sec-4">Interfaz</a><br>
+      <a href="#sec-11">Roles</a><br>
+      <a href="#sec-17">Glosario</a>
+    </div>
+    <div>
+      <h5>Proyecto</h5>
+      <a href="https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2" target="_blank" rel="noopener">Repositorio en GitHub</a><br>
+      <a href="#sec-18">Soporte</a><br>
+      <a href="#sec-15">Errores frecuentes</a>
+    </div>
+  </div>
+  <div class="copy">
+    © Bitácora GRM v2 · Documentación generada por MiniMax Agent · {{build_date}}
+  </div>
+</footer>
 
-  <!-- ===== Script: resaltado de sección activa en TOC ===== -->
-  <script>
-    (function () {
-      const sections = document.querySelectorAll('article section');
-      const tocLinks = document.querySelectorAll('.toc a');
-      if (!sections.length || !tocLinks.length) return;
+<!-- ============== SCRIPTS ============== -->
+<script>
+  // Highlight active section in TOC
+  (function(){
+    const tocLinks = document.querySelectorAll('.toc a');
+    const sections = document.querySelectorAll('main section[id]');
+    function setActive(id){
+      tocLinks.forEach(a => {
+        a.classList.toggle('is-active', a.getAttribute('href') === '#' + id);
+      });
+    }
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(en => {
+        if(en.isIntersecting){ setActive(en.target.id); }
+      });
+    }, { rootMargin: '-30% 0px -65% 0px', threshold: 0 });
+    sections.forEach(s => obs.observe(s));
+  })();
 
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            const id = entry.target.id;
-            tocLinks.forEach(l => l.classList.remove('active'));
-            const link = document.querySelector('.toc a[href="#' + id + '"]');
-            if (link) link.classList.add('active');
-          }
-        });
-      }, { rootMargin: '-25% 0px -70% 0px', threshold: 0 });
-
-      sections.forEach(s => observer.observe(s));
-    })();
-  </script>
+  // Replace build date placeholder
+  document.addEventListener('DOMContentLoaded', () => {
+    const d = new Date();
+    const months = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const txt = `${d.getDate()} de ${months[d.getMonth()]} de ${d.getFullYear()}`;
+    document.querySelectorAll('.copy').forEach(el => {
+      el.innerHTML = el.innerHTML.replace('{{build_date}}', txt);
+    });
+  });
+</script>
 
 
 <script>
@@ -1456,6 +1418,118 @@
   };
 })();
 
+</script>
+<style>
+#minimax-floating-ball {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 12px;
+  background: #222222;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  color: #F8F8F8;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  z-index: 9999;
+  transition: all 0.3s ease;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+#minimax-floating-ball:hover {
+  transform: translateY(-2px);
+  background: #383838;
+}
+.minimax-ball-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.minimax-logo-wave {
+  width: 20px;
+  height: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg%20preserveAspectRatio%3D%27none%27%20width%3D%27100%25%27%20height%3D%27100%25%27%20overflow%3D%27visible%27%20style%3D%27display%3A%20block%3B%27%20viewBox%3D%270%200%20170.136%20138.225%27%20fill%3D%27none%27%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%3E%3Cg%20id%3D%27Frame%202116748449%27%3E%3Cpath%20id%3D%27Subtract%27%20d%3D%27M170%20101.783C170%20105.144%20168.49%20108.327%20165.886%20110.453L134.963%20135.702C132.964%20137.334%20130.463%20138.225%20127.883%20138.225H10.4938C4.69824%20138.225%200%20133.527%200%20127.732V39.2289C0%2035.8597%201.51758%2032.6698%204.13162%2030.5442L38.5402%202.56547C40.536%200.942662%2043.0298%200.0567377%2045.602%200.0567377H159.506C165.302%200.0567377%20170%204.75498%20170%2010.5506V101.783Z%27%20fill%3D%27black%27%20style%3D%27fill%3Ablack%3Bfill-opacity%3A1%3B%27/%3E%3Cpath%20id%3D%27Subtract_2%27%20d%3D%27M149.011%2094.4632C149.011%2096.1471%20148.253%2097.7415%20146.946%2098.8043L125.893%20115.936C124.895%20116.748%20123.648%20117.191%20122.361%20117.191H24.6479C22.716%20117.191%2021.15%20115.625%2021.15%20113.693V46.1166C21.15%2044.4267%2021.9135%2042.8274%2023.2274%2041.7648L47.367%2022.2437C48.3638%2021.4376%2049.607%2020.9982%2050.8888%2020.9988L145.514%2021.0427C147.446%2021.0436%20149.011%2022.6094%20149.011%2024.5406V94.4632Z%27%20fill%3D%27white%27%20style%3D%27fill%3Awhite%3Bfill-opacity%3A1%3B%27/%3E%3Cpath%20id%3D%27Rectangle%20111142564%27%20d%3D%27M42.111%2080.8025C42.111%2077.7115%2044.6167%2075.2057%2047.7077%2075.2057H60.9999C64.0908%2075.2057%2066.5966%2077.7115%2066.5966%2080.8025V121.029H42.111V80.8025Z%27%20fill%3D%27black%27%20style%3D%27fill%3Ablack%3Bfill-opacity%3A1%3B%27/%3E%3Cpath%20id%3D%27Rectangle%20111142567%27%20d%3D%27M79.1894%2080.8025C79.1894%2077.7115%2081.6952%2075.2057%2084.7861%2075.2057H98.0783C101.169%2075.2057%20103.675%2077.7115%20103.675%2080.8025V121.029H79.1894V80.8025Z%27%20fill%3D%27black%27%20style%3D%27fill%3Ablack%3Bfill-opacity%3A1%3B%27/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 11px;
+  background-color: #8FD1FF;
+  border-radius: 4px;
+}
+
+.minimax-ball-text {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.minimax-close-icon {
+  margin-left: 8px;
+  font-size: 16px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.minimax-close-icon:hover {
+  opacity: 1;
+}
+</style>
+<div id="minimax-floating-ball">
+  <div class="minimax-ball-content">
+    <div class="minimax-logo-wave"></div>
+    <span class="minimax-ball-text">Created by MiniMax Agent</span>
+  </div>
+  <div class="minimax-close-icon">×</div>
+</div>
+<script>
+// Initialize floating ball functionality
+function initFloatingBall() {
+  const ball = document.getElementById('minimax-floating-ball');
+  if (!ball) return;
+
+  // Initial animation
+  ball.style.opacity = '0';
+  ball.style.transform = 'translateY(20px)';
+
+  setTimeout(() => {
+    ball.style.opacity = '1';
+    ball.style.transform = 'translateY(0)';
+  }, 500);
+
+  // Handle logo click
+  const ballContent = ball.querySelector('.minimax-ball-content');
+  ballContent.addEventListener('click', function (e) {
+    e.stopPropagation();
+    window.open('https://agent.minimax.io/', '_blank');
+    ball.style.transform = 'scale(0.95)';
+    setTimeout(() => {
+      ball.style.transform = 'scale(1)';
+    }, 100);
+  });
+
+  // Handle close button click
+  const closeIcon = ball.querySelector('.minimax-close-icon');
+  closeIcon.addEventListener('click', function (e) {
+    e.stopPropagation();
+    ball.style.opacity = '0';
+    ball.style.transform = 'translateY(20px)';
+
+    setTimeout(() => {
+      ball.style.display = 'none';
+    }, 300);
+  });
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', initFloatingBall); 
 </script>
 
 <script>

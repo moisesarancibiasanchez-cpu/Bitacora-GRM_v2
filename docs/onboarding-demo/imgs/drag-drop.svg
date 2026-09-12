@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" role="img" aria-label="Arrastrar y soltar tarjeta entre columnas">
+  <rect width="720" height="360" rx="8" fill="#f1f5f9"/>
+  <!-- Origin column -->
+  <rect x="40" y="40" width="180" height="280" rx="8" fill="#fff" stroke="#cbd5e1"/>
+  <rect x="40" y="40" width="180" height="32" rx="8" fill="#e0e7ff"/>
+  <text x="56" y="61" font-family="system-ui" font-size="12" font-weight="700" fill="#3730a3">NUEVO (1)</text>
+  <!-- Card lifted -->
+  <rect x="60" y="92" width="150" height="68" rx="5" fill="#fbbf24" stroke="#b45309" opacity="0.92"/>
+  <rect x="60" y="92" width="150" height="68" rx="5" fill="none" stroke="#b45309" stroke-dasharray="3,3"/>
+  <text x="72" y="112" font-family="system-ui" font-size="10" font-weight="700" fill="#78350f">INC-0042</text>
+  <text x="72" y="128" font-family="system-ui" font-size="11" fill="#1e293b">No puedo acceder al SAP</text>
+  <text x="72" y="148" font-family="system-ui" font-size="10" fill="#78350f">Asignado a: M. López</text>
+  <!-- Placeholder -->
+  <rect x="60" y="92" width="150" height="68" rx="5" fill="none" stroke="#cbd5e1" stroke-dasharray="6,4"/>
+
+  <!-- Arrow -->
+  <path d="M260 170 Q310 110 360 170" stroke="#4f46e5" stroke-width="3" fill="none" stroke-dasharray="6,4" marker-end="url(#arrow)"/>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4f46e5"/>
+    </marker>
+  </defs>
+
+  <!-- Destination column -->
+  <rect x="380" y="40" width="180" height="280" rx="8" fill="#fff" stroke="#cbd5e1"/>
+  <rect x="380" y="40" width="180" height="32" rx="8" fill="#dbeafe"/>
+  <text x="396" y="61" font-family="system-ui" font-size="12" font-weight="700" fill="#1e40af">EN CURSO (1)</text>
+
+  <!-- Existing card -->
+  <rect x="400" y="92" width="150" height="50" rx="5" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="412" y="112" font-family="system-ui" font-size="10" font-weight="700" fill="#991b1b">INC-0040</text>
+  <text x="412" y="128" font-family="system-ui" font-size="10" fill="#1e293b">Error 500 al guardar</text>
+
+  <!-- Card landing (highlight) -->
+  <rect x="400" y="160" width="150" height="68" rx="5" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="412" y="180" font-family="system-ui" font-size="10" font-weight="700" fill="#166534">INC-0042</text>
+  <text x="412" y="196" font-family="system-ui" font-size="11" fill="#1e293b">No puedo acceder al SAP</text>
+  <text x="412" y="216" font-family="system-ui" font-size="10" fill="#166534">Asignado a: M. López</text>
+
+  <!-- Toast -->
+  <rect x="600" y="40" width="100" height="40" rx="6" fill="#16a34a"/>
+  <text x="650" y="58" font-family="system-ui" font-size="11" text-anchor="middle" fill="#fff" font-weight="600">Ticket movido</text>
+  <text x="650" y="72" font-family="system-ui" font-size="9" text-anchor="middle" fill="#dcfce7">✓ Validado por backend</text>
+
+  <!-- Cursor -->
+  <g transform="translate(485,200)">
+    <path d="M0 0 L0 16 L5 11 L9 19 L13 17 L9 9 L15 9 Z" fill="#1e293b" stroke="#fff" stroke-width="1"/>
+  </g>
+</svg>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" role="img" aria-label="Pirámide de roles">
+  <rect width="720" height="460" rx="8" fill="#f8fafc"/>
+  <text x="360" y="36" font-family="system-ui" font-size="16" font-weight="700" text-anchor="middle" fill="#1e293b">Jerarquía de roles</text>
+  <text x="360" y="56" font-family="system-ui" font-size="11" text-anchor="middle" fill="#64748b">Permisos acumulativos — cada rol hereda los del anterior</text>
+
+  <!-- Pyramid 5 levels -->
+  <g>
+    <polygon points="360,76 470,146 250,146" fill="#4f46e5"/>
+    <text x="360" y="120" font-family="system-ui" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">Administrador</text>
+
+    <polygon points="260,150 460,150 510,210 210,210" fill="#6366f1"/>
+    <text x="360" y="186" font-family="system-ui" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">Agente Senior</text>
+
+    <polygon points="220,214 500,214 550,274 170,274" fill="#818cf8"/>
+    <text x="360" y="250" font-family="system-ui" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">Agente</text>
+
+    <polygon points="180,278 540,278 590,338 130,338" fill="#a5b4fc"/>
+    <text x="360" y="314" font-family="system-ui" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">Observador</text>
+
+    <polygon points="140,342 580,342 630,402 90,402" fill="#c7d2fe"/>
+    <text x="360" y="378" font-family="system-ui" font-size="13" font-weight="700" text-anchor="middle" fill="#1e293b">Solicitante</text>
+  </g>
+</svg>

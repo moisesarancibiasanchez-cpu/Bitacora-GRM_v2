@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" role="img" aria-label="Búsqueda global Command Palette">
+  <rect width="720" height="380" rx="8" fill="#0f172a" opacity="0.65"/>
+  <!-- Palette -->
+  <rect x="120" y="60" width="480" height="260" rx="10" fill="#fff" stroke="#e2e8f0"/>
+  <!-- Input -->
+  <rect x="120" y="60" width="480" height="48" rx="10" fill="#fff"/>
+  <line x1="120" y1="108" x2="600" y2="108" stroke="#e2e8f0"/>
+  <text x="140" y="91" font-family="system-ui" font-size="11" font-weight="700" fill="#6366f1">⌘K</text>
+  <rect x="170" y="82" width="200" height="16" rx="3" fill="#e0e7ff"/>
+  <text x="174" y="94" font-family="ui-monospace,monospace" font-size="11" fill="#1e293b">sap</text>
+  <text x="500" y="91" font-family="system-ui" font-size="11" fill="#94a3b8">↑ ↓ navegar ⏎ abrir</text>
+
+  <!-- Result 1 -->
+  <rect x="130" y="120" width="460" height="44" rx="6" fill="#eef2ff"/>
+  <text x="146" y="140" font-family="system-ui" font-size="12" font-weight="700" fill="#4338ca">INC-0042 — No puedo acceder al SAP</text>
+  <text x="146" y="156" font-family="system-ui" font-size="10" fill="#64748b">Ticket · En curso · Alta · María López</text>
+
+  <!-- Result 2 -->
+  <rect x="130" y="170" width="460" height="44" rx="6" fill="#fff"/>
+  <text x="146" y="190" font-family="system-ui" font-size="12" fill="#1e293b">INC-0019 — SAP no carga reportes</text>
+  <text x="146" y="206" font-family="system-ui" font-size="10" fill="#64748b">Ticket · Resuelto · Media</text>
+
+  <!-- Command -->
+  <rect x="130" y="220" width="460" height="44" rx="6" fill="#fff"/>
+  <text x="146" y="240" font-family="system-ui" font-size="12" fill="#1e293b">⚡ Crear nuevo ticket</text>
+  <text x="146" y="256" font-family="system-ui" font-size="10" fill="#64748b">Comando rápido</text>
+
+  <!-- Footer -->
+  <text x="140" y="294" font-family="system-ui" font-size="10" fill="#64748b">Tickets, usuarios (admin) y comandos · Búsqueda instantánea</text>
+</svg>

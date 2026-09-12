@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" role="img" aria-label="Panel de filtros">
+  <rect width="720" height="380" rx="8" fill="#f8fafc"/>
+  <rect x="40" y="40" width="640" height="300" rx="8" fill="#fff" stroke="#cbd5e1"/>
+  <text x="60" y="74" font-family="system-ui" font-size="16" font-weight="700" fill="#1e293b">Filtros</text>
+  <text x="60" y="92" font-family="system-ui" font-size="11" fill="#64748b">Combiná varios para refinar tu tablero</text>
+
+  <g font-family="system-ui" font-size="11" fill="#475569">
+    <text x="60" y="124">Búsqueda por texto</text>
+    <rect x="60" y="130" width="280" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="74" y="151" font-family="system-ui" font-size="11" fill="#94a3b8">🔍 Buscar título, código o descripción…</text>
+
+    <text x="360" y="124">Prioridad</text>
+    <rect x="360" y="130" width="160" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="374" y="151" font-family="system-ui" font-size="11" fill="#1e293b">Todas ▾</text>
+
+    <text x="540" y="124">Asignado</text>
+    <rect x="540" y="130" width="120" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="554" y="151" font-family="system-ui" font-size="11" fill="#1e293b">Cualquiera ▾</text>
+
+    <text x="60" y="186">Etiqueta</text>
+    <rect x="60" y="192" width="160" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="74" y="213" font-family="system-ui" font-size="11" fill="#1e293b">Cualquiera ▾</text>
+
+    <!-- Toggles -->
+    <rect x="60" y="248" width="200" height="36" rx="6" fill="#eef2ff" stroke="#6366f1"/>
+    <rect x="70" y="258" width="28" height="16" rx="8" fill="#4f46e5"/>
+    <circle cx="90" cy="266" r="6" fill="#fff"/>
+    <text x="108" y="271" font-family="system-ui" font-size="11" fill="#1e293b" font-weight="600">Solo mis tickets</text>
+
+    <rect x="280" y="248" width="200" height="36" rx="6" fill="#fef3c7" stroke="#f59e0b"/>
+    <rect x="290" y="258" width="28" height="16" rx="8" fill="#f59e0b"/>
+    <circle cx="310" cy="266" r="6" fill="#fff"/>
+    <text x="328" y="271" font-family="system-ui" font-size="11" fill="#1e293b" font-weight="600">Solo críticos</text>
+
+    <!-- Buttons -->
+    <rect x="500" y="304" width="80" height="28" rx="5" fill="#fff" stroke="#cbd5e1"/>
+    <text x="540" y="323" font-family="system-ui" font-size="11" text-anchor="middle" fill="#475569">Limpiar</text>
+    <rect x="590" y="304" width="80" height="28" rx="5" fill="#4f46e5"/>
+    <text x="630" y="323" font-family="system-ui" font-size="11" text-anchor="middle" fill="#fff" font-weight="600">Aplicar</text>
+  </g>
+</svg>

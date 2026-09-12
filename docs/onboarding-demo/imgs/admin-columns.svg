@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" role="img" aria-label="Gestión de columnas">
+  <rect width="720" height="380" rx="8" fill="#f8fafc"/>
+  <rect x="40" y="40" width="640" height="300" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text x="60" y="74" font-family="system-ui" font-size="16" font-weight="700" fill="#1e293b">Flujo de trabajo · Columnas</text>
+
+  <!-- Column cards -->
+  <g transform="translate(60,100)">
+    <rect width="180" height="100" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <rect width="180" height="8" rx="4" fill="#e0e7ff"/>
+    <text x="14" y="32" font-family="system-ui" font-size="13" font-weight="700" fill="#3730a3">Nuevo</text>
+    <text x="14" y="52" font-family="system-ui" font-size="10" fill="#64748b">Color: indigo</text>
+    <text x="14" y="70" font-family="system-ui" font-size="10" fill="#64748b">Responsable: — </text>
+    <text x="14" y="88" font-family="system-ui" font-size="10" fill="#6366f1">✎ editar  🗑 eliminar</text>
+  </g>
+  <g transform="translate(260,100)">
+    <rect width="180" height="100" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <rect width="180" height="8" rx="4" fill="#dbeafe"/>
+    <text x="14" y="32" font-family="system-ui" font-size="13" font-weight="700" fill="#1e40af">En curso</text>
+    <text x="14" y="52" font-family="system-ui" font-size="10" fill="#64748b">Color: blue</text>
+    <text x="14" y="70" font-family="system-ui" font-size="10" fill="#64748b">Responsable: M. López ✉</text>
+    <text x="14" y="88" font-family="system-ui" font-size="10" fill="#6366f1">✎ editar  🗑 eliminar</text>
+  </g>
+  <g transform="translate(460,100)">
+    <rect width="180" height="100" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+    <rect width="180" height="8" rx="4" fill="#dcfce7"/>
+    <text x="14" y="32" font-family="system-ui" font-size="13" font-weight="700" fill="#166534">Resuelto</text>
+    <text x="14" y="52" font-family="system-ui" font-size="10" fill="#64748b">Color: green</text>
+    <text x="14" y="70" font-family="system-ui" font-size="10" fill="#64748b">Responsable: —</text>
+    <text x="14" y="88" font-family="system-ui" font-size="10" fill="#6366f1">✎ editar  🗑 eliminar</text>
+  </g>
+
+  <!-- Add column -->
+  <g transform="translate(60,220)">
+    <rect width="580" height="80" rx="8" fill="#fff" stroke="#cbd5e1" stroke-dasharray="6,4"/>
+    <text x="20" y="36" font-family="system-ui" font-size="13" font-weight="700" fill="#475569">+ Añadir columna</text>
+    <rect x="20" y="46" width="180" height="22" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="30" y="61" font-family="system-ui" font-size="10" fill="#94a3b8">Nombre de columna…</text>
+    <rect x="220" y="46" width="60" height="22" rx="4" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="230" y="61" font-family="system-ui" font-size="10" fill="#94a3b8">🎨 color</text>
+    <rect x="460" y="46" width="100" height="22" rx="5" fill="#4f46e5"/>
+    <text x="510" y="61" font-family="system-ui" font-size="11" text-anchor="middle" fill="#fff" font-weight="600">Crear</text>
+  </g>
+</svg>
