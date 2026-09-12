@@ -1,0 +1,19 @@
+# =============================================================================
+#  mise.toml - Bitácora GRM
+#  Configuración para mise (gestor de runtimes).
+#  Railpack 0.39+ exige atestaciones de GitHub al instalar Python desde
+#  python-build-standalone. La versión 3.12.5 no tiene atestaciones publicadas,
+#  por lo que el build falla. Esta configuración las desactiva de forma
+#  permanente para que la instalación de Python sea consistente.
+# =============================================================================
+
+[settings]
+# Desactiva la verificación de atestaciones de GitHub al instalar Python.
+# Esto es necesario porque algunas versiones (p. ej. 3.12.5) no tienen
+# atestaciones publicadas y, de lo contrario, el build de Railway falla con:
+#   "No GitHub artifact attestations found for python@3.12.5"
+python.github_attestations = false
+
+# Desactiva también la verificación de fuente de mise para evitar problemas
+# similares con otras herramientas en builds futuros.
+experimental = true

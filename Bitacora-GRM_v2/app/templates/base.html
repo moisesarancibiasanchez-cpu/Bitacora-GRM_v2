@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Bitácora GRM{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- HTMX autoalojado: elimina dependencia de unpkg.com y de SRI hash que
+       puede fallar en Railway por CSP o bloqueos de CDN. -->
+  <script src="/static/js/htmx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="h-full bg-slate-50 font-sans text-slate-800">
+  <header class="bg-white border-b border-slate-200 shadow-sm">
+    <div class="max-w-full mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">GRM</div>
+        <div>
+          <h1 class="text-base font-semibold text-slate-800">Bitácora GRM</h1>
+          <p class="text-[11px] text-slate-500 -mt-0.5">Módulo de Incidencias · ITSM + Kanban</p>
+        </div>
+      </div>
+      <nav class="flex items-center gap-1 text-sm">
+        <a href="/kanban" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          Tablero
+        </a>
+        <a href="/tickets" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100">Tickets</a>
+        <a href="/butler" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <span class="text-amber-500">⚡</span> Butler
+        </a>
+        <a href="/roles-funciones" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1"
+           title="Matriz de funciones por rol">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          Roles y Funciones
+        </a>
+        {% if usuario and usuario.rol.value == 'administrador' %}
+        <a href="/usuarios" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          Usuarios
+        </a>
+        <a href="/importar-exportar" class="px-3 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+          Importar/Exportar
+        </a>
+        {% endif %}
+        <!-- Buscador / Command Palette -->
+        <button type="button" id="command-palette-trigger"
+                class="ml-1 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-slate-500 hover:bg-white hover:border-slate-300 text-xs"
+                title="Búsqueda global (Ctrl/Cmd + K)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+          <span>Buscar...</span>
+          <kbd class="hidden md:inline-block ml-1 px-1.5 py-0.5 text-[10px] font-mono rounded border border-slate-200 bg-white text-slate-500">⌘K</kbd>
+        </button>
+      </nav>
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">● Online</span>
+        {% if usuario %}
+        <span class="text-slate-600">{{ usuario.nombre_completo }}</span>
+        <span class="px-2 py-1 rounded-md bg-indigo-100 text-indigo-700 font-medium">{{ usuario.rol.value }}</span>
+        <button type="button"
+                hx-get="/api/v1/auth/cambiar-password-modal"
+                hx-target="#modal-root" hx-swap="innerHTML"
+                class="ml-1 px-2 py-1 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 font-medium inline-flex items-center gap-1"
+                title="Cambiar mi contraseña">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+          Cambiar contraseña
+        </button>
+        <button type="button"
+                hx-post="/api/v1/auth/logout"
+                hx-swap="none"
+                hx-on::after-request="window.location.href='/auth/login'"
+                class="ml-1 px-2 py-1 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 font-medium inline-flex items-center gap-1"
+                title="Cerrar sesión">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          Salir
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <!-- Toaster de notificaciones (HTMX events) -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <!-- Contenedor global para modales HTMX -->
+  <div id="modal-root" class="contents"></div>
+
+  <!-- Command Palette (Búsqueda global) -->
+  <div id="command-palette-root" class="hidden fixed inset-0 z-[60]"></div>
+
+  <main class="h-[calc(100vh-57px)] overflow-hidden">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Identificador del usuario actual para llamadas API en modo demo -->
+  <script>
+    window.CURRENT_USER_ID = {{ usuario.id if usuario else 1 }};
+    window.CURRENT_USER_ROL = "{{ usuario.rol.value if usuario else 'solicitante' }}";
+  </script>
+
+  <!-- Configuración GLOBAL de HTMX: añade X-User-Id a TODAS las peticiones
+       para que la autenticación (modo demo) las acepte. Sin esto, los
+       endpoints /api/v1/* devuelven 401 al no recibir credenciales. -->
+  <script>
+    (function () {
+      function attachHtmxAuth() {
+        if (typeof htmx === 'undefined' || !document.body) {
+          // HTMX aún no cargó; reintentar pronto
+          setTimeout(attachHtmxAuth, 20);
+          return;
+        }
+        // Añadir X-User-Id y HX-Request a TODAS las peticiones HTMX
+        document.body.addEventListener('htmx:configRequest', function (evt) {
+          try {
+            evt.detail.headers['X-User-Id'] = String(window.CURRENT_USER_ID || 1);
+            evt.detail.headers['X-Requested-With'] = 'XMLHttpRequest';
+          } catch (e) { /* noop */ }
+        });
+        // Timeout más generoso para Railway (red puede ser lenta)
+        try { htmx.config.timeout = 20000; } catch (e) {}
+        try { htmx.config.defaultSettleDelay = 50; } catch (e) {}
+
+        // Helper: muestra un toast de error de forma segura
+        function showErrorToast(message) {
+          try {
+            if (window.showToast) {
+              window.showToast(message, 'error', 5000);
+              return;
+            }
+          } catch (_) {}
+          // Fallback: alert
+          try { alert(message); } catch (_) {}
+        }
+
+        // Helper: extrae un mensaje útil del response (JSON o texto)
+        function extractErrorMessage(xhr) {
+          if (!xhr) return 'Error desconocido';
+          var text = '';
+          try { text = xhr.responseText || ''; } catch (_) { text = ''; }
+          if (text) {
+            try {
+              var data = JSON.parse(text);
+              if (data && data.detail) {
+                if (typeof data.detail === 'string') return data.detail;
+                if (Array.isArray(data.detail) && data.detail[0] && data.detail[0].msg) {
+                  return data.detail[0].msg;
+                }
+              }
+            } catch (_) { /* no es JSON, devolver el texto tal cual si es corto */ }
+            if (text.length < 200) return text;
+          }
+          return 'Error HTTP ' + xhr.status;
+        }
+
+        // Si llega un 401 desde HTMX, mostrar un error útil en lugar de
+        // quedarse en "Cargando..."
+        document.body.addEventListener('htmx:responseError', function (evt) {
+          var xhr = evt.detail && evt.detail.xhr;
+          var status = xhr && xhr.status;
+          var path = (evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+
+          if (status === 401) {
+            // Sesión expirada o credenciales inválidas: mostrar modal
+            var root = document.getElementById('modal-root');
+            if (root) {
+              root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">' +
+                '<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">' +
+                '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">' +
+                '<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>' +
+                '</div><h3 class="text-lg font-semibold text-red-700 mb-1">Sesión expirada</h3>' +
+                '<p class="text-sm text-slate-600 mb-4">Recarga la página para continuar trabajando.</p>' +
+                '<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Cerrar</button>' +
+                '</div></div>';
+            }
+            return;
+          }
+
+          if (status === 403) {
+            showErrorToast('No tienes permisos para realizar esta acción.');
+            return;
+          }
+
+          if (status === 404) {
+            // No mostrar error para card-html cuando se hace polling (es esperado)
+            if (path && path.indexOf('/card-html') >= 0) return;
+            showErrorToast('El recurso solicitado no existe (404).');
+            return;
+          }
+
+          if (status === 422) {
+            // Validación: el backend ya emitió un HX-Trigger con ticket-error
+            return;
+          }
+
+          if (status === 413) {
+            showErrorToast('El archivo es demasiado grande. Reduce su tamaño e inténtalo de nuevo.');
+            return;
+          }
+
+          if (status >= 500) {
+            showErrorToast('Error del servidor (' + status + '). Inténtalo de nuevo en unos momentos.');
+            return;
+          }
+
+          if (status >= 400) {
+            showErrorToast(extractErrorMessage(xhr));
+          }
+        });
+
+        // Errores de red (sin respuesta del servidor)
+        document.body.addEventListener('htmx:sendError', function (evt) {
+          showErrorToast('No se pudo conectar con el servidor. Revisa tu conexión a internet.');
+        });
+
+        // Timeout
+        document.body.addEventListener('htmx:timeout', function (evt) {
+          showErrorToast('La petición tardó demasiado. Inténtalo de nuevo.');
+        });
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', attachHtmxAuth);
+      } else {
+        attachHtmxAuth();
+      }
+    })();
+  </script>
+
+  <!-- htmx-fallback SIEMPRE antes de kanban.js: si HTMX falla, este
+       script intercepta los hx-* y los maneja con fetch() nativo -->
+  <script src="/static/js/htmx-fallback.js"></script>
+  <script src="/static/js/kanban.js"></script>
+  <script src="/static/js/htmx-events.js"></script>
+  <script src="/static/js/auth-events.js"></script>
+  <script src="/static/js/image-preview.js"></script>
+  <script src="/static/js/command-palette.js"></script>
+</body>
+</html>

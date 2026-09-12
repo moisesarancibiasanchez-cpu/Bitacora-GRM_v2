@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Vista Tabla · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-50">
+  <div class="max-w-full mx-auto px-6 py-6">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <a href="/tableros{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="p-2 rounded-md hover:bg-slate-200 text-slate-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <h1 class="text-2xl font-bold text-slate-800">📊 Vista Tabla</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="?{% if espacio_id %}espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-100 text-indigo-700">Tabla</a>
+        <a href="/vistas/calendario{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Calendario</a>
+        <a href="/vistas/timeline{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Timeline</a>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex items-center gap-3 flex-wrap">
+      <input id="filtro-texto" type="text" placeholder="Buscar por título o código..." oninput="aplicarFiltros()"
+             class="flex-1 min-w-[200px] px-3 py-1.5 text-sm border border-slate-300 rounded-md outline-none">
+      <select id="filtro-estado" onchange="aplicarFiltros()"
+              class="px-3 py-1.5 text-sm border border-slate-300 rounded-md outline-none">
+        <option value="">Todos los estados</option>
+        {% for e in estados %}
+        <option value="{{ e.nombre }}">{{ e.nombre }}</option>
+        {% endfor %}
+      </select>
+      <select id="filtro-prioridad" onchange="aplicarFiltros()"
+              class="px-3 py-1.5 text-sm border border-slate-300 rounded-md outline-none">
+        <option value="">Toda prioridad</option>
+        <option value="critica">Crítica</option>
+        <option value="alta">Alta</option>
+        <option value="media">Media</option>
+        <option value="baja">Baja</option>
+      </select>
+      <select id="filtro-asignado" onchange="aplicarFiltros()"
+              class="px-3 py-1.5 text-sm border border-slate-300 rounded-md outline-none">
+        <option value="">Todos los asignados</option>
+        {% for u in usuarios %}
+        <option value="{{ u.id }}">{{ u.nombre_completo }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-600">
+            <tr>
+              <th class="px-3 py-2 text-left">Código</th>
+              <th class="px-3 py-2 text-left">Título</th>
+              <th class="px-3 py-2 text-left">Estado</th>
+              <th class="px-3 py-2 text-left">Prioridad</th>
+              <th class="px-3 py-2 text-left">Asignado</th>
+              <th class="px-3 py-2 text-left">Inicio</th>
+              <th class="px-3 py-2 text-left">Vencimiento</th>
+              <th class="px-3 py-2 text-left">SLA</th>
+              {% for c in custom_fields %}
+              <th class="px-3 py-2 text-left">{{ c.nombre }}</th>
+              {% endfor %}
+              <th class="px-3 py-2 text-left">Etiquetas</th>
+            </tr>
+          </thead>
+          <tbody id="tabla-tickets">
+            {% for f in filas %}
+            <tr class="fila-ticket border-b border-slate-100 hover:bg-slate-50"
+                data-estado="{{ f.estado }}" data-prioridad="{{ f.prioridad }}" data-asignado="{{ f.asignado_id or '' }}"
+                data-texto="{{ (f.codigo + ' ' + f.titulo)|lower }}">
+              <td class="px-3 py-2 font-mono text-xs text-indigo-600">{{ f.codigo }}</td>
+              <td class="px-3 py-2">
+                <a href="/api/v1/tickets/{{ f.id }}/detalle-html" hx-target="#modal-root" hx-swap="innerHTML" class="text-slate-800 font-medium hover:text-indigo-600 truncate inline-block max-w-xs">
+                  {{ f.titulo }}
+                </a>
+              </td>
+              <td class="px-3 py-2">
+                <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: {{ f.estado_color }}"></span>
+                <span class="text-xs">{{ f.estado }}</span>
+              </td>
+              <td class="px-3 py-2">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold
+                  {% if f.prioridad == 'critica' %}bg-red-100 text-red-700
+                  {% elif f.prioridad == 'alta' %}bg-orange-100 text-orange-700
+                  {% elif f.prioridad == 'media' %}bg-amber-100 text-amber-700
+                  {% else %}bg-slate-100 text-slate-700{% endif %}">
+                  {{ f.prioridad|upper }}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-xs">{{ f.asignado or '—' }}</td>
+              <td class="px-3 py-2 text-xs text-slate-500">{{ f.fecha_inicio or '—' }}</td>
+              <td class="px-3 py-2 text-xs text-slate-500">{{ f.fecha_vencimiento or '—' }}</td>
+              <td class="px-3 py-2">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold
+                  {% if f.sla == 'vencido' %}bg-red-100 text-red-700
+                  {% elif f.sla == 'cumplido' %}bg-emerald-100 text-emerald-700
+                  {% else %}bg-slate-100 text-slate-600{% endif %}">
+                  {{ f.sla|upper }}
+                </span>
+              </td>
+              {% for c in custom_fields %}
+              <td class="px-3 py-2 text-xs text-slate-600">{{ f.get('custom_' ~ c.id) or '—' }}</td>
+              {% endfor %}
+              <td class="px-3 py-2">
+                <div class="flex flex-wrap gap-1">
+                {% for et in f.etiquetas %}
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium" style="background: {{ et.color }}22; color: {{ et.color }}">{{ et.nombre }}</span>
+                {% endfor %}
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="px-3 py-8 text-center text-slate-500">No hay tickets para mostrar.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function aplicarFiltros(){
+  const q = document.getElementById('filtro-texto').value.toLowerCase();
+  const est = document.getElementById('filtro-estado').value;
+  const pri = document.getElementById('filtro-prioridad').value;
+  const asg = document.getElementById('filtro-asignado').value;
+  document.querySelectorAll('.fila-ticket').forEach(tr => {
+    const matchQ = !q || tr.dataset.texto.includes(q);
+    const matchE = !est || tr.dataset.estado === est;
+    const matchP = !pri || tr.dataset.prioridad === pri;
+    const matchA = !asg || tr.dataset.asignado === asg;
+    tr.style.display = (matchQ && matchE && matchP && matchA) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Vista Calendario · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-50">
+  <div class="max-w-full mx-auto px-6 py-6">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <a href="/tableros{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="p-2 rounded-md hover:bg-slate-200 text-slate-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <h1 class="text-2xl font-bold text-slate-800">📅 Vista Calendario</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="/vistas/tabla{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Tabla</a>
+        <a href="?{% if espacio_id %}espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-100 text-indigo-700">Calendario</a>
+        <a href="/vistas/timeline{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Timeline</a>
+      </div>
+    </div>
+
+    <!-- Controles -->
+    <div class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <button onclick="cambiarMes(-1)" class="p-1.5 rounded-md hover:bg-slate-100">
+          <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h2 id="cal-titulo" class="text-lg font-semibold text-slate-800 min-w-[180px] text-center capitalize"></h2>
+        <button onclick="cambiarMes(1)" class="p-1.5 rounded-md hover:bg-slate-100">
+          <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+      <button onclick="irHoy()" class="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-50">Hoy</button>
+    </div>
+
+    <!-- Calendario -->
+    <div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <div class="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
+        {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}
+        <div class="px-2 py-2 text-xs font-semibold text-slate-600 text-center">{{ d }}</div>
+        {% endfor %}
+      </div>
+      <div id="cal-grid" class="grid grid-cols-7"></div>
+    </div>
+
+    <!-- Leyenda -->
+    <div class="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+      <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-red-500"></span>Crítica</span>
+      <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-orange-500"></span>Alta</span>
+      <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500"></span>Media</span>
+      <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-slate-400"></span>Baja</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const TICKETS = {{ tickets_cal | tojson }};
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const COLORES = {critica:'bg-red-500',alta:'bg-orange-500',media:'bg-amber-500',baja:'bg-slate-400'};
+let mesActual = new Date().getMonth();
+let anioActual = new Date().getFullYear();
+
+function renderCalendario(){
+  const titulo = document.getElementById('cal-titulo');
+  titulo.textContent = MESES[mesActual] + ' ' + anioActual;
+  const grid = document.getElementById('cal-grid');
+  grid.innerHTML = '';
+
+  const primerDia = new Date(anioActual, mesActual, 1);
+  let diaSemana = primerDia.getDay();
+  diaSemana = diaSemana === 0 ? 6 : diaSemana - 1; // Lun=0
+  const diasEnMes = new Date(anioActual, mesActual + 1, 0).getDate();
+
+  // Celdas vacías antes del primer día
+  for (let i = 0; i < diaSemana; i++){
+    const c = document.createElement('div');
+    c.className = 'min-h-[110px] border-b border-r border-slate-100 bg-slate-50/50';
+    grid.appendChild(c);
+  }
+
+  const hoy = new Date();
+  for (let d = 1; d <= diasEnMes; d++){
+    const c = document.createElement('div');
+    c.className = 'min-h-[110px] border-b border-r border-slate-100 p-1.5';
+    if (d === hoy.getDate() && mesActual === hoy.getMonth() && anioActual === hoy.getFullYear()){
+      c.classList.add('bg-indigo-50/50');
+    }
+    const num = document.createElement('div');
+    num.className = 'text-xs font-medium text-slate-700 mb-1';
+    num.textContent = d;
+    c.appendChild(num);
+
+    // Tickets de este día
+    const fechaISO = anioActual + '-' + String(mesActual+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const tks = TICKETS.filter(t => t.fecha === fechaISO);
+    tks.slice(0, 4).forEach(t => {
+      const tk = document.createElement('a');
+      tk.href = '/api/v1/tickets/' + t.id + '/detalle-html';
+      tk.setAttribute('hx-target','#modal-root');
+      tk.setAttribute('hx-swap','innerHTML');
+      tk.className = 'block px-1.5 py-1 mb-1 rounded text-[10px] font-medium text-white truncate hover:opacity-90 ' + (COLORES[t.prioridad] || 'bg-slate-400');
+      tk.textContent = t.codigo + ' ' + t.titulo;
+      c.appendChild(tk);
+    });
+    if (tks.length > 4){
+      const mas = document.createElement('div');
+      mas.className = 'text-[10px] text-slate-500 font-medium px-1';
+      mas.textContent = '+' + (tks.length - 4) + ' más';
+      c.appendChild(mas);
+    }
+    grid.appendChild(c);
+  }
+}
+
+function cambiarMes(delta){
+  mesActual += delta;
+  if (mesActual < 0){ mesActual = 11; anioActual--; }
+  if (mesActual > 11){ mesActual = 0; anioActual++; }
+  renderCalendario();
+}
+
+function irHoy(){
+  const h = new Date();
+  mesActual = h.getMonth(); anioActual = h.getFullYear();
+  renderCalendario();
+}
+
+document.body.addEventListener('htmx:load', () => {});
+renderCalendario();
+</script>
+{% endblock %}

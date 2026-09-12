@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Notificaciones · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-50">
+  <div class="max-w-3xl mx-auto px-6 py-6">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-7 h-7 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+          </svg>
+          Notificaciones
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">Tu centro de actividad y menciones.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="marcarTodasLeidas()" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white hover:bg-slate-50">Marcar todas como leídas</button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white border border-slate-200 rounded-lg p-2 mb-4 flex items-center gap-2">
+      <button onclick="filtrarNotif('todas')" data-filtro="todas" class="filtro-notif px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-100 text-indigo-700">Todas</button>
+      <button onclick="filtrarNotif('no_leidas')" data-filtro="no_leidas" class="filtro-notif px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100">No leídas</button>
+      <button onclick="filtrarNotif('menciones')" data-filtro="menciones" class="filtro-notif px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100">Menciones</button>
+      <button onclick="filtrarNotif('asignaciones')" data-filtro="asignaciones" class="filtro-notif px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100">Asignaciones</button>
+    </div>
+
+    <!-- Lista -->
+    <div id="lista-notificaciones" class="space-y-2">
+      {% for n in notificaciones %}
+      <div class="notif-card group bg-white border border-slate-200 rounded-lg p-3 flex items-start gap-3 {% if not n.leida %}border-l-4 border-l-indigo-500 bg-indigo-50/30{% endif %}"
+           data-tipo="{{ n.tipo }}" data-leida="{{ '1' if n.leida else '0' }}">
+        <div class="w-9 h-9 rounded-full flex items-center justify-center text-base
+          {% if n.tipo == 'mencion' %}bg-amber-100 text-amber-700
+          {% elif n.tipo == 'asignacion' %}bg-indigo-100 text-indigo-700
+          {% elif n.tipo == 'watch' %}bg-emerald-100 text-emerald-700
+          {% elif n.tipo == 'sla_vencimiento' %}bg-red-100 text-red-700
+          {% else %}bg-slate-100 text-slate-700{% endif %}">
+          {% if n.tipo == 'mencion' %}@{% elif n.tipo == 'asignacion' %}👤{% elif n.tipo == 'watch' %}👁{% elif n.tipo == 'sla_vencimiento' %}⚠{% else %}•{% endif %}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-0.5">
+            <span class="text-xs font-semibold text-slate-800 capitalize">{{ n.tipo }}</span>
+            {% if n.origen_usuario %}
+            <span class="text-xs text-slate-500">de {{ n.origen_usuario }}</span>
+            {% endif %}
+            <span class="text-[10px] text-slate-400 ml-auto">{{ n.created_at }}</span>
+          </div>
+          <h4 class="text-sm font-medium text-slate-800">{{ n.titulo }}</h4>
+          {% if n.mensaje %}
+          <p class="text-xs text-slate-600 mt-0.5">{{ n.mensaje }}</p>
+          {% endif %}
+          {% if n.url %}
+          <a href="{{ n.url }}" onclick="marcarLeida({{ n.id }})" class="text-xs text-indigo-600 hover:underline mt-1 inline-block">Ver →</a>
+          {% endif %}
+        </div>
+        {% if not n.leida %}
+        <button onclick="marcarLeida({{ n.id }})" title="Marcar como leída" class="text-slate-300 hover:text-indigo-600 p-1 opacity-0 group-hover:opacity-100 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </button>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="bg-white border border-dashed border-slate-300 rounded-lg p-12 text-center">
+        <div class="text-5xl mb-3">🔔</div>
+        <p class="text-sm text-slate-600 font-medium">No hay notificaciones</p>
+        <p class="text-xs text-slate-500 mt-1">Te avisaremos cuando te @mencionen o te asignen un ticket.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+function filtrarNotif(filtro){
+  document.querySelectorAll('.filtro-notif').forEach(b => {
+    b.classList.remove('bg-indigo-100','text-indigo-700');
+    b.classList.add('text-slate-600');
+  });
+  const btn = document.querySelector(`[data-filtro="${filtro}"]`);
+  btn.classList.add('bg-indigo-100','text-indigo-700');
+  btn.classList.remove('text-slate-600');
+
+  document.querySelectorAll('.notif-card').forEach(c => {
+    let show = true;
+    if (filtro === 'no_leidas') show = c.dataset.leida === '0';
+    else if (filtro === 'menciones') show = c.dataset.tipo === 'mencion';
+    else if (filtro === 'asignaciones') show = c.dataset.tipo === 'asignacion';
+    c.style.display = show ? '' : 'none';
+  });
+}
+
+async function marcarLeida(id){
+  try {
+    await fetch('/api/v1/notificaciones/'+id+'/leida', {method:'POST'});
+    location.reload();
+  } catch(e){ console.error(e); }
+}
+
+async function marcarTodasLeidas(){
+  if (!confirm('¿Marcar todas como leídas?')) return;
+  try {
+    await fetch('/api/v1/notificaciones/marcar-todas-leidas', {method:'POST'});
+    location.reload();
+  } catch(e){ alert('Error: '+e.message); }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,366 @@
+"""
+Migraciones idempotentes para Bitácora GRM.
+
+Alinea el esquema de la base de datos con los modelos SQLAlchemy sin
+necesidad de Alembic. Pensado para ejecutarse en cada arranque de la
+aplicación (es seguro correrlo múltiples veces: solo añade columnas que
+no existen).
+
+Compatibilidad:
+- PostgreSQL (producción / Railway): usa `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- SQLite (desarrollo / tests): comprueba `information_schema` y luego `ALTER TABLE`.
+
+Convenciones:
+- (table, column) -> (pg_type, sqlite_type)
+- Las definiciones de tipo NO incluyen el nombre de la columna; el script
+  lo concatena con `"nombre" TIPO`.
+- Para columnas con FK, la tabla referenciada debe existir (se crea con
+  `Base.metadata.create_all` antes de aplicar columnas).
+"""
+from __future__ import annotations
+
+import logging
+from typing import Dict, List, Optional, Tuple
+
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
+
+from app.db.base import Base
+
+logger = logging.getLogger(__name__)
+
+
+def _get_default_engine() -> Engine:
+    """Import lazy del engine de sesión para no abrir conexiones al cargar el módulo."""
+    from app.db.session import engine as session_engine
+    return session_engine
+
+
+# === Definición de columnas a sincronizar =====================================
+# Cada entrada: { tabla: { columna: (tipo_postgres, tipo_sqlite) } }
+# Si solo se proporciona un string, se usa para ambos motores.
+COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
+    "estados": {
+        # Trello: listas pueden pertenecer a un tablero (null = global)
+        "tablero_id": (
+            "INTEGER REFERENCES tableros(id) ON DELETE CASCADE",
+            "INTEGER REFERENCES tableros(id) ON DELETE CASCADE",
+        ),
+        "archivado": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
+        "limite_wip": "INTEGER",
+        # Feature nueva: responsable de la columna (FK a usuarios)
+        # Cuando un ticket cae en este estado, el responsable recibe
+        # notificación in-app + email.
+        "responsable_id": (
+            "INTEGER REFERENCES usuarios(id) ON DELETE SET NULL",
+            "INTEGER REFERENCES usuarios(id) ON DELETE SET NULL",
+        ),
+    },
+    "tickets": {
+        # Trello: cada tarjeta pertenece a un tablero
+        "tablero_id": (
+            "INTEGER REFERENCES tableros(id) ON DELETE SET NULL",
+            "INTEGER REFERENCES tableros(id) ON DELETE SET NULL",
+        ),
+        # Columna JSON para datos dinámicos del catálogo (ya arreglada en commit
+        # anterior; se incluye por si la BD se creó con un esquema muy antiguo).
+        "datos_catalogo": ("JSON", "TEXT"),
+        "fecha_inicio": ("TIMESTAMP", "TIMESTAMP"),
+        "fecha_completado": ("TIMESTAMP", "TIMESTAMP"),
+        "fecha_cumplida": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
+        "portada_color": "VARCHAR(20)",
+        "portada_adjunto_id": (
+            "INTEGER REFERENCES adjuntos(id) ON DELETE SET NULL",
+            "INTEGER REFERENCES adjuntos(id) ON DELETE SET NULL",
+        ),
+        "descripcion_md": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
+        "posicion": ("INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0"),
+        "archivado": ("BOOLEAN NOT NULL DEFAULT FALSE", "BOOLEAN NOT NULL DEFAULT 0"),
+        # Campos extendidos del módulo de Incidencias (LOVs)
+        "modulo": "VARCHAR(80)",
+        # Ambiente: reemplaza al campo "Categoría" del antiguo catálogo.
+        # LOV cerrado: QA / PRODUCCION.
+        "ambiente": "VARCHAR(40)",
+        # Ítem: subsistema o canal afectado. LOV cerrado: 3 valores.
+        "item": "VARCHAR(80)",
+        "vista": "VARCHAR(200)",
+        "hu_o_caso_prueba": "VARCHAR(200)",
+        "nota_observacion": "TEXT",
+        "resultado_pruebas": "VARCHAR(40)",
+    },
+}
+
+
+# Índices que deben existir (idempotentes: IF NOT EXISTS funciona en ambos)
+INDEXES: List[Tuple[str, str]] = [
+    ("ix_estados_tablero_id",  "CREATE INDEX IF NOT EXISTS ix_estados_tablero_id ON estados(tablero_id)"),
+    ("ix_estados_archivado",   "CREATE INDEX IF NOT EXISTS ix_estados_archivado  ON estados(archivado)"),
+    ("ix_tickets_tablero_id",  "CREATE INDEX IF NOT EXISTS ix_tickets_tablero_id ON tickets(tablero_id)"),
+    ("ix_tickets_archivado",   "CREATE INDEX IF NOT EXISTS ix_tickets_archivado  ON tickets(archivado)"),
+    ("ix_tickets_posicion",    "CREATE INDEX IF NOT EXISTS ix_tickets_posicion   ON tickets(posicion)"),
+    ("ix_tickets_fecha_inicio","CREATE INDEX IF NOT EXISTS ix_tickets_fecha_inicio ON tickets(fecha_inicio)"),
+    ("ix_tickets_fecha_completado", "CREATE INDEX IF NOT EXISTS ix_tickets_fecha_completado ON tickets(fecha_completado)"),
+]
+
+
+def _get_existing_columns(eng: Engine, table: str) -> set:
+    """Devuelve el conjunto de columnas existentes en la tabla (vacío si la tabla no existe)."""
+    insp = inspect(eng)
+    if not insp.has_table(table):
+        return set()
+    return {c["name"] for c in insp.get_columns(table)}
+
+
+def _resolve_type(eng: Engine, type_def) -> str:
+    """Devuelve la definición de tipo para el motor actual."""
+    if isinstance(type_def, tuple):
+        pg_type, sqlite_type = type_def
+        return pg_type if eng.dialect.name == "postgresql" else sqlite_type
+    return type_def
+
+
+def _column_exists(eng: Engine, table: str, column: str) -> bool:
+    """Comprobación portable: True si la columna existe en la tabla."""
+    return column in _get_existing_columns(eng, table)
+
+
+def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
+    """
+    Aplica migraciones pendientes para alinear el esquema con los modelos.
+
+    - Idempotente: puede ejecutarse en cada arranque.
+    - Segura: usa `engine.begin()` para transaccionar; si algo falla, hace rollback.
+    - Retorna un dict con estadísticas {applied, skipped, indexes, errors}.
+    """
+    eng = eng or _get_default_engine()
+    is_pg = eng.dialect.name == "postgresql"
+    is_sqlite = eng.dialect.name == "sqlite"
+    stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0,
+             "tables_created": 0, "data_migrated": 0}
+
+    # 1) Asegurar que todas las tablas existen (no-op si ya están).
+    #    Necesario porque algunas columnas tienen FKs a tablas nuevas (tableros,
+    #    adjuntos) que pueden no existir si la BD es muy antigua.
+    try:
+        Base.metadata.create_all(bind=eng)
+        stats["tables_created"] = 0  # create_all es no-op si existen
+        logger.info("[migrations] Schema check: tablas verificadas")
+    except Exception as e:
+        logger.warning("[migrations] No se pudo verificar el esquema base: %s", e)
+        stats["errors"] += 1
+
+    # 2) Añadir columnas faltantes
+    with eng.begin() as conn:
+        for table, columns in COLUMNS_TO_ADD.items():
+            existing = _get_existing_columns(eng, table)
+            for column, type_def in columns.items():
+                if column in existing:
+                    stats["skipped"] += 1
+                    continue
+                col_type = _resolve_type(eng, type_def)
+                try:
+                    if is_pg:
+                        sql = f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "{column}" {col_type}'
+                    elif is_sqlite:
+                        # SQLite < 3.35 no soporta IF NOT EXISTS en ADD COLUMN.
+                        # Hacemos el pre-check arriba (`column in existing`).
+                        sql = f'ALTER TABLE {table} ADD COLUMN "{column}" {col_type}'
+                    else:
+                        # Motor desconocido: intentar IF NOT EXISTS
+                        sql = f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "{column}" {col_type}'
+                    conn.execute(text(sql))
+                    logger.info("[migrations] ✓ %s.%s añadida (%s)", table, column, col_type)
+                    stats["applied"] += 1
+                except Exception as e:
+                    logger.warning(
+                        "[migrations] ✗ No se pudo añadir %s.%s: %s",
+                        table, column, e,
+                    )
+                    stats["errors"] += 1
+
+        # 3) Crear índices faltantes (IF NOT EXISTS funciona en ambos motores)
+        for name, sql in INDEXES:
+            try:
+                conn.execute(text(sql))
+                stats["indexes"] += 1
+            except Exception as e:
+                logger.debug("[migrations] Índice %s: %s", name, e)
+
+    # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
+    #    y de valores permitidos. Se ejecutan en una TRANSACCIÓN SEPARADA
+    #    para que un fallo en los datos NO haga rollback de las columnas/
+    #    índices recién creados (lo que dejaría la app sin columnas y
+    #    provocaría 500 al usarlas).
+    try:
+        with eng.begin() as conn:
+            stats["data_migrated"] = _apply_data_migrations(conn, eng)
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: transacción de datos falló, pero las columnas/índices siguen intactos: %s",
+            e,
+        )
+        stats["errors"] += 1
+
+    logger.info(
+        "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d data_migrated=%d",
+        stats["applied"], stats["skipped"], stats["indexes"], stats["errors"],
+        stats["data_migrated"],
+    )
+    return stats
+
+
+def _apply_data_migrations(conn, eng: Engine) -> int:
+    """
+    Migraciones de datos idempotentes. Se aplican en cada arranque.
+
+    - Normaliza ``resultado_pruebas``: ``POSTERGADA A GARANTÍA`` → ``POSTERGADA``
+      (mantiene el valor anterior visible en ``nota_observacion`` si era
+      relevante; en realidad el valor se renombra directamente porque solo
+      cambia la etiqueta visible, el significado es el mismo).
+    - Renombra ``codigo`` de tickets existentes al nuevo formato
+      ``INC-NNN``: extrae el último segmento numérico de los codigos
+      ``GRM-INC-YYYY-NNNNNN`` y lo reescribe.
+    - Soft-delete de etiquetas prohibidas: ``Contabilidad``, ``software``,
+      ``Ventas``, ``RRHH`` → ``activo = 0``. Esto las oculta de la UI sin
+      perderlas en los tickets que ya las tengan asignadas.
+
+    Cada paso está envuelto en su propio try/except para que un fallo
+    puntual no impida que los otros pasos se ejecuten. Los errores se
+    registran en el log y el método continúa.
+    """
+    total = 0
+    is_pg = eng.dialect.name == "postgresql"
+
+    # 4.1) Renombrar POSTERGADA A GARANTÍA → POSTERGADA
+    try:
+        # En PostgreSQL el UPDATE retorna el número de filas afectadas;
+        # en SQLite depende del rowcount del cursor.
+        res = conn.execute(text(
+            "UPDATE tickets SET resultado_pruebas = 'POSTERGADA' "
+            "WHERE resultado_pruebas = 'POSTERGADA A GARANTÍA'"
+        ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: %d tickets 'POSTERGADA A GARANTÍA' → 'POSTERGADA'", n)
+            total += n
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudo normalizar resultado_pruebas: %s", e)
+
+    # 4.2) Renombrar codigos existentes GRM-INC-YYYY-NNNNNN → INC-NNN
+    #      Solo afecta a los codigos que aún tengan el prefijo antiguo.
+    #      El NNN se extrae del último segmento numérico (sin padding).
+    try:
+        if is_pg:
+            # PostgreSQL: SUBSTRING con regex + CAST a int para limpiar ceros
+            res = conn.execute(text(
+                "UPDATE tickets "
+                "SET codigo = 'INC-' || CAST(CAST(SUBSTRING(codigo FROM '([0-9]+)$') AS INTEGER) AS TEXT) "
+                "WHERE codigo ~ '^GRM-INC-[0-9]{4}-[0-9]+$'"
+            ))
+        else:
+            # SQLite: emular con SUBSTR y CAST
+            res = conn.execute(text(
+                "UPDATE tickets "
+                "SET codigo = 'INC-' || CAST(CAST(SUBSTR(codigo, -6) AS INTEGER) AS TEXT) "
+                "WHERE codigo LIKE 'GRM-INC-____-______'"
+            ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: %d tickets renombrados al formato INC-NNN", n)
+            total += n
+    except Exception as e:
+        # No es fatal: si el regex no es soportado por esta versión de PG,
+        # el código simplemente no se renombra. La app sigue funcionando.
+        logger.warning("[migrations] data: no se pudo renombrar codigos (no fatal): %s", e)
+
+    # 4.3) Soft-delete de etiquetas prohibidas.
+    #      Compara en minúsculas para tolerar variantes de mayúsculas.
+    try:
+        res = conn.execute(text(
+            "UPDATE etiquetas SET activo = 0 "
+            "WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') "
+            "AND activo <> 0"
+        ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: %d etiquetas soft-deleted (Contabilidad, software, Ventas, RRHH)", n)
+            total += n
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): %s", e)
+
+    # 4.4) Relajar la restricción NOT NULL de ``auditorias.ticket_id``.
+    #      La tabla registra eventos tanto de tickets como de
+    #      usuarios/seguridad (envío de credenciales, login, edición de
+    #      perfil). Cuando el evento NO está asociado a un ticket,
+    #      ``ticket_id`` debe poder quedar en NULL.
+    #      Esta migración es idempotente: si la columna ya acepta NULL,
+    #      ``DROP NOT NULL`` no hace nada.
+    try:
+        if is_pg:
+            # PostgreSQL: ``DROP NOT NULL`` es idempotente (si la columna
+            # ya es nullable, ALTER TABLE la deja igual sin error).
+            conn.execute(text(
+                "ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL"
+            ))
+            logger.info("[migrations] data: auditorias.ticket_id ahora permite NULL")
+            total += 1
+        else:
+            # SQLite no soporta ALTER COLUMN. Se hace un check de pragma
+            # para detectar si la columna ya es nullable; si no lo es,
+            # se omite (es una BD de tests, no de producción).
+            res = conn.execute(text("PRAGMA table_info(auditorias)"))
+            cols = res.fetchall() if hasattr(res, "fetchall") else []
+            for col in cols:
+                # PRAGMA table_info: (cid, name, type, notnull, dflt, pk)
+                if len(col) >= 4 and col[1] == "ticket_id" and col[3] == 1:
+                    logger.warning(
+                        "[migrations] data: SQLite: auditorias.ticket_id sigue siendo NOT NULL. "
+                        "No se modifica (requeriría recrear la tabla)."
+                    )
+                    break
+            else:
+                logger.info("[migrations] data: auditorias.ticket_id ya es nullable en SQLite")
+    except Exception as e:
+        logger.warning("[migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: %s", e)
+
+    return total
+
+
+def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
+    """
+    Devuelve una lista de líneas describiendo columnas que faltan
+    (útil para diagnóstico sin aplicar cambios).
+    """
+    eng = eng or _get_default_engine()
+    out: List[str] = []
+    for table, columns in COLUMNS_TO_ADD.items():
+        existing = _get_existing_columns(eng, table)
+        missing = [c for c in columns.keys() if c not in existing]
+        if missing:
+            out.append(f"{table}: faltan {', '.join(missing)}")
+        else:
+            out.append(f"{table}: OK ({len(existing)} columnas)")
+    return out
+
+
+if __name__ == "__main__":
+    # Permite ejecutar manualmente: `python -m app.db.migrations`
+    import os
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Permitir override del engine vía env var para testing
+    db_url = os.environ.get("TEST_DATABASE_URL")
+    target_engine = None
+    if db_url:
+        from sqlalchemy import create_engine
+        target_engine = create_engine(db_url)
+        print(f"Usando engine override: {db_url}")
+    print("== Diagnóstico de esquema ==")
+    for line in report_schema_drift(target_engine):
+        print(f"  · {line}")
+    print()
+    print("== Aplicando migraciones ==")
+    apply_migrations(target_engine)
+    print()
+    print("== Diagnóstico post-migración ==")
+    for line in report_schema_drift(target_engine):
+        print(f"  · {line}")
