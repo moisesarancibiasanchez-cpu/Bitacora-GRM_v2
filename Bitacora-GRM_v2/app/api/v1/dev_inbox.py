@@ -11,10 +11,11 @@ Endpoints:
 El router se registra SIEMPRE pero cada endpoint valida ``is_enabled()``
 en runtime, así no es necesario tocar el wiring en producción.
 
-Seguridad: en producción con SMTP configurado, los endpoints devuelven
-``403 dev_inbox_disabled`` automáticamente. Adicionalmente, si se
-define ``DEV_INBOX_REQUIRE_AUTH=true``, exige un JWT válido para
-acceder (recomendable cuando se expone a internet).
+Seguridad (defensa en profundidad, en orden):
+  1) ``_require_enabled``       — 403 si el módulo está deshabilitado.
+  2) ``require_admin``          — 403 si el usuario no es Administrador.
+  3) ``_require_auth_if_configured`` — 401 si ``DEV_INBOX_REQUIRE_AUTH=true``
+     y no hay JWT válido.
 """
 from __future__ import annotations
 
@@ -27,6 +28,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
+from app.api.v1.deps import require_admin
+from app.models.usuario import Usuario
 from app.services import dev_inbox
 
 
@@ -48,7 +51,7 @@ def _require_enabled() -> None:
 
 def _require_auth_if_configured(request: Request) -> None:
     """Si ``DEV_INBOX_REQUIRE_AUTH=true``, exige un JWT válido.
-    Esto se evalúa DESPUÉS de ``_require_enabled``."""
+    Esto se evalúa DESPUÉS de ``_require_enabled`` y ``require_admin``."""
     if os.getenv("DEV_INBOX_REQUIRE_AUTH", "false").lower() != "true":
         return
     # Importación local para evitar ciclos y para tolerar fallos.
@@ -81,9 +84,10 @@ async def inbox_view(
     request: Request,
     limit: int = 50,
     q: str = "",
+    _: Usuario = Depends(require_admin),
 ) -> HTMLResponse:
     """Vista HTML con los correos capturados. Soporta filtro ``q`` por
-    substring del destinatario (case-insensitive)."""
+    substring del destinatario (case-insensitive). Solo Administrador."""
     _require_enabled()
     _require_auth_if_configured(request)
 
@@ -259,8 +263,9 @@ async def inbox_view(
 async def inbox_json(
     request: Request,
     limit: int = 50,
+    _: Usuario = Depends(require_admin),
 ) -> JSONResponse:
-    """Lista de correos en formato JSON."""
+    """Lista de correos en formato JSON. Solo Administrador."""
     _require_enabled()
     _require_auth_if_configured(request)
     records = dev_inbox.list_recent(limit=max(1, min(limit, 200)))
@@ -286,20 +291,26 @@ async def inbox_json(
 
 
 @router.get("/status", response_class=JSONResponse)
-async def inbox_status() -> JSONResponse:
-    """Diagnóstico del Dev Inbox: backend activo, conteo, configuración."""
+async def inbox_status(_: Usuario = Depends(require_admin)) -> JSONResponse:
+    """Diagnóstico del Dev Inbox: backend activo, conteo, configuración.
+    Solo Administrador."""
     return JSONResponse(dev_inbox.backend_info())
 
 
 @router.get("/stats", response_class=JSONResponse)
-async def inbox_stats() -> JSONResponse:
-    """Estadísticas agregadas del Dev Inbox (para QA/dashboards)."""
+async def inbox_stats(_: Usuario = Depends(require_admin)) -> JSONResponse:
+    """Estadísticas agregadas del Dev Inbox (para QA/dashboards).
+    Solo Administrador."""
     return JSONResponse(dev_inbox.stats())
 
 
 @router.get("/export.csv")
-async def inbox_export_csv(request: Request) -> PlainTextResponse:
-    """Exporta todos los correos capturados a CSV (RFC 4180-ish)."""
+async def inbox_export_csv(
+    request: Request,
+    _: Usuario = Depends(require_admin),
+) -> PlainTextResponse:
+    """Exporta todos los correos capturados a CSV (RFC 4180-ish).
+    Solo Administrador."""
     _require_enabled()
     _require_auth_if_configured(request)
 
@@ -342,8 +353,10 @@ async def inbox_export_csv(request: Request) -> PlainTextResponse:
 async def inbox_detail(
     request: Request,
     record_id: str,
+    _: Usuario = Depends(require_admin),
 ) -> HTMLResponse:
-    """Detalle de un correo (texto plano + HTML, iframe para el HTML)."""
+    """Detalle de un correo (texto plano + HTML, iframe para el HTML).
+    Solo Administrador."""
     _require_enabled()
     _require_auth_if_configured(request)
 
@@ -405,8 +418,11 @@ async def inbox_detail(
 
 @router.delete("", response_class=JSONResponse)
 @router.delete("/", response_class=JSONResponse)
-async def inbox_clear(request: Request) -> JSONResponse:
-    """Borra todos los correos capturados."""
+async def inbox_clear(
+    request: Request,
+    _: Usuario = Depends(require_admin),
+) -> JSONResponse:
+    """Borra todos los correos capturados. Solo Administrador."""
     _require_enabled()
     _require_auth_if_configured(request)
     before = dev_inbox.count()
@@ -415,8 +431,12 @@ async def inbox_clear(request: Request) -> JSONResponse:
 
 
 @router.delete("/{record_id}", response_class=JSONResponse)
-async def inbox_delete_one(request: Request, record_id: str) -> JSONResponse:
-    """Borra un correo específico por id."""
+async def inbox_delete_one(
+    request: Request,
+    record_id: str,
+    _: Usuario = Depends(require_admin),
+) -> JSONResponse:
+    """Borra un correo específico por id. Solo Administrador."""
     _require_enabled()
     _require_auth_if_configured(request)
     removed = dev_inbox.delete(record_id)
@@ -433,8 +453,9 @@ async def inbox_send_test(
     request: Request,
     to: Optional[str] = None,
     subject: Optional[str] = None,
+    _: Usuario = Depends(require_admin),
 ) -> JSONResponse:
-    """Envía un correo de prueba que cae en el Dev Inbox.
+    """Envía un correo de prueba que cae en el Dev Inbox. Solo Administrador.
 
     Pensado para que QA pueda verificar la captura con un solo click
     desde la UI (botón «Enviar prueba») sin tener que recorrer todo el
