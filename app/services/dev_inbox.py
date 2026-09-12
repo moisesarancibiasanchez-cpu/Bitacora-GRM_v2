@@ -276,6 +276,97 @@ def clear() -> bool:
     return ok
 
 
+def delete(record_id: str) -> bool:
+    """Borra un correo específico por id. Devuelve True si lo encontró."""
+    client = _get_redis()
+    if client is not None:
+        try:
+            # LREM con count=1 elimina la primera ocurrencia que coincida.
+            removed = client.lrem(_REDIS_KEY, 1, _redis_payload_for_id(client, record_id) or "")
+            if removed:
+                return True
+        except Exception as exc:
+            logger.warning("[dev_inbox] No se pudo borrar de Redis: %s", exc)
+    return _delete_fs(record_id)
+
+
+def _redis_payload_for_id(client, record_id: str) -> Optional[str]:
+    """Devuelve el JSON serializado del record con ese id, o None."""
+    try:
+        for raw in client.lrange(_REDIS_KEY, 0, _MAX_RECORDS - 1):
+            try:
+                data = json.loads(raw)
+                if data.get("id") == record_id:
+                    return raw
+            except Exception:
+                continue
+    except Exception:
+        return None
+    return None
+
+
+def _delete_fs(record_id: str) -> bool:
+    """Borra una línea de tmp/dev_inbox.jsonl por id."""
+    if not _LOG_FILE.exists():
+        return False
+    try:
+        kept = []
+        removed = False
+        with _LOG_FILE.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    data = json.loads(line)
+                    if data.get("id") == record_id and not removed:
+                        removed = True
+                        continue
+                except Exception:
+                    pass
+                kept.append(line)
+        if removed:
+            with _LOG_FILE.open("w", encoding="utf-8") as fh:
+                fh.writelines(kept)
+        return removed
+    except Exception as exc:
+        logger.warning("[dev_inbox] No se pudo borrar del archivo: %s", exc)
+        return False
+
+
+def filter_by_recipient(substring: str, limit: Optional[int] = None) -> List[InboxRecord]:
+    """Devuelve los correos cuyo destinatario contenga ``substring``
+    (case-insensitive). Útil para QA cuando se prueban múltiples empresas."""
+    sub = (substring or "").strip().lower()
+    if not sub:
+        return list_recent(limit=limit)
+    items = list_recent()
+    out = [r for r in items if sub in r.to.lower()]
+    return out[:limit] if limit else out
+
+
+def stats() -> dict:
+    """Estadísticas agregadas: total, por destinatario, por transporte."""
+    items = list_recent()
+    by_recipient: dict = {}
+    by_transport: dict = {}
+    by_subject_prefix: dict = {}
+    for r in items:
+        # Destinatario: agrupamos por dominio para no fragmentar demasiado.
+        domain = (r.to.split("@", 1)[1] if "@" in r.to else r.to).lower()
+        by_recipient[domain] = by_recipient.get(domain, 0) + 1
+        by_transport[r.transport] = by_transport.get(r.transport, 0) + 1
+        # Asunto: primeras 30 chars como bucket aproximado.
+        bucket = (r.subject or "(sin asunto)")[:30].strip()
+        by_subject_prefix[bucket] = by_subject_prefix.get(bucket, 0) + 1
+    # Top 5 en cada categoría (ordenados por frecuencia desc).
+    top_recipients = sorted(by_recipient.items(), key=lambda kv: -kv[1])[:5]
+    top_subjects = sorted(by_subject_prefix.items(), key=lambda kv: -kv[1])[:5]
+    return {
+        "total": len(items),
+        "by_transport": by_transport,
+        "top_recipients": [{"domain": d, "count": c} for d, c in top_recipients],
+        "top_subjects": [{"subject_prefix": s, "count": c} for s, c in top_subjects],
+    }
+
+
 def backend_info() -> dict:
     """Diagnóstico: qué backend está activo y por qué."""
     client = _get_redis()
