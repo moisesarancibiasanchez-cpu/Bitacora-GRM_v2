@@ -1,0 +1,394 @@
+From 959a267bb34ec7bc49ae422079ec0acb74462c39 Mon Sep 17 00:00:00 2001
+From: moisesarancibiasanchez-cpu
+ <moisesarancibiasanchez-cpu@users.noreply.github.com>
+Date: Sat, 12 Sep 2026 04:53:36 +0800
+Subject: [PATCH] =?UTF-8?q?docs:=20adaptar=20documentaci=C3=B3n=20de=20esp?=
+ =?UTF-8?q?a=C3=B1ol=20argentino=20a=20espa=C3=B1ol=20chileno?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Se ajusta el tono y registro lingüístico de toda la documentación del proyecto
+para coherencia con el español chileno, eliminando voseo y modismos argentinos:
+
+- README.md: ajustes menores en descripciones de arquitectura
+- DEPLOYMENT_CHECKLIST.md: 'hardening' → 'endurecimiento', 'backups' → 'copias de respaldo'
+- RAILWAY_DEPLOY.md: ajuste de terminología y giros verbales
+- REPORTE_SEGURIDAD.md: reescritura de secciones de vulnerabilidades y recomendaciones
+- docs/REPORTE_VALIDACION_FINAL.md: 'prolija' → 'minuciosa'
+- docs/TRELLO_FEATURES_ANALYSIS.md: 'command palette' → 'paleta de comandos', 'bulk actions' → 'acciones en lote'
+
+Sin cambios funcionales ni técnicos. Solo ajustes de redacción.
+---
+ DEPLOYMENT_CHECKLIST.md          |  8 ++--
+ RAILWAY_DEPLOY.md                | 20 +++++-----
+ README.md                        |  2 +-
+ REPORTE_SEGURIDAD.md             | 68 ++++++++++++++++----------------
+ docs/REPORTE_VALIDACION_FINAL.md |  2 +-
+ docs/TRELLO_FEATURES_ANALYSIS.md | 22 +++++------
+ 6 files changed, 61 insertions(+), 61 deletions(-)
+
+diff --git a/DEPLOYMENT_CHECKLIST.md b/DEPLOYMENT_CHECKLIST.md
+index 805d089..fa805eb 100644
+--- a/DEPLOYMENT_CHECKLIST.md
++++ b/DEPLOYMENT_CHECKLIST.md
+@@ -7,7 +7,7 @@
+ - [x] **Cuenta GitHub** con acceso a `moisesarancibiasanchez-cpu/Bitacora-GRM_v2`
+ - [x] **Cuenta Railway** (https://railway.app)
+ - [x] **Token de GitHub** con scope `repo` (ya configurado)
+-- [x] **Python 3.12.5** (especificado en `runtime.txt`)
++- [x] **Python 3.12.5** (indicado en `runtime.txt`)
+ 
+ ## 📁 Archivos listos en el repo
+ 
+@@ -93,12 +93,12 @@
+ - [ ] Arrastrar una tarjeta entre columnas (SortableJS + HTMX)
+ - [ ] Verificar logs de `worker` muestran tareas ejecutándose cada 5 min (SLA)
+ 
+-### Paso 8: Hardening (post-despliegue)
++### Paso 8: Endurecimiento (post-despliegue)
+ - [ ] Cambiar `SECRET_KEY`
+ - [ ] Cambiar `CORS_ORIGINS` al dominio real
+ - [ ] Cambiar contraseñas de los usuarios seed
+ - [ ] Revisar logs de `worker` y `beat`
+-- [ ] Configurar backups de PostgreSQL
++- [ ] Configurar copias de respaldo de PostgreSQL
+ 
+ ---
+ 
+@@ -125,7 +125,7 @@ $ USE_SQLITE=true DEBUG=false PORT=18765 python -m gunicorn -c gunicorn.conf.py
+ 
+ ---
+ 
+-## 🐛 Troubleshooting rápido
++## 🐛 Solución de problemas rápida
+ 
+ | Síntoma | Causa | Solución |
+ |---|---|---|
+diff --git a/RAILWAY_DEPLOY.md b/RAILWAY_DEPLOY.md
+index 6cec3e9..91a89d2 100644
+--- a/RAILWAY_DEPLOY.md
++++ b/RAILWAY_DEPLOY.md
+@@ -1,7 +1,7 @@
+ # 🚂 Despliegue en Railway - Bitácora GRM
+ 
+ > **Estado:** ✅ Todos los archivos de configuración listos, validados localmente con `gunicorn` y push a GitHub.
+-> **Última commit:** `729422b fix(railway): WhiteNoise ASGI compatibility`
++> **Último commit:** `729422b fix(railway): WhiteNoise ASGI compatibility`
+ 
+ ---
+ 
+@@ -109,7 +109,7 @@ Si todo es `ok`, ir a `/kanban` para ver el tablero.
+ 
+ ---
+ 
+-## 🔍 Variables de entorno explicadas
++## 🔍 Variables de entorno detalladas
+ 
+ | Variable | Default | Descripción |
+ |---|---|---|
+@@ -117,15 +117,15 @@ Si todo es `ok`, ir a `/kanban` para ver el tablero.
+ | `APP_VERSION` | `0.1.0` | Versión |
+ | `DEBUG` | `true` | `false` en producción (desactiva hot-reload, activa WhiteNoise si está) |
+ | `USE_SQLITE` | `false` | `true` solo para demo sin BD externa |
+-| `SECRET_KEY` | (placeholder) | **OBLIGATORIO** cambiar en prod. Generar con `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
++| `SECRET_KEY` | (placeholder) | **OBLIGATORIO** cambiar en producción. Generar con `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+ | `DATABASE_URL` | (Railway auto) | Inyectada por Railway al adjuntar PostgreSQL |
+ | `REDIS_URL` | (Railway auto) | Inyectada por Railway al adjuntar Redis |
+ | `CELERY_BROKER_URL` | `redis://.../1` | DB Redis para cola de tareas |
+ | `CELERY_RESULT_BACKEND` | `redis://.../2` | DB Redis para resultados |
+-| `AUTO_INIT_DB` | `false` | Si `true`, corre `init_db` al arranque (solo dev) |
++| `AUTO_INIT_DB` | `false` | Si `true`, ejecuta `init_db` al arranque (solo desarrollo) |
+ | `PORT` | (Railway auto) | Inyectada por Railway |
+ | `WEB_CONCURRENCY` | `2` | Workers de gunicorn |
+-| `WEB_THREADS` | `4` | Threads por worker |
++| `WEB_THREADS` | `4` | Hilos por worker |
+ | `CORS_ORIGINS` | `["*"]` | Lista JSON de orígenes permitidos |
+ 
+ ---
+@@ -167,20 +167,20 @@ $ USE_SQLITE=true DEBUG=false PORT=18765 python -m gunicorn -c gunicorn.conf.py
+ 
+ ### "No start command detected" (Railpack)
+ - **Causa:** Falta `Procfile` o `railway.toml`.
+-- **Solución:** Ambos están en el repo. Si persiste, en el servicio ir a Settings → Deploy → Start Command y poner `bash start.sh`.
++- **Solución:** Ambos están en el repo. Si persiste, en el servicio ir a Settings → Deploy → Start Command y dejar `bash start.sh`.
+ 
+ ### "Application failed to start" / exit code 1
+-- **Causa común:** Falta `DATABASE_URL` o `REDIS_URL`.
+-- **Solución:** Verificar que los plugins PostgreSQL y Redis están en el mismo proyecto. Las variables se inyectan automáticamente.
++- **Causa habitual:** Falta `DATABASE_URL` o `REDIS_URL`.
++- **Solución:** Verificar que los plugins PostgreSQL y Redis están en el mismo proyecto. Las variables se inyectan de forma automática.
+ 
+ ### Healthcheck falla (502/503)
+ - **Causa:** La BD o Redis no responden.
+ - **Solución:** Revisar logs del servicio (`railway logs --service web`). El endpoint `/health` distingue:
+   - `database: error` → BD no accesible (revisar `DATABASE_URL`)
+-  - `redis: unavailable` → Redis no es crítico, pero si quieres Celery necesitas el plugin Redis.
++  - `redis: unavailable` → Redis no es crítico, pero si necesitas Celery requieres el plugin Redis.
+ 
+ ### WhiteNoise no aparece en logs
+-- **Esperado:** WhiteNoise 6.x es WSGI-only. Se usa `StaticFiles` (nativo ASGI) en su lugar. Si más adelante quieres compresión brotli, instala `a2wsgi` y la integración se activará automáticamente.
++- **Esperado:** WhiteNoise 6.x es WSGI-only. Se usa `StaticFiles` (nativo ASGI) en su reemplazo. Si más adelante requieres compresión brotli, instala `a2wsgi` y la integración se activará de forma automática.
+ 
+ ### /api/v1/* devuelve `401 No autenticado`
+ - **Causa:** Las rutas API requieren header `X-User-Id: <id>` o `Authorization: Bearer <jwt>`.
+diff --git a/README.md b/README.md
+index 53a9a8c..83bbf6d 100644
+--- a/README.md
++++ b/README.md
+@@ -16,7 +16,7 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
+ 
+ - **Validación estricta de transiciones** (matriz de estados + roles ITSM).
+ - **Auditoría obligatoria** de cada cambio (insert en `auditorias`).
+-- **Tablero Kanban con drag & drop** (SortableJS) sobre **server-rendered HTML** (Jinja2).
++- **Tablero Kanban con drag & drop** (SortableJS) sobre **HTML renderizado en servidor** (Jinja2).
+ - **Refresco sin recarga de página** (HTMX outerHTML swap).
+ - **Procesamiento asíncrono** (Celery + Redis) para recálculo de SLAs y notificaciones.
+ 
+diff --git a/REPORTE_SEGURIDAD.md b/REPORTE_SEGURIDAD.md
+index b430bf7..704bde3 100644
+--- a/REPORTE_SEGURIDAD.md
++++ b/REPORTE_SEGURIDAD.md
+@@ -10,13 +10,13 @@
+ ## 1. Resumen ejecutivo
+ 
+ Se detectó una vulnerabilidad **crítica** de control de acceso: cada vez que un usuario
+-accedía a la plataforma se autenticaba **automáticamente como el primer Administrador
+-disponible**, sin necesidad de credenciales, dando acceso total a todas las
++accedía a la plataforma se autenticaba **de forma automática como el primer Administrador
++disponible**, sin necesidad de credenciales, entregando acceso total a todas las
+ funcionalidades administrativas (gestión de usuarios, dashboards, butler, etc.).
+ 
+-La causa raíz fue un **"modo demo"** heredado del desarrollo que quedó activo en
++La causa de fondo fue un **"modo demo"** heredado del desarrollo que quedó activo en
+ producción. Se identificaron **5 vulnerabilidades** relacionadas y se aplicaron
+-**6 fixes**.
++**6 correcciones**.
+ 
+ Después de los fixes, la validación end-to-end confirmó:
+ 
+@@ -44,7 +44,7 @@ Después de los fixes, la validación end-to-end confirmó:
+ **Causa:** La función auxiliar `_get_usuario_actual(request)` y la función
+ `_usuario_demo(db)` recurrían como fallback a "el primer usuario con rol
+ Administrador activo" cuando no encontraban una sesión válida. Esto significaba
+-que **cualquier visitante sin cookie ni credenciales se autenticaba como admin**.
++que **cualquier visitante sin cookie ni credenciales quedaba autenticado como admin**.
+ 
+ Patrones afectados en `app/main.py`:
+ 
+@@ -58,7 +58,7 @@ automatizaciones.
+ 
+ **Fix:** `_get_usuario_actual()` ahora retorna `None` si no hay sesión; todas las
+ rutas de página pasan por `_require_session_or_redirect()` que redirige a
+-`/auth/login` con HTTP 302. Se eliminó completamente `_usuario_demo()` y los
++`/auth/login` con HTTP 302. Se eliminó por completo `_usuario_demo()` y los
+ 3 patrones inline.
+ 
+ **Rutas corregidas (todas requieren sesión válida):**
+@@ -83,18 +83,18 @@ es redirigido a `/auth/login` donde debe autenticarse con credenciales
+ registradas o crear una cuenta (el primer registro se vuelve Administrador
+ automáticamente).
+ 
+-### V3 — Seed de usuarios demo con contraseñas hardcodeadas (ALTA)
++### V3 — Seed de usuarios demo con contraseñas codificadas (ALTA)
+ 
+ **Archivo:** `app/db/init_db.py` → `seed_usuarios()`
+-**Causa:** Al inicializar la BD se creaban 4 cuentas con contraseñas públicas
++**Causa:** Al inicializar la BD se creaban 4 cuentas con contraseñas de dominio público
+ (`admin/admin123`, `agente1/agente123`, `lider/lider123`, `usuario1/user123`).
+-Si la BD se inicializaba en producción sin que el operador lo supiera, quedaban
+-cuentas con credenciales conocidas en el sistema.
++Si la BD se inicializaba en producción sin que el operador lo advirtiera, quedaban
++cuentas con credenciales conocidas dentro del sistema.
+ 
+ **Fix:** `seed_usuarios()` ahora **solo** crea los usuarios demo si la variable
+-de entorno `SEED_DEMO_USERS=true` está definida explícitamente. Por defecto
++de entorno `SEED_DEMO_USERS=true` está definida de forma explícita. Por defecto
+ (`false`) NO se crea ninguna cuenta demo; el operador debe registrar la primera
+-cuenta a través de `/auth/registro` (que automáticamente asigna rol
++cuenta a través de `/auth/registro` (que asigna de manera automática el rol
+ Administrador al primer usuario).
+ 
+ ```python
+@@ -112,12 +112,12 @@ def seed_usuarios(db: Session):
+ ### V4 — Bypass X-User-Id header (CRÍTICA)
+ 
+ **Archivo:** `app/api/v1/deps.py` → `get_current_user()`
+-**Causa:** El dependency de FastAPI aceptaba el header `X-User-Id` para resolver
+-el usuario actual. **Cualquier petición** con `X-User-Id: 1` se autenticaba como
++**Causa:** La dependencia de FastAPI aceptaba el header `X-User-Id` para resolver
++el usuario actual. **Cualquier petición** con `X-User-Id: 1` quedaba autenticada como
+ el usuario con `id=1` (el admin) sin necesidad de cookie ni credencial.
+ 
+-**Fix:** La rama X-User-Id está **DESHABILITADA por defecto**. Solo se activa
+-si se define explícitamente `ALLOW_XUSER_HEADER=true` (uso exclusivo de
++**Fix:** La rama X-User-Id queda **DESHABILITADA por defecto**. Solo se activa
++si se define de forma explícita `ALLOW_XUSER_HEADER=true` (uso exclusivo de
+ pruebas internas; NUNCA en producción). Validado: con la variable en `false`,
+ `GET /api/v1/usuarios` con `X-User-Id: 1` retorna **401** (backdoor cerrado).
+ 
+@@ -134,9 +134,9 @@ if user_id is None and ALLOW_XUSER_HEADER:
+ 
+ **Archivo:** `app/core/security.py`
+ **Causa:** `passlib 1.7.4` es incompatible con `bcrypt>=4.0`. El `__about__`
+-deprecado y la función interna `detect_wrap_bug` (que excede los 72 bytes)
++deprecado y la función interna `detect_wrap_bug` (que supera los 72 bytes)
+ provocaban `AttributeError` y `ValueError` que rompían `verify_password()`.
+-Esto causaba que **ningún login funcionara** después de actualizar dependencias
++Esto provocaba que **ningún login funcionara** después de actualizar dependencias
+ (los hashes generados por passlib devolvían `False` aunque la contraseña fuera
+ correcta).
+ 
+@@ -193,29 +193,29 @@ El modelo de roles del sistema (`app/models/usuario.py`) define 5 roles:
+ 
+ La validación confirmó:
+ 
+-- **Solicitante (usuario1)** puede loguearse y acceder a `/kanban` (200), pero al
++- **Solicitante (usuario1)** puede iniciar sesión y acceder a `/kanban` (200), pero al
+   intentar `/usuarios` recibe **HTTP 307 → /kanban** (redirect por no ser admin).
+-- **Solicitante** en endpoints admin-only recibe **HTTP 403**.
++- **Solicitante** en endpoints solo-admin recibe **HTTP 403**.
+ - **Administrador** accede sin restricciones a todas las páginas (200).
+ - El **primer usuario que se registra** vía `/auth/registro` recibe
+-  automáticamente rol `ADMINISTRADOR`.
++  de manera automática el rol `ADMINISTRADOR`.
+ - Los registros posteriores reciben `SOLICITANTE` por defecto.
+ 
+ ---
+ 
+ ## 5. Recomendaciones operativas
+ 
+-1. **No activar `ALLOW_XUSER_HEADER=true` en producción.** Esta variable es solo
+-   para entornos de prueba internos. Verificar con:
++1. **No activar `ALLOW_XUSER_HEADER=true` en producción.** Esta variable está pensada
++   solo para entornos de prueba internos. Verificar con:
+ 
+    ```bash
+    echo "ALLOW_XUSER_HEADER=$ALLOW_XUSER_HEADER"
+    # Debe estar vacía o ser 'false'
+    ```
+ 
+-2. **No activar `SEED_DEMO_USERS=true` en producción.** Si necesitas
++2. **No activar `SEED_DEMO_USERS=true` en producción.** Si requieres
+    `admin/admin123` y cuentas demo en local, hazlo en una base de datos
+-   separada:
++   aparte:
+ 
+    ```bash
+    # Solo para desarrollo local:
+@@ -223,14 +223,14 @@ La validación confirmó:
+    ```
+ 
+ 3. **El primer usuario que se registre en una instalación limpia será
+-   Administrador.** Asegúrate de que esa primera cuenta use una contraseña
+-   robusta (≥ 12 caracteres, combinación de tipos) y que las cuentas
+-   subsecuentes se creen explícitamente con el rol apropiado desde la
++   Administrador.** Asegúrate de que esa primera cuenta utilice una contraseña
++   robusta (≥ 12 caracteres, combinación de tipos) y de que las cuentas
++   siguientes se creen de manera explícita con el rol apropiado desde la
+    consola de administración.
+ 
+-4. **Rotar la `SECRET_KEY` del JWT** periódicamente (está en
++4. **Rotar la `SECRET_KEY` del JWT** de forma periódica (está en
+    `app/core/config.py` → `settings.SECRET_KEY`). Al rotarla, todas las
+-   sesiones actuales se invalidan, lo que forzará un nuevo login.
++   sesiones vigentes se invalidan, lo que forzará un nuevo inicio de sesión.
+ 
+ 5. **Considerar agregar 2FA** (TOTP) para cuentas con rol Administrador en
+    una próxima iteración.
+@@ -245,11 +245,11 @@ La validación confirmó:
+ 
+ | Antes                                            | Después                                       |
+ | ------------------------------------------------ | --------------------------------------------- |
+-| Cualquier visitante → admin automáticamente     | Login obligatorio con credenciales registradas |
++| Cualquier visitante → admin de forma automática  | Login obligatorio con credenciales registradas |
+ | `X-User-Id: 1` → admin (sin auth)                | 401 Unauthorized                               |
+-| `admin/admin123` sembrado por defecto            | Solo si `SEED_DEMO_USERS=true` (explícito)   |
+-| `passlib` roto con `bcrypt>=4.0`                 | `bcrypt` directo, compatible con hashes viejos |
+-| Login con credenciales correctas → 500           | Login funciona correctamente                  |
++| `admin/admin123` sembrado por defecto            | Solo si `SEED_DEMO_USERS=true` (de forma explícita)   |
++| `passlib` roto con `bcrypt>=4.0`                 | `bcrypt` directo, compatible con hashes antiguos |
++| Login con credenciales correctas → 500           | Inicio de sesión funciona correctamente                  |
+ | Solicitante podía entrar a `/usuarios` (admin)   | 307 → /kanban / 403 en API                    |
+ 
+ **Severidad del fix:** cierra una vulnerabilidad **crítica** de control de acceso
+diff --git a/docs/REPORTE_VALIDACION_FINAL.md b/docs/REPORTE_VALIDACION_FINAL.md
+index aaaaa43..83d3f55 100644
+--- a/docs/REPORTE_VALIDACION_FINAL.md
++++ b/docs/REPORTE_VALIDACION_FINAL.md
+@@ -8,7 +8,7 @@
+ 
+ ## Resumen Ejecutivo
+ 
+-Se realizó una validación exhaustiva, detallada y prolija de la aplicación **Bitácora GRM v2** (sistema híbrido ITSM + Kanban). Se identificaron **1 bug crítico de aplicación** y **3 issues menores de UI/UX** que fueron corregidos. Todos los demás componentes funcionan correctamente.
++Se realizó una validación exhaustiva y minuciosa de la aplicación **Bitácora GRM v2** (sistema híbrido ITSM + Kanban). Se identificaron **1 bug crítico de aplicación** y **3 issues menores de UI/UX** que fueron corregidos. Todos los demás componentes funcionan correctamente.
+ 
+ **Resultado**: 100% de los endpoints públicos y autenticados retornan status codes esperados, RBAC funciona correctamente, ciclo de vida de tickets validado end-to-end, e import/export operacional en los 4 formatos.
+ 
+diff --git a/docs/TRELLO_FEATURES_ANALYSIS.md b/docs/TRELLO_FEATURES_ANALYSIS.md
+index e270972..e8df5f7 100644
+--- a/docs/TRELLO_FEATURES_ANALYSIS.md
++++ b/docs/TRELLO_FEATURES_ANALYSIS.md
+@@ -1,7 +1,7 @@
+ # Análisis Exhaustivo de Funcionalidades de Trello
+ 
+ **Proyecto:** Bitácora GRM — Sistema Híbrido ITSM + Kanban
+-**Versión:** 1.0 — Auditoría completa de features estilo Trello
++**Versión:** 1.0 — Auditoría completa de funcionalidades estilo Trello
+ **Fecha:** 2026-09-09
+ 
+ ---
+@@ -171,16 +171,16 @@
+ ## 4. Resumen de Brechas (Gap Analysis)
+ 
+ ### 4.1 Brechas Críticas (alta prioridad)
+-1. **Filtros en Kanban** — El botón "Filtros" no hace nada
+-2. **Búsqueda global** — No hay forma de buscar tickets
+-3. **Duplicar tarjeta** — Feature básica de Trello
+-4. **Avatar/iniciales** — Sin esto el UI se ve incompleto
++1. **Filtros en Kanban** — El botón "Filtros" no realiza ninguna acción
++2. **Búsqueda global** — No existe forma de buscar tickets
++3. **Duplicar tarjeta** — Funcionalidad básica de Trello
++4. **Avatar/iniciales** — Sin esto la UI se ve incompleta
+ 5. **Dashboard con métricas** — Falta vista agregada
+ 6. **Export CSV** — Necesario para reportes
+-7. **Modal de crear regla Butler** — El botón no lleva a nada
++7. **Modal de crear regla Butler** — El botón no lleva a ninguna parte
+ 
+ ### 4.2 Brechas Importantes (media prioridad)
+-8. **Vista previa de imágenes** — Los adjuntos no se ven
++8. **Vista previa de imágenes** — Los adjuntos no se visualizan
+ 9. **Eliminar adjuntos UI** — Endpoint existe pero UI no
+ 10. **Card cover** — Falta imagen de portada
+ 11. **Asignar múltiples miembros** — Solo uno por tarjeta
+@@ -189,9 +189,9 @@
+ 
+ ### 4.3 Mejoras (baja prioridad)
+ 14. Atajos de teclado
+-15. Command palette
++15. Paleta de comandos
+ 16. Card aging visual
+-17. Bulk actions
++17. Acciones en lote
+ 18. WebSocket para tiempo real
+ 19. SSO / OAuth
+ 
+@@ -201,13 +201,13 @@
+ 
+ ### Sprint 1 (esta entrega)
+ - [x] Filtros en Kanban (etiqueta, asignado, prioridad, búsqueda)
+-- [x] Búsqueda global con command palette (Ctrl+K)
++- [x] Búsqueda global con paleta de comandos (Ctrl+K)
+ - [x] Duplicar tarjeta
+ - [x] Vista previa de imágenes adjuntas
+ - [x] Avatar con iniciales en comentarios y tarjetas
+ - [x] Dashboard con métricas (vista resumen)
+ - [x] Export CSV de tickets
+-- [x] Modal crear regla Butler
++- [x] Modal de creación de regla Butler
+ 
+ ### Sprint 2 (futuro)
+ - Templates de tableros
+-- 
+2.39.2
+
