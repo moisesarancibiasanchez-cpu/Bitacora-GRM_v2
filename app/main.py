@@ -88,6 +88,59 @@ STATIC_DIR = BASE_DIR / "static"
 # compresión brotli/gzip y caché de cabeceras.
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+
+# === Endpoint TEMPORAL de diagnóstico: estado del enum tipoincidencia ===
+@app.get("/_debug/enum-tipoincidencia")
+async def debug_enum_tipoincidencia(request: Request):
+    """
+    Diagnóstico: lista los valores actuales del enum PG ``tipoincidencia``
+    (el usado por ``tickets.tipo``) y permite forzar la migración.
+    Temporal — se eliminará cuando el bug esté estabilizado.
+    """
+    from sqlalchemy import text
+    from app.db.session import SessionLocal
+    from app.db.migrations import _get_default_engine, _apply_data_migrations
+    eng = _get_default_engine()
+    db = SessionLocal()
+    info = {"engine_dialect": eng.dialect.name}
+    try:
+        # 1) Listar TODOS los enumlabels del enum usado por tickets.tipo
+        rows = db.execute(text(
+            "SELECT e.enumlabel "
+            "FROM pg_enum e "
+            "JOIN pg_type t ON t.oid = e.enumtypid "
+            "JOIN pg_attribute a ON a.atttypid = t.oid "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "WHERE c.relname = 'tickets' AND a.attname = 'tipo' "
+            "ORDER BY e.enumsortorder"
+        )).fetchall()
+        info["enum_values"] = [r[0] for r in rows]
+        info["has_RUPPERCASE"] = "RESULTADO_PRUEBAS" in info["enum_values"]
+        info["has_lowercase"] = "resultado_pruebas" in info["enum_values"]
+        # 2) Si se pasa ?fix=1, forzar la migración
+        if request.query_params.get("fix") == "1":
+            conn = eng.connect()
+            try:
+                with conn.begin() as cx:
+                    n = _apply_data_migrations(cx, eng)
+                info["migrated"] = n
+            finally:
+                conn.close()
+            # Releer
+            rows2 = db.execute(text(
+                "SELECT e.enumlabel "
+                "FROM pg_enum e "
+                "JOIN pg_type t ON t.oid = e.enumtypid "
+                "JOIN pg_attribute a ON a.atttypid = t.oid "
+                "JOIN pg_class c ON c.oid = a.attrelid "
+                "WHERE c.relname = 'tickets' AND a.attname = 'tipo' "
+                "ORDER BY e.enumsortorder"
+            )).fetchall()
+            info["enum_values_after"] = [r[0] for r in rows2]
+    finally:
+        db.close()
+    return info
+
 # === Templates ===
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
