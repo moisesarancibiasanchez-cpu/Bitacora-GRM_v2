@@ -102,7 +102,7 @@ async def debug_enum_tipoincidencia(request: Request):
     from app.db.migrations import _get_default_engine, _apply_data_migrations
     eng = _get_default_engine()
     db = SessionLocal()
-    info = {"engine_dialect": eng.dialect.name}
+    info = {"engine_dialect": eng.dialect.name, "actions": []}
     try:
         # 1) Listar TODOS los enumlabels del enum usado por tickets.tipo
         rows = db.execute(text(
@@ -117,26 +117,46 @@ async def debug_enum_tipoincidencia(request: Request):
         info["enum_values"] = [r[0] for r in rows]
         info["has_RUPPERCASE"] = "RESULTADO_PRUEBAS" in info["enum_values"]
         info["has_lowercase"] = "resultado_pruebas" in info["enum_values"]
-        # 2) Si se pasa ?fix=1, forzar la migración
-        if request.query_params.get("fix") == "1":
-            conn = eng.connect()
-            try:
-                with conn.begin() as cx:
-                    n = _apply_data_migrations(cx, eng)
-                info["migrated"] = n
-            finally:
-                conn.close()
-            # Releer
-            rows2 = db.execute(text(
-                "SELECT e.enumlabel "
-                "FROM pg_enum e "
-                "JOIN pg_type t ON t.oid = e.enumtypid "
+
+        # 2) Detectar el enum_name (igual que la migración)
+        try:
+            r = db.execute(text(
+                "SELECT t.typname "
+                "FROM pg_type t "
                 "JOIN pg_attribute a ON a.atttypid = t.oid "
                 "JOIN pg_class c ON c.oid = a.attrelid "
                 "WHERE c.relname = 'tickets' AND a.attname = 'tipo' "
-                "ORDER BY e.enumsortorder"
-            )).fetchall()
-            info["enum_values_after"] = [r[0] for r in rows2]
+                "AND t.typtype = 'e' AND c.relnamespace = "
+                "(SELECT oid FROM pg_namespace WHERE nspname = 'public')"
+            )).fetchone()
+            info["enum_name"] = r[0] if r else None
+        except Exception as e:
+            info["enum_name_error"] = str(e)
+
+        # 3) Si se pasa ?add=1, ejecutar ALTER TYPE directamente
+        if request.query_params.get("add") == "1" and info.get("enum_name"):
+            enum_name = info["enum_name"]
+            try:
+                with eng.begin() as conn2:
+                    conn2.execute(text(
+                        f"ALTER TYPE {enum_name} "
+                        f"ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS'"
+                    ))
+                info["actions"].append(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS' OK")
+            except Exception as e:
+                info["actions"].append(f"ALTER TYPE FAILED: {type(e).__name__}: {e}")
+
+        # 4) Releer valores
+        rows2 = db.execute(text(
+            "SELECT e.enumlabel "
+            "FROM pg_enum e "
+            "JOIN pg_type t ON t.oid = e.enumtypid "
+            "JOIN pg_attribute a ON a.atttypid = t.oid "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "WHERE c.relname = 'tickets' AND a.attname = 'tipo' "
+            "ORDER BY e.enumsortorder"
+        )).fetchall()
+        info["enum_values_after"] = [r[0] for r in rows2]
     finally:
         db.close()
     return info
