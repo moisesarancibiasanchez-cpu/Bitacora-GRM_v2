@@ -1608,6 +1608,64 @@ def dev_inbox_alias_root_slash():
     return RedirectResponse(url="/api/v1/dev/inbox", status_code=307)
 
 
+@app.get("/_diag/tickets")
+def diag_tickets():
+    """Endpoint TEMPORAL de diagnóstico: intenta serializar todos los tickets
+    con TicketRead y devuelve el primer ValidationError (campo y motivo).
+
+    Se usa SOLO para encontrar qué campo causa el 500 en /api/v1/tickets.
+    Se eliminará tras identificar y corregir la causa.
+    """
+    import traceback
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+    from app.schemas.ticket import TicketRead
+    from pydantic import ValidationError
+
+    db = SessionLocal()
+    try:
+        tickets = db.query(Ticket).order_by(Ticket.created_at.desc()).all()
+        result = {
+            "total_tickets": len(tickets),
+            "first_ticket_id": tickets[0].id if tickets else None,
+            "tried": 0,
+            "ok": 0,
+            "errors": [],
+        }
+        for t in tickets:
+            result["tried"] += 1
+            try:
+                TicketRead.model_validate(t)
+                result["ok"] += 1
+            except ValidationError as ve:
+                # Capturar info detallada
+                errs = []
+                for e in ve.errors()[:10]:
+                    errs.append({
+                        "loc": list(e.get("loc", [])),
+                        "type": e.get("type"),
+                        "msg": e.get("msg"),
+                        "input": str(e.get("input"))[:200] if e.get("input") is not None else None,
+                    })
+                result["errors"].append({
+                    "ticket_id": t.id,
+                    "ticket_codigo": t.codigo,
+                    "errors": errs,
+                })
+                # Solo devolver el primer fallo
+                result["more_failures"] = result["tried"] - result["ok"]
+                return result
+        return result
+    except Exception as e:
+        return {
+            "error": type(e).__name__,
+            "message": str(e),
+            "traceback": traceback.format_exc()[-2000:],
+        }
+    finally:
+        db.close()
+
+
 @app.get("/info")
 def info():
     """Información del entorno (útil para debugging)."""
