@@ -103,10 +103,17 @@ body {
 .kanban-scroll-x::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 .kanban-scroll-x::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-/* Forzar que el nav principal haga scroll horizontal si no entra,
-   sin expandir el ancho del body */
-#main-nav { scrollbar-width: none; }
-#main-nav::-webkit-scrollbar { display: none; }
+/* Nav principal: usar `overflow-x: clip` (NO `auto/hidden`) para que el
+   overflow horizontal se recorte SIN disparar la regla implícita del
+   spec CSS que convierte `overflow-y: visible` en `auto`. Si se
+   usara `overflow-x: auto`, los dropdowns (<div data-dropdown-menu>)
+   que se despliegan HACIA ABAJO del nav serían recortados verticalmente
+   y el usuario vería que el menú "se abre" pero sin contenido visible.
+   Verificado en Chrome/Firefox/Safari modernos. */
+#main-nav {
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+}
 
 /* === Dropdowns nativos <details>/<summary> ===
    Tailwind CDN no aplica consistentemente el arbitrary variant
