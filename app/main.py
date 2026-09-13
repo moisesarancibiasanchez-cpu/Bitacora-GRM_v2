@@ -1409,6 +1409,22 @@ def ready():
     return {"status": "ready", "app": settings.APP_NAME}
 
 
+# === Alias top-level para Dev Inbox ===
+# El router vive bajo /api/v1/dev/inbox (porque api_router está montado con
+# prefix /api/v1). Exponer también /dev/inbox en la raíz permite acceder
+# con la URL corta que la documentación y los marcadores del navegador
+# típicamente esperan. Si DEV_INBOX está deshabilitado, la redirección
+# apunta a una URL que devolverá 403 — sin filtrar existencia.
+@app.get("/dev/inbox", include_in_schema=False)
+def dev_inbox_alias_root():
+    return RedirectResponse(url="/api/v1/dev/inbox", status_code=307)
+
+
+@app.get("/dev/inbox/", include_in_schema=False)
+def dev_inbox_alias_root_slash():
+    return RedirectResponse(url="/api/v1/dev/inbox", status_code=307)
+
+
 @app.get("/info")
 def info():
     """Información del entorno (útil para debugging)."""
