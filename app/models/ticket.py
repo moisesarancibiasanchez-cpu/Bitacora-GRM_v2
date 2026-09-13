@@ -32,6 +32,7 @@ class TipoIncidencia(str, enum.Enum):
     SOLICITUD = "solicitud"
     CAMBIO = "cambio"
     PROBLEMA = "problema"
+    RESULTADO_PRUEBAS = "resultado_pruebas"
 
 
 # LOV de módulos del sistema (visible en Nueva Incidencia y Detalle Incidencia)

@@ -518,11 +518,6 @@ async def ticket_crear(request: Request):
         if not estado_inicial:
             estado_inicial = db.query(Estado).order_by(Estado.orden).first()
 
-        # Generar código correlativo (formato compacto INC-NNN)
-        from sqlalchemy import func
-        ultimo = db.query(func.max(Ticket.id)).scalar() or 0
-        codigo = f"INC-{(ultimo + 1):03d}"
-
         # Mapear tipo y prioridad
         try:
             tipo_enum = TipoIncidencia(tipo)
@@ -532,6 +527,56 @@ async def ticket_crear(request: Request):
             prioridad_enum = Prioridad(prioridad)
         except ValueError:
             prioridad_enum = Prioridad.MEDIA
+
+        # === Generación del código del ticket ===
+        # Regla:
+        #   - Tipo "resultado_pruebas" → el código es el contenido del campo
+        #     "HU o Caso de Prueba Asociado" (único por ticket). Esto permite
+        #     referenciar el ticket con el mismo identificador que la HU/CP.
+        #   - Cualquier otro tipo → se usa el formato correlativo INC-NNN.
+        # Se valida que cuando tipo == resultado_pruebas venga el campo
+        # hu_o_caso_prueba (es obligatorio en ese caso).
+        if tipo_enum == TipoIncidencia.RESULTADO_PRUEBAS:
+            if not hu_o_caso_prueba:
+                return HTMLResponse(
+                    '''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
+                      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+                        <h3 class="text-lg font-semibold text-red-700 mb-2">Falta HU o Caso de Prueba</h3>
+                        <p class="text-sm text-slate-600 mb-4">
+                          Cuando el tipo es <b>Resultado Pruebas</b>, el campo
+                          <b>HU o Caso de Prueba Asociado</b> es obligatorio y se usa
+                          como código del ticket.
+                        </p>
+                        <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
+                      </div>
+                    </div>''',
+                    status_code=400,
+                )
+            # Truncar al límite del VARCHAR(20) del modelo.
+            codigo = hu_o_caso_prueba[:20]
+            # Verificar unicidad antes de intentar el INSERT para devolver
+            # un error legible en vez de un 500 de IntegrityError.
+            existing = db.query(Ticket).filter(Ticket.codigo == codigo).first()
+            if existing:
+                return HTMLResponse(
+                    f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
+                      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+                        <h3 class="text-lg font-semibold text-red-700 mb-2">Código duplicado</h3>
+                        <p class="text-sm text-slate-600 mb-4">
+                          Ya existe un ticket con el código
+                          <span class="font-mono px-1 py-0.5 rounded bg-slate-100">{codigo}</span>
+                          (el campo <b>HU o Caso de Prueba Asociado</b> debe ser único).
+                        </p>
+                        <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
+                      </div>
+                    </div>''',
+                    status_code=400,
+                )
+        else:
+            # Formato compacto INC-NNN correlativo por id (igual que antes).
+            from sqlalchemy import func
+            ultimo = db.query(func.max(Ticket.id)).scalar() or 0
+            codigo = f"INC-{(ultimo + 1):03d}"
 
         # Parsear fecha de vencimiento (input type="date" => "YYYY-MM-DD")
         fecha_vencimiento_dt = None
