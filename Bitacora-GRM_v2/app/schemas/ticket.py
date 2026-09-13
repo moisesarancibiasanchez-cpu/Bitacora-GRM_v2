@@ -1,8 +1,9 @@
 """
 Schemas Pydantic para validación de entrada/salida de la API.
 """
+import json
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
@@ -117,7 +118,43 @@ class TicketBase(BaseModel):
     prioridad: str = "media"
     asignado_id: Optional[int] = None
     catalogo_tipo_id: Optional[int] = None
-    datos_catalogo: Optional[Dict[str, Any]] = None
+    # NOTA sobre ``datos_catalogo``:
+    # El modelo SQLAlchemy declara esta columna como ``Column(JSON, ...)``,
+    # y dependiendo del driver/versión de PostgreSQL el valor puede llegar
+    # como ``dict`` nativo (psycopg + JSONB) o como ``str`` con el JSON
+    # serializado (psycopg2 + JSON nativo en columnas migradas). Para que
+    # la API NO devuelva HTTP 500 al listar tickets legacy, aceptamos
+    # ambos tipos y normalizamos a ``dict`` en el validador ``mode="before"``.
+    datos_catalogo: Optional[Union[Dict[str, Any], str]] = None
+
+    @field_validator("datos_catalogo", mode="before")
+    @classmethod
+    def _coerce_datos_catalogo(cls, v):
+        """Acepta dict nativo o string JSON; normaliza a dict (o None)."""
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return {}
+            try:
+                parsed = json.loads(s)
+                # Si el JSON parseado es un dict, devolverlo; si es lista/otro,
+                # envolverlo para mantener la coherencia con el tipo declarado.
+                if isinstance(parsed, dict):
+                    return parsed
+                return {"_value": parsed}
+            except (ValueError, TypeError):
+                # JSON malformado: no rompemos el endpoint, devolvemos dict
+                # vacío para que el resto del ticket se serialice bien.
+                return {}
+        # Cualquier otro tipo (lista, int, etc.): mantener valor seguro
+        if isinstance(v, (list, tuple)):
+            return {"_value": list(v)}
+        return {}
+
     # === Campos extendidos del módulo de Incidencias ===
     modulo: Optional[str] = Field(
         default=None, max_length=80,
