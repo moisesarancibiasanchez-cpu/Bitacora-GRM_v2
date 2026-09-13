@@ -82,11 +82,24 @@ app.add_middleware(
 # === Archivos estáticos (StaticFiles siempre; WhiteNoise opcional en prod) ===
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+DOCS_DIR = BASE_DIR.parent / "docs"
+ONBOARDING_DIR = DOCS_DIR / "onboarding-demo"
 
 # En dev y prod servimos /static con StaticFiles. En producción, si
 # WhiteNoise está disponible, lo añadimos al final para aportar
 # compresión brotli/gzip y caché de cabeceras.
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# === Onboarding (documentación estática HTML + imágenes relativas) ===
+# Sirve `docs/onboarding-demo/` en /onboarding. Con `html=True`, acceder
+# a /onboarding entrega `index.html` directamente y /onboarding/imgs/*
+# resuelve las imágenes referenciadas de forma relativa.
+if ONBOARDING_DIR.exists():
+    app.mount(
+        "/onboarding",
+        StaticFiles(directory=str(ONBOARDING_DIR), html=True),
+        name="onboarding",
+    )
 
 
 # === Templates ===
