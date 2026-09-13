@@ -1,21 +1,30 @@
 """
 Servicio de envío de emails para notificaciones de Bitácora GRM.
 
-Soporta dos modos de operación según variables de entorno:
+Cadena de transportes (en orden de prioridad):
 
-1) **Producción (SMTP real)**
-   Si se definen ``SMTP_HOST`` y ``SMTP_FROM``, el servicio envía los
-   correos usando ``smtplib`` con autenticación opcional
+1) **Resend HTTP API** (recomendado en PaaS)
+   Si se define ``RESEND_API_KEY``, se usa el endpoint HTTPS
+   ``https://api.resend.com/emails`` (puerto 443, siempre abierto
+   en Railway / Heroku / Render / etc.). Evita los problemas de
+   firewall típicos con SMTP (puertos 25/465/587 bloqueados).
+   Requiere también ``SMTP_FROM`` con un remitente cuyo dominio esté
+   verificado en Resend.
+
+2) **SMTP real** (compatibilidad con servidores de correo clásicos)
+   Si NO hay ``RESEND_API_KEY`` pero SÍ ``SMTP_HOST`` y ``SMTP_FROM``,
+   se usa ``smtplib`` con autenticación opcional
    (``SMTP_USER``/``SMTP_PASSWORD``) y ``STARTTLS`` si ``SMTP_USE_TLS=true``.
 
-2) **Desarrollo / sin SMTP (fallback)**
-   Si NO hay SMTP configurado, los correos se persisten en
-   ``tmp/app.email.log`` y se devuelven como ``sent=False, transport="log"``
+3) **Log local / Dev Inbox** (fallback final)
+   Si no hay transporte configurado, los correos se persisten en
+   ``tmp/app.email.log`` Y en el Dev Inbox (consultable vía
+   ``/dev/inbox``) y se devuelven como ``sent=False, transport="log"``
    para que el flujo de la aplicación nunca falle por falta de SMTP.
 
 Este diseño es consistente con el patrón ya usado en
-``app.tasks.notification_tasks`` (logger en lugar de SMTP real) y permite
-que las pruebas funcionales y la demo local funcionen out-of-the-box.
+``app.tasks.notification_tasks`` y permite que las pruebas funcionales
+y la demo local funcionen out-of-the-box.
 """
 from __future__ import annotations
 
@@ -27,8 +36,14 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Optional
 
+# Cliente HTTP: requests viene como dep transitiva en este proyecto.
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:  # pragma: no cover
+    _HAS_REQUESTS = False
+
 # Captura opcional de correos cuando no hay SMTP (Dev Inbox).
-# No requiere dependencias nuevas; ver app/services/dev_inbox.py.
 try:
     from app.services.dev_inbox import add as _dev_inbox_add
     _HAS_DEV_INBOX = True
@@ -41,6 +56,10 @@ logger = logging.getLogger(__name__)
 # Directorio donde se persisten los emails cuando SMTP no está disponible.
 _LOG_DIR = Path("tmp")
 _LOG_FILE = _LOG_DIR / "app.email.log"
+
+# Endpoint oficial de Resend (ver docs: https://resend.com/docs/api-reference/emails/send-email)
+_RESEND_API_URL = "https://api.resend.com/emails"
+_RESEND_TIMEOUT = 20  # segundos
 
 
 def _ensure_log_dir() -> None:
@@ -87,6 +106,14 @@ def _ensure_log_dir() -> None:
         )
 
 
+def _resend_api_configured() -> bool:
+    """Devuelve True si están las variables mínimas para la HTTP API."""
+    return bool(
+        os.getenv("RESEND_API_KEY")
+        and os.getenv("SMTP_FROM")
+    )
+
+
 def _smtp_configured() -> bool:
     """Devuelve True si están las variables mínimas de SMTP."""
     return bool(
@@ -95,11 +122,102 @@ def _smtp_configured() -> bool:
     )
 
 
+def _send_via_resend_api(
+    *,
+    api_key: str,
+    sender: str,
+    to: str,
+    cc: Optional[list],
+    subject: str,
+    body: str,
+    html_body: Optional[str],
+) -> EmailResult:
+    """
+    Envía un correo usando la HTTP API de Resend.
+
+    Endpoint: ``POST https://api.resend.com/emails``
+    Auth:     ``Authorization: Bearer <RESEND_API_KEY>``
+    Body:     JSON con campos ``from``, ``to``, ``subject``, ``text``,
+              ``html`` (opcional), ``cc`` (opcional).
+
+    Devuelve ``EmailResult(sent=True, transport="resend-api", ...)``
+    si Resend aceptó el mensaje (HTTP 2xx), o ``sent=False,
+    transport="resend-api-failed"`` con el detalle del error si lo hubo.
+    """
+    if not _HAS_REQUESTS:
+        # requests no está disponible; el caller decidirá qué hacer.
+        raise RuntimeError("requests_no_disponible")
+
+    payload = {
+        "from": sender,
+        "to": [to],
+        "subject": subject,
+        "text": body,
+    }
+    if html_body:
+        payload["html"] = html_body
+    if cc:
+        payload["cc"] = list(cc)
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "Bitacora-GRM/2.0 (+Resend HTTP API)",
+    }
+
+    try:
+        logger.info(
+            "[email:resend-api] POST %s -> %s | %s",
+            _RESEND_API_URL, to, subject,
+        )
+        resp = _requests.post(
+            _RESEND_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=_RESEND_TIMEOUT,
+        )
+    except _requests.RequestException as exc:
+        # Timeout, DNS, conexión rechazada, etc.
+        logger.exception("[email:resend-api] FALLÓ red -> %s: %s", to, exc)
+        return EmailResult(False, "resend-api-failed", to, subject, detail=str(exc))
+
+    if 200 <= resp.status_code < 300:
+        # Resend suele devolver {"id": "<uuid>"}. Lo adjuntamos al detail.
+        body_text = ""
+        try:
+            body_text = (resp.json() or {}).get("id", "") or ""
+        except Exception:
+            body_text = ""
+        logger.info(
+            "[email:resend-api] OK -> %s | %s (id=%s)",
+            to, subject, body_text or "?",
+        )
+        return EmailResult(
+            sent=True,
+            transport="resend-api",
+            to=to,
+            subject=subject,
+            detail=body_text or None,
+        )
+
+    # Resend devuelve 4xx para errores de validación (dominio no verificado,
+    # remitente no autorizado, API key inválida, etc.) y 5xx para fallos del
+    # servidor. Ambos casos se devuelven como no-enviado con detalle.
+    detail = f"HTTP {resp.status_code}: {(resp.text or '')[:300]}"
+    logger.error(
+        "[email:resend-api] RECHAZADO %s -> %s | %s",
+        resp.status_code, to, subject,
+    )
+    return EmailResult(
+        False, "resend-api-failed", to, subject, detail=detail,
+    )
+
+
 @dataclass
 class EmailResult:
     """Resultado del intento de envío de un email."""
     sent: bool
-    transport: str   # "smtp" | "log" | "disabled"
+    transport: str   # "resend-api" | "smtp" | "log" | "resend-api-failed" | "disabled"
     to: str
     subject: str
     detail: Optional[str] = None
@@ -114,7 +232,13 @@ def send_email(
     cc: Optional[list] = None,
 ) -> EmailResult:
     """
-    Envía un email (o lo loguea si SMTP no está configurado).
+    Envía un email usando la cadena de transportes disponible.
+
+    Orden de preferencia:
+      1) ``RESEND_API_KEY``  → HTTP API de Resend (HTTPS, puerto 443).
+      2) ``SMTP_HOST``       → SMTP clásico (puertos 25/465/587, a veces
+                                bloqueados por PaaS como Railway).
+      3) ninguno              → log local + Dev Inbox (modo desarrollo).
 
     Parameters
     ----------
@@ -133,57 +257,97 @@ def send_email(
     -------
     EmailResult
         ``sent=True`` si se entregó, ``sent=False`` si solo se logueó
-        (modo desarrollo).
+        o si todos los transportes fallaron (con ``detail`` populated).
     """
     if not to:
         return EmailResult(False, "disabled", to, subject, "destinatario_vacio")
 
-    # ---- Modo desarrollo: persistir a archivo y devolver sent=False. ----
-    if not _smtp_configured():
-        # Persistencia tradicional en archivo de texto (legado, conserva
-        # el comportamiento original para quien ya dependa de leerlo).
-        _ensure_log_dir()
+    sender = os.getenv("SMTP_FROM", "")
+
+    # ---- Camino 1: Resend HTTP API (preferido en PaaS) ----
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if api_key and sender and _HAS_REQUESTS:
         try:
-            with _LOG_FILE.open("a", encoding="utf-8") as fh:
-                fh.write("=" * 72 + "\n")
-                fh.write(f"Para:   {to}\n")
-                fh.write(f"CC:     {', '.join(cc) if cc else '-'}\n")
-                fh.write(f"Asunto: {subject}\n")
-                fh.write("-" * 72 + "\n")
-                fh.write(body)
-                if html_body:
-                    fh.write("\n--- HTML ---\n")
-                    fh.write(html_body)
-                fh.write("\n")
-        except Exception as exc:  # pragma: no cover
-            logger.warning("[email] No se pudo escribir en log: %s", exc)
+            res = _send_via_resend_api(
+                api_key=api_key,
+                sender=sender,
+                to=to,
+                cc=cc,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+            )
+            # Si Resend aceptó el envío, listo.
+            if res.sent:
+                return res
+            # Si falló, dejamos que el caller decida: probamos SMTP si está
+            # configurado como respaldo, si no caemos al log/dev_inbox.
+            logger.warning(
+                "[email] Resend API rechazó el envío (detail=%s); "
+                "intentando SMTP como respaldo si está configurado…",
+                res.detail,
+            )
+            # IMPORTANTE: NO retornamos acá. Caemos al SMTP si está
+            # disponible, y si no, al log (que actúa como red de seguridad).
+        except Exception as exc:  # pragma: no cover - defensivo
+            logger.exception(
+                "[email] Excepción inesperada en Resend API -> %s: %s",
+                to, exc,
+            )
+            # También caemos al SMTP / log como respaldo.
+    elif api_key and sender and not _HAS_REQUESTS:
+        logger.warning(
+            "[email] RESEND_API_KEY está definida pero la librería "
+            "'requests' no está disponible; se salta al siguiente transporte.",
+        )
 
-        # Persistencia estructurada en el Dev Inbox (consultable por
-        # HTTP en /dev/inbox). Es la ruta preferida para QA: permite ver
-        # todos los correos enviados sin necesidad de SMTP real ni de
-        # un dominio verificado en servicios como Resend.
-        if _HAS_DEV_INBOX:
-            try:
-                _dev_inbox_add(
-                    to=to,
-                    subject=subject,
-                    body=body,
-                    html_body=html_body,
-                    cc=cc,
-                    transport="log",
-                )
-            except Exception as exc:  # pragma: no cover
-                logger.warning("[email] No se pudo capturar en Dev Inbox: %s", exc)
+    # ---- Camino 2: SMTP clásico ----
+    if _smtp_configured():
+        try:
+            return _send_via_smtp(
+                sender=sender,
+                to=to,
+                cc=cc,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+            )
+        except Exception as exc:
+            logger.exception("[email:smtp] FALLÓ -> %s: %s", to, exc)
+            # SMTP falló: persistimos al log + dev_inbox como red de seguridad
+            # y devolvemos sent=False para que el caller sepa que NO se entregó.
+            _persist_to_log_and_dev_inbox(
+                to=to, cc=cc, subject=subject, body=body,
+                html_body=html_body, transport="log",
+                detail=f"smtp_falló: {exc}",
+            )
+            return EmailResult(
+                False, "log", to, subject, detail=f"smtp_falló: {exc}",
+            )
 
-        logger.info("[email:log] -> %s | %s", to, subject)
-        return EmailResult(False, "log", to, subject)
+    # ---- Camino 3: log local + Dev Inbox (modo desarrollo / fallback final) ----
+    _persist_to_log_and_dev_inbox(
+        to=to, cc=cc, subject=subject, body=body,
+        html_body=html_body, transport="log",
+    )
+    logger.info("[email:log] -> %s | %s", to, subject)
+    return EmailResult(False, "log", to, subject)
 
-    # ---- Modo producción: SMTP real. ----
+
+def _send_via_smtp(
+    *,
+    sender: str,
+    to: str,
+    cc: Optional[list],
+    subject: str,
+    body: str,
+    html_body: Optional[str],
+) -> EmailResult:
+    """Envía por SMTP (smtplib). Levanta excepción si falla."""
     host = os.getenv("SMTP_HOST", "localhost")
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER", "")
     password = os.getenv("SMTP_PASSWORD", "")
-    sender = os.getenv("SMTP_FROM", user)
 
     # Resolución del modo TLS:
     #   - SMTP_USE_SSL=true  → SMTPS (TLS implícito, típico puerto 465 / Resend).
@@ -191,8 +355,6 @@ def send_email(
     #       * puerto 465  → SMTPS (implícito)
     #       * cualquier otro → SMTP plano + STARTTLS si SMTP_USE_TLS=true
     #   - SMTP_USE_TLS=true → STARTTLS sobre SMTP plano (típico puerto 587).
-    # Esto evita el clásico bug "port 465 + STARTTLS" donde el servidor
-    # espera el handshake TLS antes del primer comando SMTP.
     use_ssl_env = os.getenv("SMTP_USE_SSL")
     if use_ssl_env is not None and use_ssl_env != "":
         use_ssl = use_ssl_env.lower() == "true"
@@ -210,45 +372,101 @@ def send_email(
     if html_body:
         msg.add_alternative(html_body, subtype="html")
 
-    try:
-        if use_ssl:
-            # SMTPS: TLS implícito desde el inicio (puerto 465 / Resend).
-            logger.info(
-                "[email:smtp] Conectando vía SMTPS (SSL implícito) a %s:%s",
-                host, port,
-            )
-            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
-                if user and password:
-                    smtp.login(user, password)
-                smtp.send_message(msg)
-        else:
-            # SMTP plano (+ STARTTLS si está habilitado). Puerto típico: 587.
-            logger.info(
-                "[email:smtp] Conectando vía SMTP%s a %s:%s",
-                "+STARTTLS" if use_tls else "", host, port,
-            )
-            with smtplib.SMTP(host, port, timeout=20) as smtp:
-                if use_tls:
-                    smtp.starttls()
-                if user and password:
-                    smtp.login(user, password)
-                smtp.send_message(msg)
+    if use_ssl:
+        logger.info(
+            "[email:smtp] Conectando vía SMTPS (SSL implícito) a %s:%s",
+            host, port,
+        )
+        with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+            if user and password:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+    else:
+        logger.info(
+            "[email:smtp] Conectando vía SMTP%s a %s:%s",
+            "+STARTTLS" if use_tls else "", host, port,
+        )
+        with smtplib.SMTP(host, port, timeout=20) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user and password:
+                smtp.login(user, password)
+            smtp.send_message(msg)
 
-        logger.info("[email:smtp] OK -> %s | %s", to, subject)
-        return EmailResult(True, "smtp", to, subject)
-    except Exception as exc:
-        # Si falla el SMTP, hacer fallback al log (no romper el flujo).
-        logger.exception("[email:smtp] FALLÓ -> %s: %s", to, exc)
-        _ensure_log_dir()
+    logger.info("[email:smtp] OK -> %s | %s", to, subject)
+    return EmailResult(True, "smtp", to, subject)
+
+
+def _persist_to_log_and_dev_inbox(
+    *,
+    to: str,
+    cc: Optional[list],
+    subject: str,
+    body: str,
+    html_body: Optional[str],
+    transport: str,
+    detail: Optional[str] = None,
+) -> None:
+    """Red de seguridad: persiste el correo en log local + Dev Inbox
+    para que NUNCA se pierda información del envío (incluso si todos los
+    transportes fallaron)."""
+    _ensure_log_dir()
+    try:
+        with _LOG_FILE.open("a", encoding="utf-8") as fh:
+            fh.write("=" * 72 + "\n")
+            if detail:
+                fh.write(f"[{transport.upper()}] {detail}\n")
+            fh.write(f"Para:   {to}\n")
+            fh.write(f"CC:     {', '.join(cc) if cc else '-'}\n")
+            fh.write(f"Asunto: {subject}\n")
+            fh.write("-" * 72 + "\n")
+            fh.write(body)
+            if html_body:
+                fh.write("\n--- HTML ---\n")
+                fh.write(html_body)
+            fh.write("\n")
+    except Exception as exc:  # pragma: no cover
+        logger.warning("[email] No se pudo escribir en log: %s", exc)
+
+    if _HAS_DEV_INBOX:
         try:
-            with _LOG_FILE.open("a", encoding="utf-8") as fh:
-                fh.write("=" * 72 + "\n")
-                fh.write(f"[FALLBACK SMTP FALLÓ] {exc}\n")
-                fh.write(f"Para: {to} | Asunto: {subject}\n")
-                fh.write(body + "\n")
-        except Exception:
-            pass
-        return EmailResult(False, "log", to, subject, detail=str(exc))
+            _dev_inbox_add(
+                to=to,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+                cc=cc,
+                transport=transport,
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "[email] No se pudo capturar en Dev Inbox: %s", exc,
+            )
+
+
+def get_transport_info() -> dict:
+    """
+    Devuelve un dict con el estado de cada transporte disponible.
+    Útil para el endpoint de diagnóstico ``/api/v1/usuarios/smtp-status``.
+    """
+    has_api = bool(os.getenv("RESEND_API_KEY"))
+    has_smtp = _smtp_configured()
+    sender = os.getenv("SMTP_FROM", "")
+    return {
+        "resend_api_configured": has_api,
+        "resend_api_url": _RESEND_API_URL if has_api else None,
+        "smtp_configured": has_smtp,
+        "smtp_host": os.getenv("SMTP_HOST") or None,
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_use_ssl": (os.getenv("SMTP_USE_SSL", "").lower() == "true") if os.getenv("SMTP_USE_SSL") else None,
+        "smtp_use_tls": os.getenv("SMTP_USE_TLS", "true").lower() == "true",
+        "sender": sender or None,
+        "active_transport": (
+            "resend-api" if has_api and sender
+            else "smtp" if has_smtp
+            else "log"
+        ),
+    }
 
 
 # === Plantillas de email para Bitácora GRM ===================================

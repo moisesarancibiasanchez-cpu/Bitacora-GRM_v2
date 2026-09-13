@@ -156,25 +156,24 @@ def listar_usuarios(
 @router.get("/smtp-status")
 def smtp_status(usuario: Usuario = Depends(get_current_user)):
     """
-    Devuelve el estado actual de la configuración SMTP.
+    Devuelve el estado actual de la configuración de envío de emails.
     Solo Administrador (datos operativos).
+
+    Expone los 3 transportes disponibles (en orden de preferencia):
+      1) Resend HTTP API  (HTTPS puerto 443, recomendado en PaaS).
+      2) SMTP clásico     (puertos 25/465/587, a veces bloqueado).
+      3) log local        (modo desarrollo, fallback final).
 
     NOTA: esta ruta DEBE declararse ANTES de ``/{usuario_id}`` para que
     FastAPI la prefiera sobre el path-paramétrico (de lo contrario
     ``/smtp-status`` se parsea como ``usuario_id`` y devuelve 422).
     """
     _require_admin(usuario)
-    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
-    return {
-        "smtp_configured": smtp_ok,
-        "host": settings.SMTP_HOST or None,
-        "port": settings.SMTP_PORT,
-        "user": settings.SMTP_USER or None,
-        "from": settings.SMTP_FROM or None,
-        "use_tls": settings.SMTP_USE_TLS,
-        "public_base_url": settings.PUBLIC_BASE_URL,
-        "mode": "smtp" if smtp_ok else "log",
-    }
+    # Importación local para no acoplar el router al servicio de email.
+    from app.services.email_service import get_transport_info
+    info = get_transport_info()
+    info["public_base_url"] = settings.PUBLIC_BASE_URL
+    return info
 
 
 @router.get("/{usuario_id}", response_model=UsuarioRead)

@@ -1,0 +1,102 @@
+== Diagnóstico post-migración ==
+  · estados: OK (15 columnas)
+  · tickets: OK (31 columnas)
+[SQL: ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL]
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2026-09-12 22:12:15,758 INFO [migrations] Resultado: applied=0 skipped=21 indexes=7 errors=0 data_migrated=0
+[start.sh] Lanzando gunicorn (web)...
+[2026-09-12 22:12:17 +0000] [10] [INFO] Started server process [10]
+[2026-09-12 22:12:17 +0000] [10] [INFO] Waiting for application startup.
+2026-09-12 22:12:16,973 [INFO] app.main: WhiteNoise instalado pero a2wsgi no disponible; sirviendo /static con StaticFiles de FastAPI
+[2026-09-12 22:12:16 +0000] [1] [INFO] Starting gunicorn 23.0.0
+[2026-09-12 22:12:16 +0000] [1] [INFO] Listening at: http://0.0.0.0:8080 (1)
+[2026-09-12 22:12:16 +0000] [1] [INFO] Using worker: uvicorn.workers.UvicornWorker
+[2026-09-12 22:12:16 +0000] [9] [INFO] Booting worker with pid: 9
+[2026-09-12 22:12:16 +0000] [10] [INFO] Booting worker with pid: 10
+[2026-09-12 22:12:16 +0000] [9] [INFO] Started server process [9]
+[2026-09-12 22:12:16 +0000] [9] [INFO] Waiting for application startup.
+2026-09-12 22:12:17,126 [INFO] app.db.migrations: [migrations] Schema check: tablas verificadas
+2026-09-12 22:12:17,132 [INFO] app.db.migrations: [migrations] Schema check: tablas verificadas
+2026-09-12 22:12:17,163 [WARNING] app.db.migrations: [migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): (psycopg2.errors.UndefinedFunction) operator does not exist: boolean <> integer
+LINE 1: ...contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0
+                                                                   ^
+(Background on this error at: https://sqlalche.me/e/20/f405)
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+[SQL: UPDATE etiquetas SET activo = 0 WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0]
+2026-09-12 22:12:17,164 [WARNING] app.db.migrations: [migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+[SQL: ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL]
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2026-09-12 22:12:17,165 [INFO] app.db.migrations: [migrations] Resultado: applied=0 skipped=21 indexes=7 errors=0 data_migrated=0
+2026-09-12 22:12:17,169 [WARNING] app.db.migrations: [migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): (psycopg2.errors.UndefinedFunction) operator does not exist: boolean <> integer
+LINE 1: ...contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0
+                                                                   ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+[SQL: UPDATE etiquetas SET activo = 0 WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+============================================================
+Inicializando BD: postgresql://postgres:ZoMmuprTTolupAzyxPVExGurjMrdmXbn@postgres.railway.internal:5432/railway
+============================================================
+2026-09-12 22:12:17,170 [WARNING] app.db.migrations: [migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+[SQL: ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL]
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2026-09-12 22:12:17,170 [INFO] app.db.migrations: [migrations] Resultado: applied=0 skipped=21 indexes=7 errors=0 data_migrated=0
+============================================================
+Inicializando BD: postgresql://postgres:ZoMmuprTTolupAzyxPVExGurjMrdmXbn@postgres.railway.internal:5432/railway
+============================================================
+2026-09-12 22:12:17,180 [INFO] app.db.migrations: [migrations] Schema check: tablas verificadas
+2026-09-12 22:12:17,181 [INFO] app.db.migrations: [migrations] Schema check: tablas verificadas
+2026-09-12 22:12:17,198 [WARNING] app.db.migrations: [migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): (psycopg2.errors.UndefinedFunction) operator does not exist: boolean <> integer
+LINE 1: ...contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0
+                                                                   ^
+[SQL: UPDATE etiquetas SET activo = 0 WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0]
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-09-12 22:12:17,198 [WARNING] app.db.migrations: [migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+[SQL: ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL]
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2026-09-12 22:12:17,198 [INFO] app.db.migrations: [migrations] Resultado: applied=0 skipped=21 indexes=7 errors=0 data_migrated=0
+✓ Migraciones aplicadas (added=0, skipped=21, errors=0)
+2026-09-12 22:12:17,199 [WARNING] app.db.migrations: [migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): (psycopg2.errors.UndefinedFunction) operator does not exist: boolean <> integer
+LINE 1: ...contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0
+                                                                   ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+[SQL: UPDATE etiquetas SET activo = 0 WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') AND activo <> 0]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2026-09-12 22:12:17,199 [WARNING] app.db.migrations: [migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+[SQL: ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL]
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2026-09-12 22:12:17,199 [INFO] app.db.migrations: [migrations] Resultado: applied=0 skipped=21 indexes=7 errors=0 data_migrated=0
+✓ Migraciones aplicadas (added=0, skipped=21, errors=0)
+✓ Tablas verificadas
+✓ Tablas verificadas
+  · Estados ya existen, saltando seed
+  · Estados ya existen, saltando seed
+  · Etiquetas ya existen, saltando seed
+  · Espacios ya existen, saltando seed
+  · Tableros ya existen, saltando seed
+  · Etiquetas ya existen, saltando seed
+  · Campos personalizados ya existen, saltando seed
+  · Espacios ya existen, saltando seed
+  · Tableros ya existen, saltando seed
+  · Campos personalizados ya existen, saltando seed
+  · Notificaciones demo ya existen, saltando seed
+  · Notificaciones demo ya existen, saltando seed
+✓ Datos semilla cargados
+[2026-09-12 22:12:17 +0000] [9] [INFO] Application startup complete.
+✓ Datos semilla cargados
+[2026-09-12 22:12:17 +0000] [10] [INFO] Application startup complete.
+100.64.0.2:24872 - "GET / HTTP/1.1" 307
+100.64.0.3:40816 - "GET /kanban HTTP/1.1" 200
+100.64.0.4:23140 - "GET /static/css/styles.css HTTP/1.1" 304
+100.64.0.8:25204 - "GET /static/js/htmx-fallback.js HTTP/1.1" 304
+100.64.0.6:10984 - "GET /static/js/kanban.js HTTP/1.1" 304
+100.64.0.5:49602 - "GET /static/js/htmx.min.js HTTP/1.1" 304
+100.64.0.8:25208 - "GET /static/js/htmx-events.js HTTP/1.1" 304
+100.64.0.7:57776 - "GET /static/js/auth-events.js HTTP/1.1" 304
+100.64.0.4:23140 - "GET /static/js/image-preview.js HTTP/1.1" 304
+100.64.0.5:49602 - "GET /static/js/command-palette.js HTTP/1.1" 304
+100.64.0.2:50890 - "GET /usuarios HTTP/1.1" 200
+100.64.0.5:49602 - "GET /usuarios/tabla HTTP/1.1" 200
+100.64.0.9:27240 - "GET /api/v1/usuarios/5/preview-email-html HTTP/1.1" 200
+2026-09-12 22:12:33,203 [INFO] app.services.email_service: [email:smtp] Conectando vía SMTP+STARTTLS a smtp.resend.com:587
+TimeoutError: timed out
