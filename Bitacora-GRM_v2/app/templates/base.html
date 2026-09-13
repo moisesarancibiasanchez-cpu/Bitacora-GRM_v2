@@ -42,14 +42,18 @@
         <a href="/tickets" class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap">Tickets</a>
         <a href="/dashboard" class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap"
            title="Dashboard con KPIs y métricas">Dashboard</a>
-        <details class="relative">
-          <summary class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 cursor-pointer list-none [&::-webkit-details-marker]:hidden whitespace-nowrap"
-                   title="Vistas alternativas de la información">
+        {# === Dropdown Vistas: usa <button>+<div> para evitar los problemas
+           de <details>/<summary> (display:list-item y marker-hiding). === #}
+        <div class="dropdown relative" data-dropdown>
+          <button type="button" data-dropdown-trigger
+                  class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 whitespace-nowrap"
+                  title="Vistas alternativas de la información"
+                  aria-haspopup="true" aria-expanded="false">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
             Vistas
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-          </summary>
-          <div class="absolute left-0 mt-1 w-56 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
+            <svg class="w-3 h-3 transition-transform" data-arrow fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div data-dropdown-menu class="hidden absolute left-0 mt-1 w-56 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
             <a href="/vistas/tabla" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
                title="Vista de Tabla: listado denso de tickets con filtros">
               <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-9v18m-7 0h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
@@ -72,15 +76,17 @@
               Vista Panel (Trello)
             </a>
           </div>
-        </details>
+        </div>
         {# === Dropdown "Más" agrupa Butler + Roles y Funciones + Admin === #}
-        <details class="relative">
-          <summary class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 cursor-pointer list-none [&::-webkit-details-marker]:hidden whitespace-nowrap"
-                   title="Más herramientas del sistema">
+        <div class="dropdown relative" data-dropdown>
+          <button type="button" data-dropdown-trigger
+                  class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 whitespace-nowrap"
+                  title="Más herramientas del sistema"
+                  aria-haspopup="true" aria-expanded="false">
             Más
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-          </summary>
-          <div class="absolute left-0 mt-1 w-60 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
+            <svg class="w-3 h-3 transition-transform" data-arrow fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div data-dropdown-menu class="hidden absolute left-0 mt-1 w-60 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
             <a href="/butler" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
                title="Automatizaciones Butler (reglas, botones, comandos)">
               <svg class="w-3.5 h-3.5 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
@@ -112,7 +118,7 @@
             </a>
             {% endif %}
           </div>
-        </details>
+        </div>
         {# === Buscador / Command Palette === #}
         <button type="button" id="command-palette-trigger"
                 class="ml-0.5 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-slate-500 hover:bg-white hover:border-slate-300 text-xs whitespace-nowrap"
@@ -123,20 +129,22 @@
         </button>
       </nav>
       <div class="flex items-center gap-1.5 text-xs flex-shrink-0">
-        {# === Dropdown Ayuda: contiene la Demo (sin referencias externas a GitHub) === #}
-        <details class="relative">
-          <summary class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 cursor-pointer list-none [&::-webkit-details-marker]:hidden whitespace-nowrap"
-                   title="Centro de ayuda">
+        {# === Dropdown Ayuda: contiene el Onboarding interno (sin links externos) === #}
+        <div class="dropdown relative" data-dropdown>
+          <button type="button" data-dropdown-trigger
+                  class="px-2.5 py-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1 whitespace-nowrap"
+                  title="Centro de ayuda"
+                  aria-haspopup="true" aria-expanded="false">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
             Ayuda
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-          </summary>
-          <div class="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
-            <a href="https://bt84okmuthcz.space.mcode.io" target="_blank" rel="noopener"
+            <svg class="w-3 h-3 transition-transform" data-arrow fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div data-dropdown-menu class="hidden absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
+            <a href="/onboarding" target="_blank" rel="noopener"
                class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-               title="Probar el sistema sin registrarse (se abre en una pestaña nueva)">
-              <svg class="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              Demo interactiva
+               title="Onboarding: recorrido guiado del sistema (se abre en una pestaña nueva)">
+              <svg class="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Onboarding
             </a>
             <a href="/roles-funciones" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
                title="Ver la matriz de funciones de cada rol">
@@ -144,20 +152,22 @@
               Roles y Funciones
             </a>
           </div>
-        </details>
+        </div>
         {# === Indicador + dropdown de usuario (compacto) === #}
         <span class="hidden xl:inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Online
         </span>
         {% if usuario %}
-        <details class="relative">
-          <summary class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-slate-100 cursor-pointer list-none [&::-webkit-details-marker]:hidden"
-                   title="Mi cuenta">
+        <div class="dropdown relative" data-dropdown>
+          <button type="button" data-dropdown-trigger
+                  class="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-slate-100 whitespace-nowrap"
+                  title="Mi cuenta"
+                  aria-haspopup="true" aria-expanded="false">
             <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold uppercase">{{ (usuario.nombre_completo[:1] if usuario.nombre_completo else 'U') }}</span>
             <span class="hidden md:inline text-slate-700 font-medium max-w-[8rem] truncate">{{ usuario.nombre_completo.split()[0] if usuario.nombre_completo else usuario.username }}</span>
             <svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-          </summary>
-          <div class="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
+          </button>
+          <div data-dropdown-menu class="hidden absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-md shadow-lg z-50 py-1">
             <div class="px-3 py-2 border-b border-slate-100">
               <p class="text-xs font-semibold text-slate-800 truncate">{{ usuario.nombre_completo }}</p>
               <p class="text-[10px] text-slate-500 truncate">{{ usuario.email or usuario.username }}</p>
@@ -167,9 +177,9 @@
                     hx-get="/api/v1/auth/cambiar-password-modal"
                     hx-target="#modal-root" hx-swap="innerHTML"
                     class="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 text-left"
-                    title="Cambiar mi contraseña">
+                    title="Cambiar mi contraña">
               <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
-              Cambiar contraseña
+              Cambiar contraña
             </button>
             <button type="button"
                     hx-post="/api/v1/auth/logout"
@@ -177,11 +187,11 @@
                     hx-on::after-request="window.location.href='/auth/login'"
                     class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50 text-left"
                     title="Cerrar sesión">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
               Cerrar sesión
             </button>
           </div>
-        </details>
+        </div>
         {% endif %}
       </div>
     </div>
@@ -342,45 +352,54 @@
   <script src="/static/js/image-preview.js"></script>
   <script src="/static/js/command-palette.js"></script>
 
-  <!-- Manejo robusto de los dropdowns nativos <details> del header.
-       Garantiza que: (a) el click en <summary> abre/cierra el menú,
-       (b) al abrir uno se cierran los demás, y (c) un click fuera
-       cierra todos. Esto es necesario porque Tailwind CDN no aplica
-       consistentemente el marker-hiding y <details> por defecto es
-       display:list-item, lo que rompe el toggle nativo. -->
+  <!-- Manejo de los dropdowns del header.
+       Estructura: <div data-dropdown><button data-dropdown-trigger>…</button>
+                                    <div data-dropdown-menu>…</div></div>
+       Garantiza: (a) click abre/cierra, (b) abrir uno cierra los demás,
+       (c) click fuera o Escape cierra todos, (d) flecha rota 180° al abrir. -->
   <script>
     (function () {
-      var headerDetails = document.querySelectorAll('header details');
-      if (!headerDetails.length) return;
+      var dropdowns = document.querySelectorAll('[data-dropdown]');
+      if (!dropdowns.length) return;
 
-      headerDetails.forEach(function (details) {
-        var summary = details.querySelector('summary');
-        if (!summary) return;
+      function closeAll(except) {
+        dropdowns.forEach(function (d) {
+          if (d === except) return;
+          var menu = d.querySelector('[data-dropdown-menu]');
+          var trigger = d.querySelector('[data-dropdown-trigger]');
+          if (!menu) return;
+          menu.classList.add('hidden');
+          if (trigger) trigger.setAttribute('aria-expanded', 'false');
+          var arrow = trigger && trigger.querySelector('[data-arrow]');
+          if (arrow) arrow.classList.remove('rotate-180');
+        });
+      }
 
-        summary.addEventListener('click', function (e) {
-          // No interferir con el toggle nativo; sólo agregar lógica extra
-          var wasOpen = details.hasAttribute('open');
-          // Usar setTimeout para ver el estado DESPUÉS del toggle nativo
-          setTimeout(function () {
-            var isOpen = details.hasAttribute('open');
-            if (isOpen && !wasOpen) {
-              // Este details se acaba de abrir: cerrar los demás
-              headerDetails.forEach(function (other) {
-                if (other !== details && other.hasAttribute('open')) {
-                  other.removeAttribute('open');
-                }
-              });
-            }
-          }, 0);
+      dropdowns.forEach(function (dropdown) {
+        var trigger = dropdown.querySelector('[data-dropdown-trigger]');
+        var menu = dropdown.querySelector('[data-dropdown-menu]');
+        if (!trigger || !menu) return;
+
+        trigger.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var wasHidden = menu.classList.contains('hidden');
+          closeAll(dropdown);
+          if (wasHidden) {
+            menu.classList.remove('hidden');
+            trigger.setAttribute('aria-expanded', 'true');
+            var arrow = trigger.querySelector('[data-arrow]');
+            if (arrow) arrow.classList.add('rotate-180');
+          }
         });
       });
 
-      // Cerrar todos los dropdowns al hacer click fuera de cualquier <details>
       document.addEventListener('click', function (e) {
-        if (e.target.closest('header details')) return;
-        headerDetails.forEach(function (d) {
-          if (d.hasAttribute('open')) d.removeAttribute('open');
-        });
+        if (!e.target.closest('[data-dropdown]')) closeAll(null);
+      });
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeAll(null);
       });
     })();
   </script>
