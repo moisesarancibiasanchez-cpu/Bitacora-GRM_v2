@@ -341,5 +341,48 @@
   <script src="/static/js/auth-events.js"></script>
   <script src="/static/js/image-preview.js"></script>
   <script src="/static/js/command-palette.js"></script>
+
+  <!-- Manejo robusto de los dropdowns nativos <details> del header.
+       Garantiza que: (a) el click en <summary> abre/cierra el menú,
+       (b) al abrir uno se cierran los demás, y (c) un click fuera
+       cierra todos. Esto es necesario porque Tailwind CDN no aplica
+       consistentemente el marker-hiding y <details> por defecto es
+       display:list-item, lo que rompe el toggle nativo. -->
+  <script>
+    (function () {
+      var headerDetails = document.querySelectorAll('header details');
+      if (!headerDetails.length) return;
+
+      headerDetails.forEach(function (details) {
+        var summary = details.querySelector('summary');
+        if (!summary) return;
+
+        summary.addEventListener('click', function (e) {
+          // No interferir con el toggle nativo; sólo agregar lógica extra
+          var wasOpen = details.hasAttribute('open');
+          // Usar setTimeout para ver el estado DESPUÉS del toggle nativo
+          setTimeout(function () {
+            var isOpen = details.hasAttribute('open');
+            if (isOpen && !wasOpen) {
+              // Este details se acaba de abrir: cerrar los demás
+              headerDetails.forEach(function (other) {
+                if (other !== details && other.hasAttribute('open')) {
+                  other.removeAttribute('open');
+                }
+              });
+            }
+          }, 0);
+        });
+      });
+
+      // Cerrar todos los dropdowns al hacer click fuera de cualquier <details>
+      document.addEventListener('click', function (e) {
+        if (e.target.closest('header details')) return;
+        headerDetails.forEach(function (d) {
+          if (d.hasAttribute('open')) d.removeAttribute('open');
+        });
+      });
+    })();
+  </script>
 </body>
 </html>
