@@ -587,7 +587,7 @@ def email_credenciales_iniciales(
     rol: str,
     departamento: Optional[str] = None,
     url_sistema: str = "",
-    remitente_nombre: str = "Equipo de Soporte y Operaciones GRM v2",
+    remitente_nombre: str = "Equipo de Desarrollo 160K",
 ) -> tuple:
     """
     Devuelve (asunto, body_texto, body_html) para el correo de
@@ -819,7 +819,7 @@ def email_credenciales_iniciales(
         </tr>
       </table>
       <p style="font-size:11px;color:#94a3b8;margin-top:12px">
-        Bitácora GRM v2 · Sistema de Monitoreo de Incidencias
+        Bitácora GRM v2 · Sistema de Monitoreo de Incidencias creado por Moisés Arancibia Sánchez (160K)
       </p>
     </td>
   </tr>
