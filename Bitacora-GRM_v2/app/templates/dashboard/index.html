@@ -35,6 +35,43 @@
       Cargando métricas...
     </div>
 
+    {# === Stats Bar compacta (mismo patrón visual que demo-static). ===
+       Se ubica al tope del dashboard para dar una vista rápida del estado
+       general sin esperar a que carguen los gráficos inferiores. NO modifica
+       el grid de KPIs principales que viene debajo. #}
+    <div id="dashboard-statsbar"
+         class="border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 mb-4 flex items-center justify-between text-xs flex-wrap gap-3">
+      <div class="flex items-center gap-5 flex-wrap">
+        <div class="flex items-center gap-2">
+          <span class="text-slate-500">Total:</span>
+          <span class="font-bold text-slate-800 text-sm" id="statbar-total">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+          <span class="text-slate-500">Abiertos:</span>
+          <span class="font-bold text-slate-800 text-sm" id="statbar-abiertos">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-red-500"></span>
+          <span class="text-slate-500">SLA vencido:</span>
+          <span class="font-bold text-red-600 text-sm" id="statbar-sla">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span class="text-slate-500">Sin asignar:</span>
+          <span class="font-bold text-amber-600 text-sm" id="statbar-unassigned">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+          <span class="text-slate-500">Reglas activas:</span>
+          <span class="font-bold text-purple-600 text-sm" id="statbar-reglas">—</span>
+        </div>
+      </div>
+      <div class="text-slate-500 hidden md:block">
+        Resumen en tiempo real · Refresca con <span class="font-semibold">Actualizar</span>
+      </div>
+    </div>
+
     <!-- Contenido del dashboard (se llena por JS) -->
     <div id="dashboard-content" class="hidden">
       <!-- Tarjetas de KPIs principales -->
@@ -180,7 +217,23 @@ function colorPrioridad(p) {
 }
 
 function renderMetricas(data) {
-  // KPIs
+  // === Stats Bar compacta (5 KPIs al estilo demo-static) ===
+  // Se llena ANTES que el resto para que el usuario vea números cuanto antes.
+  // Usa `totales.abiertos` (no `activos`) porque "Abiertos" semánticamente
+  // excluye los tickets ya cerrados (es_final=True), no solo los archivados.
+  const statBar = {
+    'statbar-total':       data.totales.total,
+    'statbar-abiertos':    data.totales.abiertos,
+    'statbar-sla':         data.sla.incumplidos,
+    'statbar-unassigned':  data.totales.sin_asignar,
+    'statbar-reglas':      data.totales.reglas_activas,
+  };
+  Object.entries(statBar).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = (val === undefined || val === null) ? '—' : val;
+  });
+
+  // KPIs principales (grid existente — sin cambios)
   document.getElementById('kpi-total').textContent = data.totales.total;
   document.getElementById('kpi-activos').textContent = data.totales.activos;
   document.getElementById('kpi-archivados').textContent = data.totales.archivados;

@@ -16,6 +16,7 @@ from app.models.usuario import Usuario
 from app.models.auditoria import Auditoria
 from app.models.comentario import Comentario
 from app.models.etiqueta import Etiqueta, ticket_etiquetas
+from app.models.automacion import ReglaAutomatizacion
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/metricas", tags=["Métricas"])
@@ -131,6 +132,47 @@ def resumen_dashboard(
         .scalar()
     ) or 0
 
+    # === Tickets sin asignar (NO críticos) ===
+    # Se mantiene `criticos_sin_asignar` por compatibilidad con consumidores
+    # previos; este nuevo campo alimenta el KPI "Sin asignar" del dashboard
+    # y se reporta como COMPLEMENTO del KPI "Críticos sin asignar" que ya
+    # existe en el grid principal: aquí se cuentan sólo los tickets sin
+    # asignar cuya prioridad NO es CRITICA (los críticos van a su propio KPI
+    # para evitar doble conteo en la barra compacta).
+    sin_asignar = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            Ticket.asignado_id.is_(None),
+            Ticket.prioridad != Prioridad.CRITICA,
+            Ticket.archivado == False,  # noqa: E712
+        )
+        .scalar()
+    ) or 0
+
+    # === Tickets "Abiertos" (no en estado final) ===
+    # `activos` arriba (total - archivados) sigue intacto por compatibilidad.
+    # Este NUEVO campo alimenta el KPI "Abiertos" del dashboard: cuenta
+    # tickets cuyo estado NO está marcado como `es_final=True` y que
+    # tampoco están archivados (semánticamente: tickets en curso de trabajo).
+    subq_estados_finales = (
+        db.query(Estado.id).filter(Estado.es_final == True).subquery()  # noqa: E712
+    )
+    abiertos = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            Ticket.estado_id.notin_(subq_estados_finales),
+            Ticket.archivado == False,  # noqa: E712
+        )
+        .scalar()
+    ) or 0
+
+    # === Reglas Butler activas (automatizaciones) ===
+    reglas_activas = (
+        db.query(func.count(ReglaAutomatizacion.id))
+        .filter(ReglaAutomatizacion.activo == True)  # noqa: E712
+        .scalar()
+    ) or 0
+
     return {
         "periodo_dias": dias,
         "totales": {
@@ -138,6 +180,9 @@ def resumen_dashboard(
             "activos": activos,
             "archivados": archivados,
             "criticos_sin_asignar": criticos_sin_asignar,
+            "sin_asignar": sin_asignar,
+            "abiertos": abiertos,
+            "reglas_activas": reglas_activas,
         },
         "sla": {
             "cumplidos": sla_si,
