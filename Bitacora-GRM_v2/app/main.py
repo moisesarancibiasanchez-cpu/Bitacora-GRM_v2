@@ -530,12 +530,16 @@ async def ticket_crear(request: Request):
 
         # === Generación del código del ticket ===
         # Regla:
-        #   - Tipo "resultado_pruebas" → el código es el contenido del campo
-        #     "HU o Caso de Prueba Asociado" (único por ticket). Esto permite
-        #     referenciar el ticket con el mismo identificador que la HU/CP.
+        #   - Tipo "resultado_pruebas" → el código sigue el formato
+        #     ``GAR_<HU>_<NNN>`` donde ``<HU>`` es el contenido del campo
+        #     "HU o Caso de Prueba Asociado" y ``<NNN>`` es un correlativo
+        #     3-dígitos POR HU (cuenta cuántos tickets de tipo
+        #     resultado_pruebas existen ya con esa misma HU).
+        #     Ejemplo: 1er ticket para la HU "SC_5.4" → "GAR_SC_5.4_001".
         #   - Cualquier otro tipo → se usa el formato correlativo INC-NNN.
         # Se valida que cuando tipo == resultado_pruebas venga el campo
         # hu_o_caso_prueba (es obligatorio en ese caso).
+        from sqlalchemy import func
         if tipo_enum == TipoIncidencia.RESULTADO_PRUEBAS:
             if not hu_o_caso_prueba:
                 return HTMLResponse(
@@ -545,27 +549,46 @@ async def ticket_crear(request: Request):
                         <p class="text-sm text-slate-600 mb-4">
                           Cuando el tipo es <b>Resultado Pruebas</b>, el campo
                           <b>HU o Caso de Prueba Asociado</b> es obligatorio y se usa
-                          como código del ticket.
+                          como parte del código del ticket (formato
+                          <span class="font-mono">GAR_&lt;HU&gt;_&lt;NNN&gt;</span>).
                         </p>
                         <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
                       </div>
                     </div>''',
                     status_code=400,
                 )
-            # Truncar al límite del VARCHAR(20) del modelo.
-            codigo = hu_o_caso_prueba[:20]
-            # Verificar unicidad antes de intentar el INSERT para devolver
-            # un error legible en vez de un 500 de IntegrityError.
-            existing = db.query(Ticket).filter(Ticket.codigo == codigo).first()
-            if existing:
+            # Contar tickets previos con la misma HU y tipo=resultado_pruebas
+            # para determinar el siguiente correlativo (001, 002, 003...).
+            count_prev = db.query(func.count(Ticket.id)).filter(
+                Ticket.tipo == TipoIncidencia.RESULTADO_PRUEBAS,
+                Ticket.hu_o_caso_prueba == hu_o_caso_prueba,
+            ).scalar() or 0
+            # Limitar el código al VARCHAR(20) del modelo.
+            #   "GAR_"   = 4 chars fijos
+            #   "_NNN"   = 4 chars fijos
+            #   → quedan 12 chars para la HU; el resto se trunca.
+            hu_trunc = hu_o_caso_prueba[:12]
+            codigo = None
+            # Bucle de reintentos por si hay condición de carrera entre dos
+            # peticiones simultáneas para la misma HU.
+            for offset in range(5):
+                candidato_num = count_prev + 1 + offset
+                candidato = f"GAR_{hu_trunc}_{candidato_num:03d}"
+                existe = db.query(Ticket).filter(
+                    Ticket.codigo == candidato
+                ).first()
+                if not existe:
+                    codigo = candidato
+                    break
+            if not codigo:
                 return HTMLResponse(
                     f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
                       <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
-                        <h3 class="text-lg font-semibold text-red-700 mb-2">Código duplicado</h3>
+                        <h3 class="text-lg font-semibold text-red-700 mb-2">Conflicto de numeración</h3>
                         <p class="text-sm text-slate-600 mb-4">
-                          Ya existe un ticket con el código
-                          <span class="font-mono px-1 py-0.5 rounded bg-slate-100">{codigo}</span>
-                          (el campo <b>HU o Caso de Prueba Asociado</b> debe ser único).
+                          No se pudo asignar un correlativo libre para la HU
+                          <span class="font-mono px-1 py-0.5 rounded bg-slate-100">{hu_o_caso_prueba}</span>
+                          tras varios intentos. Refresque la página e intente nuevamente.
                         </p>
                         <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
                       </div>
@@ -574,7 +597,6 @@ async def ticket_crear(request: Request):
                 )
         else:
             # Formato compacto INC-NNN correlativo por id (igual que antes).
-            from sqlalchemy import func
             ultimo = db.query(func.max(Ticket.id)).scalar() or 0
             codigo = f"INC-{(ultimo + 1):03d}"
 
