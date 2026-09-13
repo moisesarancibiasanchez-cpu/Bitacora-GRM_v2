@@ -359,6 +359,14 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #        lo creó. Por eso usamos un ``eng.begin()`` anidado que
     #        hace commit al salir del bloque.
     #      - ``ADD VALUE IF NOT EXISTS`` es idempotente en PG ≥ 12.
+    #      - PG distingue MAYÚSCULAS de minúsculas en los valores de
+    #        un enum. Si una versión anterior de la migración añadió
+    #        ``'resultado_pruebas'`` (minúsculas) y luego se renombró
+    #        esta sección a MAYÚSCULAS, el enum puede tener AMBOS
+    #        valores o solo el de minúsculas. Para hacer la migración
+    #        robusta frente a cualquier estado previo, primero
+    #        RENAME del valor minúsculas → MAYÚSCULAS (si existe) y
+    #        luego ADD VALUE IF NOT EXISTS (idempotente).
     if is_pg:
         enum_name = None
         try:
@@ -391,43 +399,102 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             )
         else:
             try:
-                # 2) ALTER TYPE en transacción separada que commitea
-                #    inmediatamente. Hacemos COMMIT antes del INSERT
-                #    siguiente para que PG permita usar el nuevo valor.
-                #    El valor se añade en MAYÚSCULAS para que coincida
-                #    con el resto de valores del enum en PG y con la
-                #    serialización que hace SQLAlchemy del miembro
-                #    TipoIncidencia.RESULTADO_PRUEBAS (que sin
-                #    values_callable usa el .name en mayúsculas).
-                with eng.begin() as conn2:
-                    conn2.execute(text(
-                        f"ALTER TYPE {enum_name} "
-                        f"ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS'"
-                    ))
-                # 3) Verificar que el valor quedó registrado (defensivo).
+                # 2) Si la versión anterior de la migración añadió
+                #    ``'resultado_pruebas'`` (minúsculas), renombrarlo
+                #    a MAYÚSCULAS para que coincida con la serialización
+                #    que hace SQLAlchemy del miembro del enum.
+                #    PG distingue case en los enumlabels, por lo que
+                #    ``'resultado_pruebas'`` y ``'RESULTADO_PRUEBAS'``
+                #    son dos valores distintos. PG ≥ 10 soporta
+                #    ``ALTER TYPE ... RENAME VALUE``.
                 check = eng.connect()
                 try:
                     with check.begin() as conn3:
-                        res = conn3.execute(text(
+                        # Detectar si existe la versión minúsculas
+                        res_min = conn3.execute(text(
+                            "SELECT 1 FROM pg_enum e "
+                            "JOIN pg_type t ON t.oid = e.enumtypid "
+                            "WHERE t.typname = :n AND e.enumlabel = 'resultado_pruebas'"
+                        ), {"n": enum_name})
+                        exists_min = res_min.fetchone() is not None
+                        res_may = conn3.execute(text(
+                            "SELECT 1 FROM pg_enum e "
+                            "JOIN pg_type t ON t.oid = e.enumtypid "
+                            "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
+                        ), {"n": enum_name})
+                        exists_may = res_may.fetchone() is not None
+                finally:
+                    check.close()
+
+                # ALTER TYPE ... RENAME VALUE debe committearse en su
+                # PROPIA transacción (misma restricción que ADD VALUE).
+                if exists_min and not exists_may:
+                    with eng.begin() as conn_ren:
+                        conn_ren.execute(text(
+                            f"ALTER TYPE {enum_name} "
+                            f"RENAME VALUE 'resultado_pruebas' TO 'RESULTADO_PRUEBAS'"
+                        ))
+                    logger.info(
+                        "[migrations] data: enum PG '%s' renombrado "
+                        "'resultado_pruebas' → 'RESULTADO_PRUEBAS'",
+                        enum_name,
+                    )
+                    exists_may = True
+                elif exists_min and exists_may:
+                    # Ambos existen (estado degenerado de un re-deploy
+                    # durante una migración a medias). Intentamos
+                    # borrar el de minúsculas renombrándolo a algo
+                    # "temporal" y luego drop. PG no permite DROP
+                    # VALUE directamente, así que usamos RENAME para
+                    # "absorber" y luego re-renombrar: la opción
+                    # segura es simplemente dejar ambos (el de
+                    # minúsculas es inerte porque SQLAlchemy ya usa
+                    # el de mayúsculas). Log informativo.
+                    logger.warning(
+                        "[migrations] data: enum PG '%s' tiene TANTO "
+                        "'resultado_pruebas' COMO 'RESULTADO_PRUEBAS'. "
+                        "Esto es inofensivo (el de minúsculas queda "
+                        "huérfano) pero puedes limpiarlo manualmente con: "
+                        "ALTER TYPE %s RENAME VALUE 'resultado_pruebas' "
+                        "TO 'RESULTADO_PRUEBAS_OLD';",
+                        enum_name, enum_name,
+                    )
+
+                # 3) ADD VALUE IF NOT EXISTS (idempotente) en su
+                #    PROPIA transacción para cumplir la restricción
+                #    de PG que prohíbe usar el valor recién añadido
+                #    en la misma transacción que lo creó.
+                if not exists_may:
+                    with eng.begin() as conn2:
+                        conn2.execute(text(
+                            f"ALTER TYPE {enum_name} "
+                            f"ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS'"
+                        ))
+
+                # 4) Verificar que el valor en MAYÚSCULAS quedó
+                #    registrado tras el commit (defensivo).
+                check2 = eng.connect()
+                try:
+                    with check2.begin() as conn4:
+                        res = conn4.execute(text(
                             "SELECT 1 FROM pg_enum e "
                             "JOIN pg_type t ON t.oid = e.enumtypid "
                             "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
                         ), {"n": enum_name})
                         ok = res.fetchone() is not None
                 finally:
-                    check.close()
+                    check2.close()
                 if ok:
                     logger.info(
-                        "[migrations] data: enum PG '%s' extendido con "
+                        "[migrations] data: enum PG '%s' contiene "
                         "'RESULTADO_PRUEBAS' (verificado)",
                         enum_name,
                     )
                     total += 1
                 else:
                     logger.warning(
-                        "[migrations] data: ALTER TYPE '%s' ADD VALUE "
-                        "se ejecutó pero el valor 'RESULTADO_PRUEBAS' no "
-                        "se encontró en pg_enum tras el commit. Revisa "
+                        "[migrations] data: ALTER TYPE '%s' no logró "
+                        "asegurar el valor 'RESULTADO_PRUEBAS'. Revisa "
                         "manualmente el estado del enum.",
                         enum_name,
                     )
