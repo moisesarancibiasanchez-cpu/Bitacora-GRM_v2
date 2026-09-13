@@ -150,6 +150,20 @@ class TicketBase(BaseModel):
         description="Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)",
     )
 
+    # NOTA: Los validadores LOV de modulo/ambiente/item/resultado_pruebas
+    # vivían aquí antes, pero se ejecutaban también durante la SERIALIZACIÓN
+    # de TicketRead (que hereda de TicketBase), lo que provocaba HTTP 500
+    # en GET /api/v1/tickets y /api/v1/tickets/{id} cuando había tickets
+    # con valores legacy fuera de las LOV permitidas.
+    #
+    # Los validadores se trasladaron a TicketCreate / TicketUpdate (donde
+    # sí tiene sentido validar la ENTRADA del usuario). TicketRead ahora
+    # acepta cualquier valor para estos campos y los devuelve tal cual.
+
+
+class TicketCreate(TicketBase):
+    estado_id: Optional[int] = None  # Si None, se asigna el estado inicial
+
     @field_validator("modulo")
     @classmethod
     def _check_modulo(cls, v: Optional[str]) -> Optional[str]:
@@ -197,10 +211,6 @@ class TicketBase(BaseModel):
                 f"resultado_pruebas debe ser uno de: {sorted(r for r in RESULTADO_PRUEBAS_PERMITIDOS if r)}"
             )
         return v_norm or None
-
-
-class TicketCreate(TicketBase):
-    estado_id: Optional[int] = None  # Si None, se asigna el estado inicial
 
 
 class TicketUpdate(BaseModel):
