@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Vista Panel · Bitácora GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-100">
+  <div class="max-w-full mx-auto px-6 py-6">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <a href="/tableros{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="p-2 rounded-md hover:bg-slate-200 text-slate-600" title="Volver a tableros">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <h1 class="text-2xl font-bold text-slate-800">🗂️ Vista Panel <span class="text-base font-normal text-slate-500">(estilo Trello · solo lectura)</span></h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="/vistas/tabla{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">📊 Tabla</a>
+        <a href="/vistas/calendario{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">📅 Calendario</a>
+        <a href="/vistas/timeline{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">📆 Timeline</a>
+        <a href="?{% if espacio_id %}espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-100 text-indigo-700">🗂️ Panel</a>
+      </div>
+    </div>
+
+    <p class="text-xs text-slate-500 mb-4">
+      Vista de revisión visual tipo Trello. Para arrastrar tarjetas entre columnas, edita posiciones o reordenar,
+      usa el <a href="/kanban" class="text-indigo-600 hover:underline">Tablero Kanban</a>.
+      Las tarjetas de aquí son de <strong>solo lectura</strong>.
+    </p>
+
+    {% if columnas %}
+    <div class="flex gap-4 overflow-x-auto pb-4" id="panel-columns">
+      {% for col in columnas %}
+      <div class="flex-shrink-0 w-80 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col max-h-[calc(100vh-220px)]">
+        <!-- Header de columna -->
+        <div class="flex items-center justify-between px-3 py-2 border-b border-slate-200 sticky top-0 bg-white rounded-t-lg z-10">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full" style="background-color: {{ col.color }};"></span>
+            <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">{{ col.nombre }}</h2>
+            <span class="text-xs text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">{{ col.tarjetas|length }}</span>
+          </div>
+        </div>
+
+        <!-- Tarjetas -->
+        <div class="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50">
+          {% for t in col.tarjetas %}
+          <a href="/api/v1/tickets/{{ t.id }}/detalle-html"
+             hx-get="/api/v1/tickets/{{ t.id }}/detalle-html"
+             hx-target="#modal-root" hx-swap="innerHTML"
+             class="block bg-white rounded-lg shadow-sm border border-slate-200 hover:shadow-md hover:border-slate-300 transition overflow-hidden cursor-pointer">
+            <!-- Portada de color (si existe) -->
+            {% if t.portada_color %}
+            <div class="h-2 w-full" style="background-color: {{ t.portada_color }};"></div>
+            {% endif %}
+
+            <div class="p-3">
+              <!-- Etiquetas (labels) -->
+              {% if t.etiquetas %}
+              <div class="flex flex-wrap gap-1 mb-2">
+                {% for et in t.etiquetas %}
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" style="background-color: {{ et.color or '#64748b' }};">{{ et.nombre }}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+
+              <!-- Código -->
+              <div class="font-mono text-[11px] text-indigo-600 font-semibold mb-0.5">{{ t.codigo }}</div>
+
+              <!-- Título -->
+              <h3 class="text-sm font-medium text-slate-800 leading-snug mb-2 line-clamp-3">{{ t.titulo }}</h3>
+
+              <!-- Badges fila inferior -->
+              <div class="flex items-center justify-between text-xs text-slate-500 mt-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <!-- Prioridad -->
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-semibold text-white text-[10px]" style="background-color: {{ t.prioridad_color }};" title="Prioridad {{ t.prioridad }}">
+                    {% if t.prioridad == 'critica' %}🔥{% elif t.prioridad == 'alta' %}⚠️{% elif t.prioridad == 'media' %}🟡{% else %}⬇️{% endif %}
+                    {{ t.prioridad|upper }}
+                  </span>
+                  <!-- Fecha de vencimiento -->
+                  {% if t.fecha_vencimiento %}
+                  <span class="inline-flex items-center gap-1 text-[11px] {% if t.estado_sla == 'vencido' %}text-red-600 font-semibold{% elif t.estado_sla == 'cumplido' %}text-emerald-600{% else %}text-slate-500{% endif %}" title="Vence el {{ t.fecha_vencimiento }}">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    {{ t.fecha_vencimiento }}
+                  </span>
+                  {% endif %}
+                </div>
+
+                <!-- Contadores (estilo Trello) -->
+                <div class="flex items-center gap-2 text-[11px]">
+                  {% if t.n_adjuntos %}
+                  <span class="inline-flex items-center gap-0.5" title="{{ t.n_adjuntos }} adjunto(s)">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                    {{ t.n_adjuntos }}
+                  </span>
+                  {% endif %}
+                  {% if t.n_items %}
+                  <span class="inline-flex items-center gap-0.5 {% if t.n_items_done == t.n_items %}text-emerald-600{% endif %}" title="{{ t.n_items_done }}/{{ t.n_items }} items de checklist completados">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                    {{ t.n_items_done }}/{{ t.n_items }}
+                  </span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <!-- Asignado (avatar inicial) -->
+              {% if t.asignado %}
+              <div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                <span class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold">{{ t.asignado[0]|upper }}</span>
+                <span class="text-[11px] text-slate-600 truncate">{{ t.asignado }}</span>
+              </div>
+              {% else %}
+              <div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center text-[10px]">·</span>
+                <span class="text-[11px] text-slate-400">Sin asignar</span>
+              </div>
+              {% endif %}
+            </div>
+          </a>
+          {% else %}
+          <p class="text-xs text-slate-400 text-center py-6 italic">Sin tarjetas</p>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-white border border-slate-200 rounded-lg p-16 text-center">
+      <div class="text-5xl mb-3">🗂️</div>
+      <p class="text-slate-600 font-medium">No hay estados configurados todavía</p>
+      <p class="text-sm text-slate-500 mt-1">Crea al menos un estado en <a href="/catalogos/estados" class="text-indigo-600 hover:underline">Mantenedor de Estados</a> para usar esta vista.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
