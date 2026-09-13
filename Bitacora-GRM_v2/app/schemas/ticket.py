@@ -274,8 +274,8 @@ class TicketRead(TicketBase):
     creador_id: int
     fecha_vencimiento_sla: Optional[datetime] = None
     sla_cumplido: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     estado: Optional[EstadoRead] = None
     creador: Optional[UsuarioRead] = None
     asignado: Optional[UsuarioRead] = None
