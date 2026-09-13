@@ -84,8 +84,8 @@
     </div>
   </div>
 
-  <!-- Contenedor scrollable horizontal -->
-  <div class="flex-1 overflow-x-auto overflow-y-hidden">
+  <!-- Contenedor scrollable horizontal (SÓLO un scrollbar, a nivel del tablero) -->
+  <div class="flex-1 overflow-x-auto overflow-y-hidden kanban-scroll-x">
     <div id="kanban-board" class="h-full flex gap-3 p-4 min-w-max">
       {% for estado in estados %}
         {% set tickets_col = tickets_por_estado.get(estado.id, []) %}
