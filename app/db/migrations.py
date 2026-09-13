@@ -324,13 +324,27 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
         logger.warning("[migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: %s", e)
 
     # 4.5) Extender el enum nativo de PostgreSQL usado por la columna
-    #      ``tickets.tipo`` con el valor ``resultado_pruebas`` que se
+    #      ``tickets.tipo`` con el valor ``RESULTADO_PRUEBAS`` que se
     #      añadió al enum de Python ``TipoIncidencia``. Sin esto, el
     #      INSERT/SELECT desde SQLAlchemy lanzaría
     #      ``InvalidTextRepresentation: invalid input value for enum
-    #      <tipo>: "resultado_pruebas"`` aunque Python acepte el valor,
+    #      <tipo>: "RESULTADO_PRUEBAS"`` aunque Python acepte el valor,
     #      y el endpoint ``/tickets/crear`` devolvería un 500 al guardar
     #      un ticket de tipo Resultado Pruebas.
+    #
+    #      IMPORTANTE: el valor se añade en MAYÚSCULAS porque la
+    #      columna ``Column(Enum(TipoIncidencia))`` del modelo
+    #      SQLAlchemy NO declara ``values_callable``, lo que hace que
+    #      SQLAlchemy serialice los miembros del enum usando su
+    #      ``.name`` (MAYÚSCULAS: ``INCIDENCIA``, ``SOLICITUD``, etc.)
+    #      y NO su ``.value`` (``incidencia``, ``solicitud``, etc.).
+    #      Por consistencia con el resto de valores ya presentes en
+    #      el enum ``tipoincidencia`` de PG (que también están en
+    #      MAYÚSCULAS), el valor nuevo se añade en MAYÚSCULAS.
+    #      El ``.value`` del miembro Python (``"resultado_pruebas"``)
+    #      se sigue usando para construir el enum desde el string
+    #      que llega del frontend (``TipoIncidencia(tipo)`` busca
+    #      por value).
     #
     #      Notas críticas:
     #      - El nombre real del tipo en PG lo detectamos mirando la
@@ -371,19 +385,24 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
         if not enum_name:
             logger.warning(
                 "[migrations] data: no se encontró el enum usado por tickets.tipo; "
-                "no se extendió con 'resultado_pruebas'. Si tu tipo PG tiene un "
+                "no se extendió con 'RESULTADO_PRUEBAS'. Si tu tipo PG tiene un "
                 "nombre distinto, ejecuta manualmente: "
-                "ALTER TYPE <nombre> ADD VALUE IF NOT EXISTS 'resultado_pruebas';"
+                "ALTER TYPE <nombre> ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS';"
             )
         else:
             try:
                 # 2) ALTER TYPE en transacción separada que commitea
                 #    inmediatamente. Hacemos COMMIT antes del INSERT
                 #    siguiente para que PG permita usar el nuevo valor.
+                #    El valor se añade en MAYÚSCULAS para que coincida
+                #    con el resto de valores del enum en PG y con la
+                #    serialización que hace SQLAlchemy del miembro
+                #    TipoIncidencia.RESULTADO_PRUEBAS (que sin
+                #    values_callable usa el .name en mayúsculas).
                 with eng.begin() as conn2:
                     conn2.execute(text(
                         f"ALTER TYPE {enum_name} "
-                        f"ADD VALUE IF NOT EXISTS 'resultado_pruebas'"
+                        f"ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS'"
                     ))
                 # 3) Verificar que el valor quedó registrado (defensivo).
                 check = eng.connect()
@@ -392,7 +411,7 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
                         res = conn3.execute(text(
                             "SELECT 1 FROM pg_enum e "
                             "JOIN pg_type t ON t.oid = e.enumtypid "
-                            "WHERE t.typname = :n AND e.enumlabel = 'resultado_pruebas'"
+                            "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
                         ), {"n": enum_name})
                         ok = res.fetchone() is not None
                 finally:
@@ -400,14 +419,14 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
                 if ok:
                     logger.info(
                         "[migrations] data: enum PG '%s' extendido con "
-                        "'resultado_pruebas' (verificado)",
+                        "'RESULTADO_PRUEBAS' (verificado)",
                         enum_name,
                     )
                     total += 1
                 else:
                     logger.warning(
                         "[migrations] data: ALTER TYPE '%s' ADD VALUE "
-                        "se ejecutó pero el valor 'resultado_pruebas' no "
+                        "se ejecutó pero el valor 'RESULTADO_PRUEBAS' no "
                         "se encontró en pg_enum tras el commit. Revisa "
                         "manualmente el estado del enum.",
                         enum_name,
@@ -415,7 +434,7 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             except Exception as e:
                 logger.warning(
                     "[migrations] data: no se pudo extender el enum '%s' "
-                    "usado por tickets.tipo con 'resultado_pruebas' "
+                    "usado por tickets.tipo con 'RESULTADO_PRUEBAS' "
                     "(puede que la versión de PG sea < 12 y no soporte "
                     "ADD VALUE IF NOT EXISTS): %s",
                     enum_name, e,
