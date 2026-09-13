@@ -1329,6 +1329,121 @@ async def vista_timeline_page(request: Request):
         db.close()
 
 
+@app.get("/vistas/panel", response_class=HTMLResponse)
+async def vista_panel_page(request: Request):
+    """Vista multidimensional: Panel estilo Trello (cards por estado).
+
+    A diferencia de /kanban (que es la vista de trabajo con drag-and-drop
+    usando SortableJS y actualización de posición), esta vista es de
+    SOLO LECTURA, con un diseño más "tipo Trello" enfocado a revisión
+    visual: cada tarjeta muestra portada, etiquetas, badges de
+    prioridad/asignado, fecha de vencimiento y contadores (adjuntos,
+    checklist). Las columnas son los estados del primer tablero disponible.
+
+    Requiere sesión activa."""
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+    from app.models.estado import Estado
+    from app.models.adjunto import Adjunto
+    from app.models.checklist import Checklist, ChecklistItem
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    espacio_id = request.query_params.get("espacio")
+    db = SessionLocal()
+    try:
+        # Columnas: estados del primer tablero activo (mismo orden que en /kanban)
+        estados = db.query(Estado).order_by(Estado.orden.asc()).all()
+
+        # Tickets no archivados, opcionalmente filtrados por espacio
+        q = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
+        if espacio_id:
+            try:
+                from app.models.espacio import Tablero
+                tableros_esp = db.query(Tablero.id).filter(Tablero.espacio_id == int(espacio_id)).all()
+                ids = [t[0] for t in tableros_esp]
+                if ids:
+                    q = q.filter(Ticket.tablero_id.in_(ids))
+                else:
+                    q = q.filter(Ticket.id.is_(None))
+            except (ValueError, TypeError):
+                pass
+        # Límite amplio: el panel se centra en revisión visual
+        tickets = q.order_by(Ticket.posicion.asc(), Ticket.created_at.desc()).limit(500).all()
+
+        # Estructura: una lista por estado con sus tarjetas
+        # Usamos dict para acceso rápido y para que Jinja pueda iterar.
+        columnas = []
+        tarjetas_por_estado = {}
+        for e in estados:
+            tarjetas_por_estado[e.id] = []
+            columnas.append({
+                "id": e.id,
+                "nombre": e.nombre,
+                "color": getattr(e, "color", None) or "#94a3b8",
+                "tarjetas": tarjetas_por_estado[e.id],
+            })
+
+        # Mapa de prioridades -> color para badge
+        PRIORIDADES_COLOR = {
+            "critica": "#ef4444",  # red-500
+            "alta":    "#f97316",  # orange-500
+            "media":   "#f59e0b",  # amber-500
+            "baja":    "#94a3b8",  # slate-400
+        }
+
+        for t in tickets:
+            # Conteo de adjuntos
+            n_adj = db.query(Adjunto).filter(Adjunto.ticket_id == t.id).count()
+            # Conteo de checklists e items
+            cls = db.query(Checklist).filter(Checklist.ticket_id == t.id).all()
+            n_cl = len(cls)
+            n_items = 0
+            n_items_done = 0
+            for cl in cls:
+                items = db.query(ChecklistItem).filter(ChecklistItem.checklist_id == cl.id).all()
+                n_items += len(items)
+                n_items_done += sum(1 for i in items if getattr(i, "completado", False))
+
+            tarjeta = {
+                "id": t.id,
+                "codigo": t.codigo,
+                "titulo": t.titulo,
+                "portada_color": t.portada_color,
+                "prioridad": t.prioridad.value if t.prioridad else "media",
+                "prioridad_color": PRIORIDADES_COLOR.get(
+                    t.prioridad.value if t.prioridad else "media", "#94a3b8"
+                ),
+                "asignado": t.asignado.nombre_completo if t.asignado else None,
+                "asignado_id": t.asignado_id,
+                "fecha_vencimiento": t.fecha_vencimiento_sla.strftime("%Y-%m-%d") if t.fecha_vencimiento_sla else None,
+                "estado_sla": t.estado_sla_visual,
+                "n_adjuntos": n_adj,
+                "n_checklists": n_cl,
+                "n_items": n_items,
+                "n_items_done": n_items_done,
+                "etiquetas": [{"nombre": e.nombre, "color": e.color} for e in (t.etiquetas or [])],
+                "descripcion": t.descripcion,
+            }
+            target = tarjetas_por_estado.get(t.estado_id)
+            if target is not None:
+                target.append(tarjeta)
+
+        return templates.TemplateResponse(
+            "vistas/panel.html",
+            {
+                "request": request,
+                "usuario": usuario,
+                "columnas": columnas,
+                "espacio_id": espacio_id,
+            },
+        )
+    finally:
+        db.close()
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
     """Dashboard con KPIs y métricas del módulo de incidencias.
