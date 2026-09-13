@@ -1,0 +1,7 @@
+titulo,descripcion,tipo,prioridad,asignado_username,etiquetas
+Error de login en producción,Usuarios reportan que no pueden iniciar sesión tras el último deploy,incidencia,alta,admin,produccion;urgente
+Reporte de ventas no genera datos,El reporte mensual de ventas se queda en blanco,incidencia,media,,reportes
+Solicitud: nuevo campo en formulario de cliente,Se requiere agregar campo 'región' al formulario de alta,mejora,baja,admin,
+Caída del servidor de correo,El servidor SMTP no responde desde las 14:00,incidencia,critica,admin,produccion;correo
+Mejora UX en pantalla de tickets,Simplificar el formulario de creación de tickets,mejora,media,,ux
+Pruebas pendientes del sprint 23,Faltan pruebas de regresión para el módulo de auth,mejora,media,,qa;sprint23

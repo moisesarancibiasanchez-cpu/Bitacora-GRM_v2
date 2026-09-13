@@ -10,7 +10,8 @@ Los formatos siguen el mismo esquema:
   etiquetas, fecha_vencimiento_sla, sla_cumplido, creado, actualizado
 
 El importador es tolerante: crea tickets nuevos con código tipo
-'GRM-IMP-XXXXXX' en el estado inicial del sistema.
+'INC-XXX' (mismo formato que el servicio estándar) en el estado
+inicial del sistema.
 """
 import csv
 import io
@@ -249,9 +250,11 @@ async def importar(
         for e in db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
     }
 
-    # Generador de código correlativo
+    # Generador de código correlativo (mismo formato que el resto del proyecto: INC-XXX).
+    # La numeración se basa en el ID máximo actual de la tabla para no
+    # colisionar con códigos generados por el servicio estándar ni por
+    # imports previos.
     ultimo = db.query(func.max(Ticket.id)).scalar() or 0
-    anio = datetime.utcnow().year
 
     creados = 0
     errores: List[str] = []
@@ -263,7 +266,7 @@ async def importar(
                 errores.append(f"Fila {idx}: falta 'titulo'")
                 continue
             ultimo += 1
-            codigo = f"GRM-IMP-{anio}-{ultimo:06d}"
+            codigo = f"INC-{ultimo:03d}"
 
             # Mapear tipo
             tipo_str = (fila.get("tipo") or "incidencia").strip().lower()
@@ -294,7 +297,9 @@ async def importar(
             ticket = Ticket(
                 codigo=codigo,
                 titulo=titulo[:200],
-                descripcion=(fila.get("descripcion") or "").strip()[:5000] or None,
+                # `descripcion` es NOT NULL en la BD; si la fila viene vacía
+                # usamos "" para no romper el INSERT con un IntegrityError.
+                descripcion=(fila.get("descripcion") or "").strip()[:5000],
                 tipo=tipo_enum,
                 prioridad=prio_enum,
                 estado_id=estado_inicial.id,

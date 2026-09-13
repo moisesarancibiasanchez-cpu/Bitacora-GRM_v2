@@ -1,0 +1,5 @@
+titulo	descripcion	tipo	prioridad	asignado_username	etiquetas
+Falla en integración con pasarela de pagos	La pasarela devuelve 502 intermitente	incidencia	critica	admin	pagos;produccion
+Migración de base de datos a Postgres 16	Planificar upgrade de versión	mejora	baja	admin	db;infra
+Lentitud en dashboard principal	El dashboard demora >5s en cargar	incidencia	media		performance
+Capacitación al equipo sobre nuevos flujos	Sesión de training de 2h para todo el equipo	mejora	baja	admin	capacitacion

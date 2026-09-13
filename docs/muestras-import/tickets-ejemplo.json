@@ -1,0 +1,26 @@
+{
+  "tickets": [
+    {
+      "titulo": "Error 500 al guardar configuración",
+      "descripcion": "Al guardar cambios en /config aparece error 500 en consola",
+      "tipo": "incidencia",
+      "prioridad": "alta",
+      "asignado_username": "admin",
+      "etiquetas": "produccion,bug"
+    },
+    {
+      "titulo": "Agregar filtros por rango de fechas en reportes",
+      "descripcion": "Los reportes solo permiten filtrar por mes, agregar rango personalizado",
+      "tipo": "mejora",
+      "prioridad": "media",
+      "etiquetas": "reportes"
+    },
+    {
+      "titulo": "Actualizar documentación de API REST",
+      "descripcion": "Faltan ejemplos de curl y respuestas en /docs",
+      "tipo": "mejora",
+      "prioridad": "baja",
+      "etiquetas": "documentacion"
+    }
+  ]
+}
