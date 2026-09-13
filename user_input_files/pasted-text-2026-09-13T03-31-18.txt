@@ -1,0 +1,100 @@
+[2026-09-13 03:21:50 +0000] [10] [INFO] Application startup complete.
+  · Espacios ya existen, saltando seed
+100.64.0.2:33630 - "GET / HTTP/1.1" 307
+100.64.0.3:17552 - "GET /auth/login HTTP/1.1" 200
+100.64.0.2:33638 - "GET /static/js/image-preview.js HTTP/1.1" 200
+100.64.0.7:29822 - "GET /static/css/styles.css HTTP/1.1" 200
+100.64.0.6:51132 - "GET /static/js/kanban.js HTTP/1.1" 200
+100.64.0.3:17552 - "GET /static/js/auth-events.js HTTP/1.1" 200
+100.64.0.4:37888 - "GET /static/js/htmx.min.js HTTP/1.1" 200
+100.64.0.6:51142 - "GET /static/js/command-palette.js HTTP/1.1" 200
+100.64.0.5:62524 - "GET /static/js/htmx-fallback.js HTTP/1.1" 200
+100.64.0.2:33630 - "GET /static/js/htmx-events.js HTTP/1.1" 200
+100.64.0.5:47314 - "POST /api/v1/auth/login-form HTTP/1.1" 200
+100.64.0.5:47314 - "GET /kanban HTTP/1.1" 200
+100.64.0.2:58994 - "GET /usuarios HTTP/1.1" 200
+100.64.0.3:11542 - "GET /usuarios/tabla HTTP/1.1" 200
+100.64.0.5:59154 - "GET /api/v1/usuarios/5/preview-email-html HTTP/1.1" 200
+2026-09-13 03:22:11,571 [WARNING] app.services.email_service: [email] RESEND_API_KEY está definida pero la librería 'requests' no está disponible; se salta al siguiente transporte.
+2026-09-13 03:22:11,581 [INFO] app.services.email_service: [email:smtp] Conectando vía SMTP+STARTTLS a smtp.resend.com:587
+    return socket.create_connection((host, port), timeout,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/socket.py", line 865, in create_connection
+    raise exceptions[0]
+  File "/root/.nix-profile/lib/python3.12/socket.py", line 850, in create_connection
+           ^^^^^^^^^^^^^^^
+  File "/app/app/services/email_service.py", line 389, in _send_via_smtp
+    with smtplib.SMTP(host, port, timeout=20) as smtp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/smtplib.py", line 255, in __init__
+    (code, msg) = self.connect(host, port)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/smtplib.py", line 341, in connect
+    self.sock = self._get_socket(host, port, self.timeout)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/smtplib.py", line 312, in _get_socket
+2026-09-13 03:22:51,733 [ERROR] app.services.email_service: [email:smtp] FALLÓ -> moises.arancibia.sanchez@gmail.com: timed out
+Traceback (most recent call last):
+  File "/app/app/services/email_service.py", line 307, in send_email
+    return _send_via_smtp(
+    sock.connect(sa)
+TimeoutError: timed out
+2026-09-13 03:22:51,736 [WARNING] app.services.email_service: [email] 'tmp' existe pero no es un directorio ([Errno 17] File exists: 'tmp'); se omite la persistencia del correo en log local.
+2026-09-13 03:22:51,736 [WARNING] app.services.email_service: [email] No se pudo escribir en log: [Errno 2] No such file or directory: 'tmp/app.email.log'
+100.64.0.4:13266 - "POST /api/v1/usuarios/5/enviar-credenciales HTTP/1.1" 200
+100.64.0.5:54214 - "GET /api/v1/usuarios/smtp-status HTTP/1.1" 200
+100.64.0.8:27676 - "GET / HTTP/1.1" 307
+100.64.0.3:25096 - "GET /auth/login HTTP/1.1" 200
+100.64.0.8:27676 - "GET /static/css/styles.css HTTP/1.1" 200
+100.64.0.4:43848 - "GET /static/js/htmx.min.js HTTP/1.1" 200
+100.64.0.9:29974 - "GET /static/js/kanban.js HTTP/1.1" 200
+100.64.0.6:21474 - "GET /static/js/htmx-fallback.js HTTP/1.1" 200
+100.64.0.10:58848 - "GET /static/js/htmx-events.js HTTP/1.1" 200
+100.64.0.11:37596 - "GET /static/js/auth-events.js HTTP/1.1" 200
+100.64.0.6:21474 - "GET /static/js/command-palette.js HTTP/1.1" 200
+100.64.0.12:25352 - "GET /static/js/image-preview.js HTTP/1.1" 200
+100.64.0.12:25352 - "POST /api/v1/auth/login-form HTTP/1.1" 200
+100.64.0.10:58848 - "GET /kanban HTTP/1.1" 200
+100.64.0.5:14894 - "GET /usuarios HTTP/1.1" 200
+100.64.0.12:25352 - "GET /usuarios/tabla HTTP/1.1" 200
+100.64.0.6:60728 - "GET /api/v1/usuarios/5/preview-email-html HTTP/1.1" 200
+2026-09-13 03:25:39,912 [WARNING] app.services.email_service: [email] RESEND_API_KEY está definida pero la librería 'requests' no está disponible; se salta al siguiente transporte.
+2026-09-13 03:25:39,921 [INFO] app.services.email_service: [email:smtp] Conectando vía SMTP+STARTTLS a smtp.resend.com:587
+  File "/root/.nix-profile/lib/python3.12/socket.py", line 850, in create_connection
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/smtplib.py", line 312, in _get_socket
+  File "/root/.nix-profile/lib/python3.12/smtplib.py", line 255, in __init__
+    return socket.create_connection((host, port), timeout,
+    (code, msg) = self.connect(host, port)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/socket.py", line 865, in create_connection
+    raise exceptions[0]
+                  ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.nix-profile/lib/python3.12/smtplib.py", line 341, in connect
+    self.sock = self._get_socket(host, port, self.timeout)
+2026-09-13 03:26:19,976 [ERROR] app.services.email_service: [email:smtp] FALLÓ -> moises.arancibia.sanchez@gmail.com: timed out
+Traceback (most recent call last):
+  File "/app/app/services/email_service.py", line 307, in send_email
+    return _send_via_smtp(
+           ^^^^^^^^^^^^^^^
+  File "/app/app/services/email_service.py", line 389, in _send_via_smtp
+    with smtplib.SMTP(host, port, timeout=20) as smtp:
+    sock.connect(sa)
+TimeoutError: timed out
+2026-09-13 03:26:19,981 [WARNING] app.services.email_service: [email] 'tmp' existe pero no es un directorio ([Errno 17] File exists: 'tmp'); se omite la persistencia del correo en log local.
+2026-09-13 03:26:19,981 [WARNING] app.services.email_service: [email] No se pudo escribir en log: [Errno 2] No such file or directory: 'tmp/app.email.log'
+100.64.0.13:41716 - "POST /api/v1/usuarios/5/enviar-credenciales HTTP/1.1" 200
+100.64.0.8:28792 - "GET /dev/inbox HTTP/1.1" 404
+100.64.0.8:20334 - "GET /dev/ HTTP/1.1" 404
+100.64.0.6:40994 - "GET / HTTP/1.1" 307
+100.64.0.10:33690 - "GET /kanban HTTP/1.1" 200
+100.64.0.8:21140 - "GET /static/js/htmx.min.js HTTP/1.1" 200
+100.64.0.7:35020 - "GET /static/css/styles.css HTTP/1.1" 200
+100.64.0.6:40994 - "GET /static/js/htmx-fallback.js HTTP/1.1" 200
+100.64.0.8:21140 - "GET /static/js/kanban.js HTTP/1.1" 200
+100.64.0.8:21140 - "GET /static/js/auth-events.js HTTP/1.1" 200
+100.64.0.10:33690 - "GET /static/js/command-palette.js HTTP/1.1" 200
+100.64.0.2:51700 - "GET /static/js/image-preview.js HTTP/1.1" 200
+100.64.0.14:43078 - "GET /static/js/htmx-events.js HTTP/1.1" 200
+100.64.0.2:42966 - "GET /dev/inbox HTTP/1.1" 404
