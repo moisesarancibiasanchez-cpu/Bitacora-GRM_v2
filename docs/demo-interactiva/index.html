@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitácora GRM · Demo Interactivo (Fixes aplicados)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: 'Inter', system-ui, sans-serif; }
+    body { overflow-x: hidden; background: #f1f5f9; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .tab-btn.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .toast { animation: slideInRight 0.25s ease-out; }
+    @keyframes slideInRight {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .drop-zone.drag-over { border-color: #6366f1 !important; background: #eef2ff !important; }
+    .kanban-card { cursor: pointer; transition: all 0.15s ease; }
+    .kanban-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -4px rgba(0,0,0,0.12); }
+    .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+    .htmx-request .htmx-indicator { opacity: 1; }
+    .htmx-request.htmx-indicator { opacity: 1; }
+    .label-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; color: white; }
+    .spinner { border: 2px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; width: 14px; height: 14px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="text-slate-800">
+
+<!-- ============== TOP BAR ============== -->
+<header class="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-30">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">G</div>
+    <div>
+      <h1 class="text-sm font-semibold text-slate-800">Bitácora GRM</h1>
+      <p class="text-[10px] text-slate-500 -mt-0.5">Demo interactivo · Fixes aplicados</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-2 text-[11px]">
+    <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Backend OK
+    </span>
+    <span class="text-slate-500">Demo · <span class="font-mono text-indigo-600">GRM-DEMO-2026</span></span>
+  </div>
+</header>
+
+<!-- ============== KANBAN BOARD ============== -->
+<main class="px-4 py-3" id="main-content">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-base font-semibold text-slate-800">Tablero Principal</h2>
+    <div class="text-[11px] text-slate-500">Click en una tarjeta para abrir el detalle</div>
+  </div>
+  <div id="kanban-board" class="flex gap-3 overflow-x-auto pb-4">
+    <!-- Columns will be rendered by JS -->
+  </div>
+</main>
+
+<!-- ============== MODAL ROOT ============== -->
+<div id="modal-root"></div>
+
+<!-- ============== TOAST CONTAINER ============== -->
+<div id="toast-container" class="fixed top-4 right-4 z-[200] flex flex-col gap-2 max-w-sm"></div>
+
+<!-- ============================================================ -->
+<!-- =================== MOCK DATA & STATE ====================== -->
+<!-- ============================================================ -->
+<script>
+  // =================================================================
+  // ESTADO EN MEMORIA (simula la BD)
+  // =================================================================
+  const state = {
+    tickets: [
+      {
+        id: 1, codigo: 'GRM-INC-2026-000001',
+        titulo: 'Error al cargar el dashboard principal',
+        descripcion: 'Al ingresar al dashboard se queda cargando indefinidamente. **Reproducible** en Chrome 120+.',
+        prioridad: 'alta', estado_id: 2, asignado_id: 2, creador_id: 1,
+        etiquetas: [1, 3], fecha_vencimiento: '2026-09-15',
+        comentarios: [
+          { id: 1, autor: 'María González', texto: 'Reproducido en mi equipo, sugiero revisar la consulta de métricas.', created_at: '2026-09-09 10:32', avatar: 'MG' },
+          { id: 2, autor: 'Carlos Pérez', texto: 'Asignado. Empiezo el análisis.', created_at: '2026-09-09 11:15', avatar: 'CP' }
+        ],
+        adjuntos: [
+          { id: 1, nombre: 'error-log.txt', tamano: 2048, mime: 'text/plain', subido_por: 'María González', created_at: '2026-09-09 10:35' }
+        ],
+        checklists: [
+          { id: 1, titulo: 'Diagnóstico', items: [
+            { id: 1, texto: 'Revisar logs del servidor', completado: true },
+            { id: 2, texto: 'Reproducir el error en ambiente dev', completado: false },
+            { id: 3, texto: 'Verificar query SQL del dashboard', completado: false }
+          ]}
+        ],
+        created_at: '2026-09-09 10:30'
+      },
+      {
+        id: 2, codigo: 'GRM-INC-2026-000002',
+        titulo: 'Solicitud de nuevo catálogo: Equipos de Red',
+        descripcion: 'Se requiere crear un nuevo catálogo para gestión de equipos de red (switches, routers, access points).',
+        prioridad: 'media', estado_id: 1, asignado_id: 3, creador_id: 1,
+        etiquetas: [2], fecha_vencimiento: '2026-09-20',
+        comentarios: [], adjuntos: [], checklists: [],
+        created_at: '2026-09-10 08:00'
+      },
+      {
+        id: 3, codigo: 'GRM-INC-2026-000003',
+        titulo: 'Mejorar rendimiento del listado de tickets',
+        descripcion: 'La vista de tabla tarda más de 5 segundos en cargar cuando hay más de 1000 tickets.',
+        prioridad: 'critica', estado_id: 3, asignado_id: 2, creador_id: 1,
+        etiquetas: [1], fecha_vencimiento: '2026-09-12',
+        comentarios: [
+          { id: 3, autor: 'Carlos Pérez', texto: 'Identifiqué N+1 queries en el endpoint /tickets.', created_at: '2026-09-08 16:42', avatar: 'CP' }
+        ],
+        adjuntos: [],
+        checklists: [
+          { id: 2, titulo: 'Optimización', items: [
+            { id: 4, texto: 'Agregar eager loading', completado: true },
+            { id: 5, texto: 'Implementar paginación cursor-based', completado: false }
+          ]}
+        ],
+        created_at: '2026-09-08 14:20'
+      }
+    ],
+    estados: [
+      { id: 1, nombre: 'Backlog',     color: '#94a3b8', orden: 1 },
+      { id: 2, nombre: 'En análisis', color: '#3b82f6', orden: 2 },
+      { id: 3, nombre: 'En curso',    color: '#f59e0b', orden: 3 },
+      { id: 4, nombre: 'En revisión', color: '#8b5cf6', orden: 4 },
+      { id: 5, nombre: 'Resuelto',    color: '#10b981', orden: 5 }
+    ],
+    etiquetas: [
+      { id: 1, nombre: 'Bug',     color: '#ef4444' },
+      { id: 2, nombre: 'Mejora',  color: '#3b82f6' },
+      { id: 3, nombre: 'Urgente', color: '#f97316' },
+      { id: 4, nombre: 'Backend', color: '#8b5cf6' }
+    ],
+    usuarios: [
+      { id: 1, nombre: 'Admin Demo',    rol: 'admin' },
+      { id: 2, nombre: 'Carlos Pérez',  rol: 'tecnico' },
+      { id: 3, nombre: 'Ana Rodríguez', rol: 'tecnico' }
+    ],
+    audit: []
+  };
+
+  // =================================================================
+  // UTILIDADES
+  // =================================================================
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const escape = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const findTicket = (id) => state.tickets.find(t => t.id === id);
+  const findEstado = (id) => state.estados.find(e => e.id === id);
+  const findUsuario = (id) => state.usuarios.find(u => u.id === id);
+  const findEtiqueta = (id) => state.etiquetas.find(e => e.id === id);
+  const nextId = (arr) => arr.length ? Math.max(...arr.map(x => x.id)) + 1 : 1;
+  const fmtBytes = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : (n/1048576).toFixed(1) + ' MB';
+
+  // =================================================================
+  // TOASTS  (compartido por todos los flujos)
+  // =================================================================
+  function showToast(message, type = 'info', duration = 3500) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const colors = {
+      success: 'bg-emerald-50 border-emerald-400 text-emerald-800',
+      error:   'bg-red-50 border-red-400 text-red-800',
+      warning: 'bg-amber-50 border-amber-400 text-amber-800',
+      info:    'bg-blue-50 border-blue-400 text-blue-800'
+    };
+    const icons = { success: '✓', error: '✕', warning: '!', info: 'i' };
+    const div = document.createElement('div');
+    div.className = `toast border-l-4 ${colors[type] || colors.info} bg-white shadow-lg rounded-r-md px-4 py-3 text-sm flex items-start gap-2 min-w-[280px]`;
+    div.innerHTML = `
+      <span class="font-bold w-4 inline-block text-center">${icons[type] || 'i'}</span>
+      <span class="flex-1">${escape(message)}</span>
+      <button class="text-slate-400 hover:text-slate-600" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(div);
+    setTimeout(() => div.remove(), duration);
+  }
+  window.showToast = showToast;
+
+  // =================================================================
+  // KANBAN BOARD  (render de tarjetas)
+  // =================================================================
+  function renderKanban() {
+    const board = $('#kanban-board');
+    board.innerHTML = state.estados.map(estado => {
+      const tickets = state.tickets.filter(t => t.estado_id === estado.id);
+      return `
+        <div class="kanban-column flex-shrink-0 w-72 bg-slate-100 rounded-lg p-2" data-estado-id="${estado.id}">
+          <div class="flex items-center justify-between px-2 py-1.5 mb-2">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" style="background-color: ${estado.color}"></span>
+              <h3 class="text-xs font-semibold text-slate-700">${escape(estado.nombre)}</h3>
+              <span class="text-[10px] text-slate-500">${tickets.length}</span>
+            </div>
+          </div>
+          <div class="space-y-2 min-h-[200px]" data-column-body="${estado.id}">
+            ${tickets.map(renderCard).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Activar SortableJS para drag & drop
+    $$('[data-column-body]').forEach(col => {
+      new Sortable(col, {
+        group: 'tickets',
+        animation: 150,
+        ghostClass: 'opacity-30',
+        onEnd: async (evt) => {
+          const ticketId = parseInt(evt.item.dataset.ticketId);
+          const newEstadoId = parseInt(evt.to.dataset.columnBody);
+          // Simular validación ITSM
+          const result = await mockValidarTransicion(ticketId, newEstadoId);
+          if (!result.ok) {
+            // Revertir el movimiento
+            evt.from.insertBefore(evt.item, evt.from.children[evt.oldIndex] || null);
+            showToast(result.error, 'error', 4500);
+            return;
+          }
+          // Aplicar cambio
+          const ticket = findTicket(ticketId);
+          ticket.estado_id = newEstadoId;
+          state.audit.push({ ticket_id: ticketId, accion: 'estado_cambiado', detalle: `→ ${findEstado(newEstadoId).nombre}`, fecha: new Date().toISOString() });
+          showToast(`Ticket movido a ${findEstado(newEstadoId).nombre}`, 'success');
+        }
+      });
+    });
+
+    // Listener para click en tarjeta
+    $$('.kanban-card').forEach(card => {
+      card.addEventListener('click', () => openTicketModal(parseInt(card.dataset.ticketId)));
+    });
+  }
+
+  function renderCard(t) {
+    const etiquetas = (t.etiquetas || []).map(id => findEtiqueta(id)).filter(Boolean);
+    const totalCheckItems = (t.checklists || []).reduce((acc, cl) => acc + cl.items.length, 0);
+    const doneCheckItems = (t.checklists || []).reduce((acc, cl) => acc + cl.items.filter(i => i.completado).length, 0);
+    return `
+      <div class="kanban-card bg-white rounded-md p-2.5 shadow-sm border border-slate-200"
+           data-ticket-id="${t.id}">
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="font-mono text-[10px] text-slate-400">${escape(t.codigo)}</span>
+          <span class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold
+            ${t.prioridad === 'critica' ? 'bg-red-100 text-red-700' :
+              t.prioridad === 'alta' ? 'bg-orange-100 text-orange-700' :
+              t.prioridad === 'media' ? 'bg-yellow-100 text-yellow-700' :
+              'bg-slate-100 text-slate-600'}">
+            ${t.prioridad.toUpperCase()}
+          </span>
+        </div>
+        <p class="text-[12px] font-medium text-slate-800 leading-tight mb-2">${escape(t.titulo)}</p>
+        ${etiquetas.length ? `<div class="flex flex-wrap gap-1 mb-1.5">${etiquetas.map(e => `<span class="label-chip" style="background-color: ${e.color}">${escape(e.nombre)}</span>`).join('')}</div>` : ''}
+        <div class="flex items-center justify-between text-[10px] text-slate-500">
+          <div class="flex items-center gap-2">
+            ${t.comentarios.length ? `<span class="inline-flex items-center gap-0.5">💬 ${t.comentarios.length}</span>` : ''}
+            ${t.adjuntos.length ? `<span class="inline-flex items-center gap-0.5">📎 ${t.adjuntos.length}</span>` : ''}
+            ${totalCheckItems ? `<span class="inline-flex items-center gap-0.5">☑ ${doneCheckItems}/${totalCheckItems}</span>` : ''}
+          </div>
+          <span class="font-mono text-[9px] text-slate-400">${escape(t.codigo.split('-').pop())}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Simulación de validación de transición (regla ITSM)
+  async function mockValidarTransicion(ticketId, newEstadoId) {
+    await new Promise(r => setTimeout(r, 200));
+    const ticket = findTicket(ticketId);
+    if (!ticket) return { ok: false, error: 'Ticket no encontrado' };
+    // No se puede mover de Resuelto a En curso (regla de demo)
+    if (ticket.estado_id === 5 && newEstadoId !== 5) {
+      return { ok: false, error: 'Transición no permitida: un ticket resuelto no puede reabrirse sin una acción explícita' };
+    }
+    return { ok: true };
+  }
+
+  // =================================================================
+  // MODAL DE DETALLE
+  // =================================================================
+  function openTicketModal(ticketId) {
+    const ticket = findTicket(ticketId);
+    if (!ticket) return;
+    const root = $('#modal-root');
+    root.innerHTML = renderDetalleModal(ticket, 'detalles');
+    bindModalEvents(ticketId);
+    // Re-inicializar el dropzone y editores tras insertar HTML
+    setTimeout(() => {
+      reinitModalExtras();
+    }, 0);
+  }
+
+  function closeModal() {
+    $('#modal-root').innerHTML = '';
+    renderKanban(); // refrescar el board
+  }
+  window.closeModal = closeModal;
+
+  function renderDetalleModal(ticket, activeTab = 'detalles') {
+    const estado = findEstado(ticket.estado_id);
+    const asignado = findUsuario(ticket.asignado_id);
+    const etiquetas = (ticket.etiquetas || []).map(id => findEtiqueta(id)).filter(Boolean);
+    const etiquetasDisponibles = state.etiquetas.filter(e => !ticket.etiquetas.includes(e.id));
+    const usuarios = state.usuarios;
+
+    const tabBtn = (tab, label, count) => `
+      <button class="tab-btn px-3 py-2 text-[11px] font-medium border-b-2 ${activeTab === tab ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}"
+              data-tab="${tab}">
+        ${label}${count !== undefined ? ` <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[9px]">${count}</span>` : ''}
+      </button>
+    `;
+
+    return `
+      <div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop"
+           data-modal="detalle-ticket" data-ticket-id="${ticket.id}">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden flex flex-col max-h-[92vh]">
+
+          <!-- HEADER -->
+          <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3 flex-shrink-0">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-mono text-[10px] text-slate-500">${escape(ticket.codigo)}</span>
+                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold
+                  ${ticket.prioridad === 'critica' ? 'bg-red-100 text-red-700' :
+                    ticket.prioridad === 'alta' ? 'bg-orange-100 text-orange-700' :
+                    ticket.prioridad === 'media' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-slate-100 text-slate-600'}">
+                  ${ticket.prioridad.toUpperCase()}
+                </span>
+                <span class="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                  <span class="inline-block w-2 h-2 rounded-full" style="background-color: ${estado.color}"></span>
+                  ${escape(estado.nombre)}
+                </span>
+              </div>
+              <!-- INPUT TÍTULO con auto-save -->
+              <div class="flex items-center gap-1">
+                <input type="text" name="valor_titulo" value="${escape(ticket.titulo)}"
+                       data-original="${escape(ticket.titulo)}"
+                       class="flex-1 min-w-0 text-base font-semibold text-slate-800 leading-snug bg-transparent border-0 border-b border-transparent
+                              hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 outline-none transition-colors"
+                       placeholder="Título del ticket..." />
+                <span class="auto-save-indicator hidden w-4 h-4 flex items-center justify-center" data-for="titulo">
+                  <span class="spinner"></span>
+                </span>
+                <span class="auto-save-check hidden text-emerald-500 text-sm" data-for="titulo">✓</span>
+                <button data-action="duplicar-ticket" data-ticket-id="${ticket.id}"
+                        title="Duplicar este ticket"
+                        class="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <button data-close-modal class="w-8 h-8 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
+
+          <!-- TABS -->
+          <div class="border-b border-slate-200 px-5 flex items-center gap-1 flex-shrink-0" role="tablist">
+            ${tabBtn('detalles',     'Detalles')}
+            ${tabBtn('comentarios',  'Comentarios', ticket.comentarios.length)}
+            ${tabBtn('adjuntos',     'Adjuntos',    ticket.adjuntos.length)}
+            ${tabBtn('checklist',    'Checklist',   ticket.checklists.reduce((a, c) => a + c.items.length, 0))}
+          </div>
+
+          <!-- BODY -->
+          <div class="flex-1 overflow-y-auto p-5">
+
+            <!-- TAB: DETALLES -->
+            <div class="tab-panel ${activeTab === 'detalles' ? 'active' : ''}" data-panel="detalles">
+              <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Estado</label>
+                  <select data-action="cambiar-estado" data-ticket-id="${ticket.id}"
+                          class="w-full text-xs px-2 py-1.5 border border-slate-300 rounded-md bg-white">
+                    ${state.estados.map(e => `<option value="${e.id}" ${e.id === ticket.estado_id ? 'selected' : ''}>${escape(e.nombre)}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Asignado</label>
+                  <select data-action="cambiar-asignado" data-ticket-id="${ticket.id}"
+                          class="w-full text-xs px-2 py-1.5 border border-slate-300 rounded-md bg-white">
+                    <option value="">Sin asignar</option>
+                    ${usuarios.map(u => `<option value="${u.id}" ${u.id === ticket.asignado_id ? 'selected' : ''}>${escape(u.nombre)}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Prioridad</label>
+                  <select data-action="cambiar-prioridad" data-ticket-id="${ticket.id}"
+                          class="w-full text-xs px-2 py-1.5 border border-slate-300 rounded-md bg-white">
+                    ${['baja','media','alta','critica'].map(p => `<option value="${p}" ${p === ticket.prioridad ? 'selected' : ''}>${p}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Vencimiento</label>
+                  <input type="date" data-action="cambiar-vencimiento" data-ticket-id="${ticket.id}"
+                         value="${ticket.fecha_vencimiento || ''}"
+                         class="w-full text-xs px-2 py-1.5 border border-slate-300 rounded-md" />
+                </div>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Descripción</label>
+                <textarea data-action="cambiar-descripcion" data-ticket-id="${ticket.id}" rows="4"
+                          class="w-full text-xs px-2 py-1.5 border border-slate-300 rounded-md"
+                          placeholder="Descripción del ticket...">${escape(ticket.descripcion)}</textarea>
+              </div>
+
+              <!-- ETIQUETAS -->
+              <div class="mb-4">
+                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-2">Etiquetas</label>
+                <div class="flex flex-wrap gap-1.5 mb-2" data-etiquetas-asignadas="${ticket.id}">
+                  ${etiquetas.map(e => `
+                    <span class="label-chip group inline-flex items-center gap-1" style="background-color: ${e.color}" data-etiqueta-id="${e.id}">
+                      ${escape(e.nombre)}
+                      <button data-action="quitar-etiqueta" data-ticket-id="${ticket.id}" data-etiqueta-id="${e.id}"
+                              class="opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                    </span>
+                  `).join('') || '<span class="text-[10px] text-slate-400 italic">Sin etiquetas</span>'}
+                </div>
+                <div class="flex items-center gap-2">
+                  <select data-action="agregar-etiqueta" data-ticket-id="${ticket.id}"
+                          class="flex-1 text-xs px-2 py-1.5 border border-slate-300 rounded-md bg-white">
+                    <option value="">+ Agregar etiqueta...</option>
+                    ${etiquetasDisponibles.map(e => `<option value="${e.id}">${escape(e.nombre)}</option>`).join('')}
+                  </select>
+                  <button data-action="abrir-gestionar-etiquetas"
+                          class="text-[10px] px-2 py-1.5 border border-slate-300 rounded-md bg-white text-slate-600 hover:bg-slate-50">
+                    + Gestionar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB: COMENTARIOS -->
+            <div class="tab-panel ${activeTab === 'comentarios' ? 'active' : ''}" data-panel="comentarios">
+              <form data-form="agregar-comentario" data-ticket-id="${ticket.id}" class="mb-4">
+                <textarea name="texto" rows="2" required placeholder="Escribe un comentario..."
+                          class="w-full text-xs px-2 py-1.5 border border-slate-300 rounded-md mb-2"></textarea>
+                <div class="flex justify-between items-center">
+                  <span class="text-[10px] text-slate-500">Soporta **Markdown** ligero</span>
+                  <button type="submit" class="text-[11px] px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                    Agregar comentario
+                  </button>
+                </div>
+              </form>
+              <div class="space-y-2" data-comentarios-list>
+                ${ticket.comentarios.length === 0 ? '<p class="text-[11px] text-slate-400 italic text-center py-4">Sin comentarios aún</p>' :
+                  ticket.comentarios.map(c => `
+                    <div class="flex gap-2 p-2 bg-slate-50 rounded-md group" data-comentario-id="${c.id}">
+                      <div class="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-semibold flex-shrink-0">${c.avatar}</div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-0.5">
+                          <span class="text-[11px] font-semibold text-slate-800">${escape(c.autor)}</span>
+                          <span class="text-[10px] text-slate-400">${escape(c.created_at)}</span>
+                        </div>
+                        <p class="text-[11px] text-slate-700 whitespace-pre-wrap">${escape(c.texto)}</p>
+                      </div>
+                      <button data-action="eliminar-comentario" data-ticket-id="${ticket.id}" data-comentario-id="${c.id}"
+                              class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all self-start">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  `).join('')}
+              </div>
+            </div>
+
+            <!-- TAB: ADJUNTOS -->
+            <div class="tab-panel ${activeTab === 'adjuntos' ? 'active' : ''}" data-panel="adjuntos">
+              <div class="drop-zone adjuntos-dropzone border-2 border-dashed border-slate-300 rounded-lg p-6 text-center mb-4 cursor-pointer transition-colors"
+                   data-ticket-id="${ticket.id}">
+                <input type="file" multiple class="hidden" id="adjunto-file-${ticket.id}">
+                <svg class="w-8 h-8 mx-auto text-slate-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="text-xs text-slate-600 mb-1">Arrastra archivos aquí o haz click para seleccionar</p>
+                <p class="text-[10px] text-slate-400">Máx. 10MB por archivo</p>
+                <div id="adjuntos-preview-${ticket.id}" class="mt-2 hidden flex flex-wrap gap-1.5 justify-center"></div>
+                <p id="adjuntos-info-${ticket.id}" class="text-[10px] text-slate-500 mt-2"></p>
+              </div>
+              <div class="space-y-1.5" data-adjuntos-list>
+                ${ticket.adjuntos.length === 0 ? '<p class="text-[11px] text-slate-400 italic text-center py-3">Sin archivos adjuntos</p>' :
+                  ticket.adjuntos.map(a => `
+                    <div class="flex items-center justify-between p-2 bg-slate-50 rounded-md group" data-adjunto-id="${a.id}">
+                      <div class="flex items-center gap-2 min-w-0 flex-1">
+                        <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-[11px] font-medium text-slate-800 truncate">${escape(a.nombre)}</p>
+                          <p class="text-[10px] text-slate-500">${fmtBytes(a.tamano)} · ${escape(a.subido_por)} · ${escape(a.created_at)}</p>
+                        </div>
+                      </div>
+                      <button data-action="eliminar-adjunto" data-ticket-id="${ticket.id}" data-adjunto-id="${a.id}"
+                              class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  `).join('')}
+              </div>
+            </div>
+
+            <!-- TAB: CHECKLIST -->
+            <div class="tab-panel ${activeTab === 'checklist' ? 'active' : ''}" data-panel="checklist">
+              <form data-form="crear-checklist" data-ticket-id="${ticket.id}" class="mb-4 flex gap-2">
+                <input type="text" name="titulo" required placeholder="Título de la checklist (ej. Diagnóstico)"
+                       class="flex-1 text-xs px-2 py-1.5 border border-slate-300 rounded-md" />
+                <button type="submit" class="text-[11px] px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                  + Crear checklist
+                </button>
+              </form>
+              <div class="space-y-3" data-checklists-list>
+                ${ticket.checklists.length === 0 ? '<p class="text-[11px] text-slate-400 italic text-center py-3">Sin checklists</p>' :
+                  ticket.checklists.map(cl => `
+                    <div class="border border-slate-200 rounded-md p-3 bg-slate-50" data-checklist-id="${cl.id}">
+                      <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-semibold text-slate-700">${escape(cl.titulo)}</h4>
+                        <button data-action="eliminar-checklist" data-ticket-id="${ticket.id}" data-checklist-id="${cl.id}"
+                                class="text-[10px] text-slate-400 hover:text-red-600">
+                          Eliminar checklist
+                        </button>
+                      </div>
+                      <form data-form="agregar-item" data-ticket-id="${ticket.id}" data-checklist-id="${cl.id}" class="flex gap-1.5 mb-2">
+                        <input type="text" name="texto" required placeholder="Nueva tarea..."
+                               class="flex-1 text-[11px] px-2 py-1 border border-slate-300 rounded" />
+                        <button type="submit" class="text-[10px] px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded">+ Agregar</button>
+                      </form>
+                      <div class="space-y-1">
+                        ${cl.items.map(item => `
+                          <div class="flex items-center gap-2 p-1 rounded hover:bg-white group" data-item-id="${item.id}">
+                            <input type="checkbox" data-action="toggle-item" data-ticket-id="${ticket.id}" data-checklist-id="${cl.id}" data-item-id="${item.id}"
+                                   ${item.completado ? 'checked' : ''} class="w-3.5 h-3.5 cursor-pointer" />
+                            <span class="flex-1 text-[11px] ${item.completado ? 'line-through text-slate-400' : 'text-slate-700'}">${escape(item.texto)}</span>
+                            <button data-action="eliminar-item" data-ticket-id="${ticket.id}" data-checklist-id="${cl.id}" data-item-id="${item.id}"
+                                    class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all">
+                              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                              </svg>
+                            </button>
+                          </div>
+                        `).join('')}
+                      </div>
+                    </div>
+                  `).join('')}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // =================================================================
+  // EVENTOS DEL MODAL
+  // =================================================================
+  function bindModalEvents(ticketId) {
+    const modal = document.querySelector(`[data-modal="detalle-ticket"][data-ticket-id="${ticketId}"]`);
+    if (!modal) return;
+    const ticket = findTicket(ticketId);
+    if (!ticket) return;
+
+    // ---- Cerrar modal ----
+    modal.addEventListener('click', (e) => {
+      if (e.target.matches('[data-close-modal]') || e.target.classList.contains('modal-backdrop')) {
+        closeModal();
+      }
+    });
+
+    // ---- Tabs ----
+    $$('.tab-btn', modal).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        $$('.tab-btn', modal).forEach(b => b.classList.remove('border-indigo-600', 'text-indigo-700'));
+        $$('.tab-btn', modal).forEach(b => b.classList.add('border-transparent', 'text-slate-500'));
+        btn.classList.add('border-indigo-600', 'text-indigo-700');
+        btn.classList.remove('border-transparent', 'text-slate-500');
+        $$('.tab-panel', modal).forEach(p => p.classList.remove('active'));
+        $(`[data-panel="${tab}"]`, modal).classList.add('active');
+      });
+    });
+
+    // ---- FIX #1: Auto-save título (sin re-render del modal) ----
+    const titleInput = $('input[name="valor_titulo"]', modal);
+    let saveTimer = null;
+    titleInput.addEventListener('input', () => {
+      clearTimeout(saveTimer);
+      const indicator = $('.auto-save-indicator[data-for="titulo"]', modal);
+      const check = $('.auto-save-check[data-for="titulo"]', modal);
+      indicator.classList.remove('hidden');
+      check.classList.add('hidden');
+      saveTimer = setTimeout(async () => {
+        const newValue = titleInput.value.trim();
+        if (newValue === titleInput.dataset.original) {
+          indicator.classList.add('hidden');
+          return;
+        }
+        // Simular PATCH
+        await mockPatch(ticketId, 'titulo', newValue);
+        ticket.titulo = newValue;
+        titleInput.dataset.original = newValue;
+        indicator.classList.add('hidden');
+        check.classList.remove('hidden');
+        showToast('Título guardado correctamente', 'success');
+        setTimeout(() => check.classList.add('hidden'), 1500);
+      }, 600);
+    });
+
+    // ---- Cambiar select (estado/asignado/prioridad) con auto-save ----
+    $('[data-action="cambiar-estado"]', modal).addEventListener('change', async (e) => {
+      const newEstadoId = parseInt(e.target.value);
+      const result = await mockValidarTransicion(ticketId, newEstadoId);
+      if (!result.ok) {
+        e.target.value = ticket.estado_id;
+        showToast(result.error, 'error', 4500);
+        return;
+      }
+      ticket.estado_id = newEstadoId;
+      showToast(`Estado cambiado a ${findEstado(newEstadoId).nombre}`, 'success');
+    });
+    $('[data-action="cambiar-asignado"]', modal).addEventListener('change', async (e) => {
+      ticket.asignado_id = e.target.value ? parseInt(e.target.value) : null;
+      const u = findUsuario(ticket.asignado_id);
+      showToast(u ? `Asignado a ${u.nombre}` : 'Asignación removida', 'success');
+    });
+    $('[data-action="cambiar-prioridad"]', modal).addEventListener('change', async (e) => {
+      ticket.prioridad = e.target.value;
+      showToast(`Prioridad cambiada a ${e.target.value}`, 'success');
+    });
+    $('[data-action="cambiar-vencimiento"]', modal).addEventListener('change', async (e) => {
+      ticket.fecha_vencimiento = e.target.value;
+      showToast('Fecha de vencimiento actualizada', 'success');
+    });
+    $('[data-action="cambiar-descripcion"]', modal).addEventListener('change', async (e) => {
+      ticket.descripcion = e.target.value;
+      showToast('Descripción guardada', 'success');
+    });
+
+    // ---- FIX #2: Agregar comentario ----
+    $('[data-form="agregar-comentario"]', modal).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const texto = $('textarea[name="texto"]', e.target).value.trim();
+      if (!texto) return;
+      const newComment = {
+        id: nextId(ticket.comentarios),
+        autor: 'Tú',
+        texto,
+        created_at: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        avatar: 'TU'
+      };
+      ticket.comentarios.push(newComment);
+      showToast('Comentario agregado correctamente', 'success');
+      // Re-render solo del modal (no perder foco)
+      openTicketModal(ticketId);
+    });
+
+    // ---- Eliminar comentario ----
+    $$('[data-action="eliminar-comentario"]', modal).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cid = parseInt(btn.dataset.comentarioId);
+        ticket.comentarios = ticket.comentarios.filter(c => c.id !== cid);
+        showToast('Comentario eliminado', 'info');
+        openTicketModal(ticketId);
+      });
+    });
+
+    // ---- FIX #5: Checklist crear / agregar / toggle / eliminar ----
+    $('[data-form="crear-checklist"]', modal).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const titulo = $('input[name="titulo"]', e.target).value.trim();
+      if (!titulo) return;
+      const newCL = { id: nextId(ticket.checklists), titulo, items: [] };
+      ticket.checklists.push(newCL);
+      showToast('Checklist creado correctamente', 'success');
+      openTicketModal(ticketId);
+    });
+
+    $$('[data-form="agregar-item"]', modal).forEach(form => {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const clid = parseInt(form.dataset.checklistId);
+        const texto = $('input[name="texto"]', form).value.trim();
+        if (!texto) return;
+        const cl = ticket.checklists.find(c => c.id === clid);
+        if (!cl) return;
+        cl.items.push({ id: nextId(cl.items), texto, completado: false });
+        showToast('Tarea agregada al checklist', 'success');
+        openTicketModal(ticketId);
+      });
+    });
+
+    $$('[data-action="toggle-item"]', modal).forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        const clid = parseInt(cb.dataset.checklistId);
+        const iid = parseInt(cb.dataset.itemId);
+        const cl = ticket.checklists.find(c => c.id === clid);
+        if (!cl) return;
+        const item = cl.items.find(i => i.id === iid);
+        if (!item) return;
+        item.completado = cb.checked;
+        showToast('Tarea actualizada', 'info');
+        // Solo re-render parcial: actualizar visualmente
+        const span = cb.parentElement.querySelector('span');
+        if (cb.checked) { span.classList.add('line-through', 'text-slate-400'); span.classList.remove('text-slate-700'); }
+        else { span.classList.remove('line-through', 'text-slate-400'); span.classList.add('text-slate-700'); }
+      });
+    });
+
+    $$('[data-action="eliminar-item"]', modal).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clid = parseInt(btn.dataset.checklistId);
+        const iid = parseInt(btn.dataset.itemId);
+        const cl = ticket.checklists.find(c => c.id === clid);
+        if (!cl) return;
+        cl.items = cl.items.filter(i => i.id !== iid);
+        showToast('Tarea eliminada del checklist', 'info');
+        openTicketModal(ticketId);
+      });
+    });
+
+    $$('[data-action="eliminar-checklist"]', modal).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clid = parseInt(btn.dataset.checklistId);
+        ticket.checklists = ticket.checklists.filter(c => c.id !== clid);
+        showToast('Checklist eliminado', 'info');
+        openTicketModal(ticketId);
+      });
+    });
+
+    // ---- FIX #3: Adjuntos (drag & drop) ----
+    // Manejado en reinitModalExtras()
+
+    $$('[data-action="eliminar-adjunto"]', modal).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const aid = parseInt(btn.dataset.adjuntoId);
+        ticket.adjuntos = ticket.adjuntos.filter(a => a.id !== aid);
+        showToast('Adjunto eliminado', 'info');
+        openTicketModal(ticketId);
+      });
+    });
+
+    // ---- FIX #6: Etiquetas ----
+    $('[data-action="agregar-etiqueta"]', modal).addEventListener('change', (e) => {
+      const etid = parseInt(e.target.value);
+      if (!etid) return;
+      if (!ticket.etiquetas.includes(etid)) {
+        ticket.etiquetas.push(etid);
+        const et = findEtiqueta(etid);
+        showToast(`Etiqueta "${et.nombre}" agregada al ticket`, 'success');
+        e.target.value = '';
+        openTicketModal(ticketId);
+      }
+    });
+
+    $$('[data-action="quitar-etiqueta"]', modal).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const etid = parseInt(btn.dataset.etiquetaId);
+        ticket.etiquetas = ticket.etiquetas.filter(id => id !== etid);
+        const et = findEtiqueta(etid);
+        showToast(`Etiqueta "${et.nombre}" quitada del ticket`, 'info');
+        openTicketModal(ticketId);
+      });
+    });
+
+    $('[data-action="abrir-gestionar-etiquetas"]', modal).addEventListener('click', () => {
+      openGestionarEtiquetasModal();
+    });
+
+    // ---- FIX #4: Duplicar ticket ----
+    $('[data-action="duplicar-ticket"]', modal).addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const newTicket = {
+        ...JSON.parse(JSON.stringify(ticket)),
+        id: nextId(state.tickets),
+        codigo: `GRM-INC-2026-${String(nextId(state.tickets)).padStart(6, '0')}`,
+        titulo: ticket.titulo + ' (Copia)',
+        estado_id: 1,
+        comentarios: [], adjuntos: [], checklists: [],
+        created_at: new Date().toISOString().slice(0, 16).replace('T', ' ')
+      };
+      state.tickets.push(newTicket);
+      showToast(`Ticket duplicado: ${newTicket.codigo}`, 'success');
+      closeModal();
+    });
+  }
+
+  // =================================================================
+  // MODAL GESTIONAR ETIQUETAS
+  // =================================================================
+  function openGestionarEtiquetasModal() {
+    const root = $('#modal-root');
+    root.innerHTML = `
+      <div class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="gestionar-etiquetas">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-800">Gestionar etiquetas</h3>
+            <button data-close-modal class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600">×</button>
+          </div>
+          <form data-form="nueva-etiqueta" class="flex gap-2 mb-3">
+            <input type="text" name="nombre" required placeholder="Nombre" class="flex-1 text-xs px-2 py-1.5 border border-slate-300 rounded" />
+            <input type="color" name="color" value="#6366f1" class="w-10 h-8 border border-slate-300 rounded cursor-pointer" />
+            <button type="submit" class="text-[11px] px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700">+ Crear</button>
+          </form>
+          <div class="space-y-1.5 max-h-72 overflow-y-auto">
+            ${state.etiquetas.map(e => `
+              <div class="flex items-center justify-between p-2 bg-slate-50 rounded group">
+                <div class="flex items-center gap-2">
+                  <span class="label-chip" style="background-color: ${e.color}">${escape(e.nombre)}</span>
+                </div>
+                <button data-action="eliminar-etiqueta-global" data-etiqueta-id="${e.id}" class="text-[10px] text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                  Eliminar
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+    const modal = $('[data-modal="gestionar-etiquetas"]');
+    modal.addEventListener('click', (e) => {
+      if (e.target.matches('[data-close-modal]') || e.target.classList.contains('modal-backdrop')) {
+        // Volver al detalle
+        const ticketId = parseInt($('[data-modal="detalle-ticket"]')?.dataset.ticketId || 1);
+        openTicketModal(ticketId);
+      }
+    });
+    $('[data-form="nueva-etiqueta"]', modal).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nombre = $('input[name="nombre"]', e.target).value.trim();
+      const color = $('input[name="color"]', e.target).value;
+      if (!nombre) return;
+      state.etiquetas.push({ id: nextId(state.etiquetas), nombre, color });
+      showToast(`Etiqueta "${nombre}" creada`, 'success');
+      openGestionarEtiquetasModal();
+    });
+    $$('[data-action="eliminar-etiqueta-global"]', modal).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const etid = parseInt(btn.dataset.etiquetaId);
+        state.etiquetas = state.etiquetas.filter(x => x.id !== etid);
+        // Quitar de todos los tickets
+        state.tickets.forEach(t => t.etiquetas = t.etiquetas.filter(id => id !== etid));
+        showToast('Etiqueta eliminada del sistema', 'info');
+        openGestionarEtiquetasModal();
+      });
+    });
+  }
+
+  // =================================================================
+  // FIX #3: DROPZONE DE ADJUNTOS (con drag & drop)
+  // =================================================================
+  function setupAdjuntosDropzone() {
+    $$('.drop-zone').forEach(drop => {
+      if (drop.dataset.dzInit === '1') return;
+      drop.dataset.dzInit = '1';
+      const ticketId = parseInt(drop.dataset.ticketId);
+      const ticket = findTicket(ticketId);
+      if (!ticket) return;
+      const fileInput = $(`#adjunto-file-${ticketId}`);
+      const preview = $(`#adjuntos-preview-${ticketId}`);
+      const info = $(`#adjuntos-info-${ticketId}`);
+      let pendingFiles = [];
+
+      // Click en dropzone abre file picker
+      drop.addEventListener('click', (e) => {
+        if (e.target === fileInput) return;
+        fileInput.click();
+      });
+
+      // Drag visual
+      ['dragenter', 'dragover'].forEach(ev => {
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          drop.classList.add('drag-over');
+        });
+      });
+      ['dragleave', 'drop'].forEach(ev => {
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          drop.classList.remove('drag-over');
+        });
+      });
+
+      // Drop
+      drop.addEventListener('drop', (e) => {
+        const files = e.dataTransfer?.files;
+        if (!files || !files.length) return;
+        for (let i = 0; i < files.length; i++) pendingFiles.push(files[i]);
+        updatePreview();
+      });
+
+      // Cambio en input file
+      fileInput.addEventListener('change', () => {
+        for (let i = 0; i < fileInput.files.length; i++) pendingFiles.push(fileInput.files[i]);
+        updatePreview();
+      });
+
+      function updatePreview() {
+        if (pendingFiles.length === 0) {
+          preview.classList.add('hidden');
+          preview.innerHTML = '';
+          info.textContent = '';
+          return;
+        }
+        preview.classList.remove('hidden');
+        const items = [];
+        let total = 0;
+        pendingFiles.forEach(f => {
+          total += f.size;
+          items.push(`
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-white border border-slate-200 text-[10px]">
+              📄 ${escape(f.name)} <span class="text-slate-400">(${fmtBytes(f.size)})</span>
+              <button data-action="quitar-pendiente" data-fname="${escape(f.name)}" class="text-slate-400 hover:text-red-600">×</button>
+            </span>
+          `);
+        });
+        preview.innerHTML = items.join('');
+        info.innerHTML = `
+          <span class="text-slate-600">${pendingFiles.length} archivo(s) listo(s) (${fmtBytes(total)})</span>
+          <button data-action="subir-archivos" data-ticket-id="${ticketId}" class="ml-2 text-[10px] px-2 py-0.5 bg-indigo-600 text-white rounded hover:bg-indigo-700">Subir</button>
+        `;
+        $$('[data-action="quitar-pendiente"]', preview).forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pendingFiles = pendingFiles.filter(f => f.name !== btn.dataset.fname);
+            updatePreview();
+          });
+        });
+        $('[data-action="subir-archivos"]', info)?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const count = pendingFiles.length;
+          pendingFiles.forEach((f, i) => {
+            ticket.adjuntos.push({
+              id: nextId(ticket.adjuntos) + i,
+              nombre: f.name,
+              tamano: f.size,
+              mime: f.type,
+              subido_por: 'Tú',
+              created_at: new Date().toISOString().slice(0, 16).replace('T', ' ')
+            });
+          });
+          pendingFiles = [];
+          showToast(`${count} archivo(s) subido(s) correctamente`, 'success');
+          openTicketModal(ticketId);
+        });
+      }
+    });
+  }
+
+  function reinitModalExtras() {
+    setupAdjuntosDropzone();
+  }
+  window.reinitModalExtras = reinitModalExtras;
+
+  // =================================================================
+  // MOCK BACKEND (simula PATCH/PUT con latencia)
+  // =================================================================
+  async function mockPatch(ticketId, campo, valor) {
+    // Simula latencia de red
+    await new Promise(r => setTimeout(r, 250));
+    return { ok: true };
+  }
+
+  // =================================================================
+  // INIT
+  // =================================================================
+  document.addEventListener('DOMContentLoaded', () => {
+    renderKanban();
+    // Mensaje de bienvenida
+    setTimeout(() => {
+      showToast('Demo listo · Click en una tarjeta para ver el modal con los fixes', 'info', 4500);
+    }, 500);
+  });
+</script>
+
+
+<script>
+/**
+ * Iframe 元素高亮注入脚本
+ * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
+ *
+ * 使用方法：
+ * 1. 将此脚本添加到目标网站的 HTML 中
+ * 2. 或通过浏览器扩展、用户脚本等方式注入
+ */
+
+(function () {
+  "use strict";
+
+  // 检查是否在 iframe 中
+  if (window.self === window.top) {
+    return; // 不在 iframe 中，不执行
+  }
+
+  // 检查是否已经初始化过
+  if (window.__iframeHighlightInitialized) {
+    return;
+  }
+  window.__iframeHighlightInitialized = true;
+  console.log("Iframe 高亮脚本已加载");
+
+  // 创建高亮覆盖层
+  var overlay = document.createElement("div");
+  overlay.id = "iframe-highlight-overlay";
+  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
+
+  // 创建悬停高亮框（虚线边框）
+  var highlightBox = document.createElement("div");
+  highlightBox.id = "iframe-highlight-box";
+  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
+
+  // 创建选中节点的常驻高亮框（实线边框）
+  var selectedBox = document.createElement("div");
+  selectedBox.id = "iframe-selected-box";
+  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
+
+  // 创建悬停标签显示
+  var tagLabel = document.createElement("div");
+  tagLabel.id = "iframe-tag-label";
+  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
+
+  // 创建选中节点标签
+  var selectedLabel = document.createElement("div");
+  selectedLabel.id = "iframe-selected-label";
+  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
+  overlay.appendChild(highlightBox);
+  overlay.appendChild(selectedBox);
+  overlay.appendChild(tagLabel);
+  overlay.appendChild(selectedLabel);
+  document.body.appendChild(overlay);
+
+  // 存储当前选中的元素
+  var selectedElement = null;
+  var highlightEnabled = false;
+
+  // 更新选中元素的高亮显示
+  function updateSelectedHighlight(element) {
+    console.log("updateSelectedHighlight called with:", element);
+    if (!element) {
+      selectedBox.style.display = "none";
+      selectedLabel.style.display = "none";
+      selectedElement = null;
+      console.log("Cleared selected highlight");
+      return;
+    }
+    selectedElement = element;
+    var rect = element.getBoundingClientRect();
+    console.log("Selected element rect:", rect);
+
+    // 更新选中高亮框位置
+    selectedBox.style.display = "block";
+    selectedBox.style.left = "".concat(rect.left - 2, "px");
+    selectedBox.style.top = "".concat(rect.top - 2, "px");
+    selectedBox.style.width = "".concat(rect.width + 4, "px");
+    selectedBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新选中标签位置和内容
+    selectedLabel.style.display = "block";
+    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 28;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 5) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
+    if (labelLeft + labelWidth > window.innerWidth - 10) {
+      labelLeft = window.innerWidth - labelWidth - 10;
+    }
+    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
+    selectedLabel.style.top = "".concat(labelTop, "px");
+    console.log("Selected highlight positioned at:", {
+      left: selectedBox.style.left,
+      top: selectedBox.style.top,
+      width: selectedBox.style.width,
+      height: selectedBox.style.height
+    });
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
+    var segments = [];
+    var current = element;
+    while (current !== document.documentElement) {
+      var selector = '';
+      // 优先检查唯一ID
+      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
+        segments.unshift("#".concat(current.id));
+        break; // ID唯一，无需继续向上
+      }
+
+      // 生成类名选择器（取第一个有效类名）
+      var classes = Array.from(current.classList).filter(function (c) {
+        return !c.startsWith('js-');
+      });
+      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
+
+      // 生成位置索引（nth-child）
+      var tag = current.tagName.toLowerCase();
+      if (!className) {
+        var siblings = Array.from(current.parentNode.children);
+        var index = siblings.findIndex(function (el) {
+          return el === current;
+        }) + 1;
+        selector = "".concat(tag, ":nth-child(").concat(index, ")");
+      } else {
+        selector = className;
+      }
+      segments.unshift(selector);
+      current = current.parentElement;
+    }
+
+    // 处理根元素
+    if (current === document.documentElement) {
+      segments.unshift('html');
+    }
+    return segments.join(' > ');
+  }
+
+  // 获取元素文本内容
+  function getElementText(element) {
+    var _element$textContent;
+    if (element.tagName === "INPUT") {
+      return element.value || element.placeholder || "";
+    }
+    if (element.tagName === "TEXTAREA") {
+      return element.value || element.placeholder || "";
+    }
+    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
+    return text.length > 50 ? text.substring(0, 50) + "..." : text;
+  }
+
+  // 获取元素属性信息
+  function getElementAttributes(element) {
+    var attrs = {};
+    for (var i = 0; i < element.attributes.length; i++) {
+      var attr = element.attributes[i];
+      attrs[attr.name] = attr.value;
+    }
+    return attrs;
+  }
+
+  // 鼠标悬停事件处理
+  function handleMouseOver(e) {
+    if (!highlightEnabled) return;
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免高亮 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 如果是已选中的元素，不显示悬停高亮
+    if (target === selectedElement) {
+      highlightBox.style.display = "none";
+      tagLabel.style.display = "none";
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+
+    // 更新悬停高亮框位置
+    highlightBox.style.display = "block";
+    highlightBox.style.left = "".concat(rect.left - 2, "px");
+    highlightBox.style.top = "".concat(rect.top - 2, "px");
+    highlightBox.style.width = "".concat(rect.width + 4, "px");
+    highlightBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新标签位置和内容
+    tagLabel.style.display = "block";
+    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 22;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 0) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
+      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
+    }
+    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
+    tagLabel.style.top = "".concat(labelTop, "px");
+
+    // 发送消息到父窗口
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 鼠标离开事件处理
+  function handleMouseOut(e) {
+    if (!highlightEnabled) return;
+    var relatedTarget = e.relatedTarget;
+
+    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
+    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
+      return;
+    }
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: null,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 点击事件处理
+  function handleClick(e) {
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免处理 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 检查是否是交互元素，这些元素需要保留默认行为
+    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
+
+    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
+    if (highlightEnabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+    console.log("Element clicked:", {
+      tagName: target.tagName,
+      selector: selector,
+      rect: rect
+    });
+
+    // 立即更新选中高亮
+    updateSelectedHighlight(target);
+
+    // 隐藏悬停高亮，因为现在是选中状态
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-click",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 监听来自父窗口的消息
+  function handleParentMessage(event) {
+    console.log("Received message from parent:", event.data);
+    if (event.data.type === "iframe-highlight-toggle") {
+      var enabled = event.data.enabled;
+      console.log("Highlight toggle:", enabled);
+      if (enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "enable-iframe-highlight") {
+      console.log("Enable iframe highlight");
+      enableHighlight();
+    } else if (event.data.type === "disable-iframe-highlight") {
+      console.log("Disable iframe highlight");
+      disableHighlight();
+    } else if (event.data.type === "toggle-iframe-highlight") {
+      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
+      console.log("Toggle iframe highlight to:", _enabled);
+      if (_enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "update-selected-element") {
+      var selector = event.data.selector;
+      console.log("Update selected element with selector:", selector);
+      if (selector) {
+        try {
+          var element = document.querySelector(selector);
+          console.log("Found element by selector:", element);
+          updateSelectedHighlight(element);
+        } catch (error) {
+          console.warn("Failed to select element:", error);
+          updateSelectedHighlight(null);
+        }
+      } else {
+        updateSelectedHighlight(null);
+      }
+    } else if (event.data.type === "clear-selected-element") {
+      console.log("Clear selected element");
+      updateSelectedHighlight(null);
+    }
+  }
+
+  // 启用高亮功能
+  function enableHighlight() {
+    console.log("Enabling highlight");
+    document.addEventListener("mouseover", handleMouseOver, true);
+    document.addEventListener("mouseout", handleMouseOut, true);
+    document.addEventListener("click", handleClick, true);
+    highlightEnabled = true;
+    overlay.style.display = "block";
+  }
+
+  // 禁用高亮功能
+  function disableHighlight() {
+    console.log("Disabling highlight");
+    highlightEnabled = false;
+    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
+    // 这样可以保留选中状态的显示
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
+  }
+
+  // 完全禁用高亮功能（移除所有监听器）
+  function fullyDisableHighlight() {
+    console.log("Fully disabling highlight");
+    highlightEnabled = false;
+    document.removeEventListener("mouseover", handleMouseOver, true);
+    document.removeEventListener("mouseout", handleMouseOut, true);
+    document.removeEventListener("click", handleClick, true);
+    overlay.style.display = "none";
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    selectedBox.style.display = "none";
+    selectedLabel.style.display = "none";
+  }
+
+  // 添加事件监听
+  enableHighlight();
+  window.addEventListener("message", handleParentMessage);
+
+  // 暴露全局函数供外部调用
+  window.__iframeHighlightControl = {
+    enable: enableHighlight,
+    disable: disableHighlight,
+    fullyDisable: fullyDisableHighlight,
+    isEnabled: function isEnabled() {
+      return highlightEnabled;
+    },
+    getSelectedElement: function getSelectedElement() {
+      return selectedElement;
+    },
+    updateSelected: updateSelectedHighlight,
+    // 通过消息发送开关控制
+    sendToggleMessage: function sendToggleMessage(enabled) {
+      window.parent.postMessage({
+        type: 'iframe-highlight-status',
+        enabled: enabled || highlightEnabled,
+        source: 'iframe-highlight-injector'
+      }, '*');
+    }
+  };
+
+  // 通知父窗口脚本已加载
+  try {
+    window.parent.postMessage({
+      type: "iframe-highlight-ready",
+      data: {
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now()
+      },
+      source: "iframe-highlight-injector"
+    }, "*");
+  } catch (error) {
+    console.warn("无法发送就绪消息到父窗口:", error);
+  }
+
+  // 清理函数
+  window.__iframeHighlightCleanup = function () {
+    fullyDisableHighlight();
+    window.removeEventListener("message", handleParentMessage);
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    delete window.__iframeHighlightInitialized;
+    delete window.__iframeHighlightCleanup;
+  };
+})();
+
+</script>
+</body>
+</html>
