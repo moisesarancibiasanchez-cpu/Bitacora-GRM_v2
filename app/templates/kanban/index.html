@@ -38,6 +38,46 @@
     </div>
   </div>
 
+  {# =====================================================================
+     Stats Bar compacta — MISMO patrón visual que en demo-static/index.html
+     y en el dashboard. Sólo se AGREGA al Tablero de Incidencias para
+     ofrecer al usuario una vista rápida del estado del sistema mientras
+     trabaja con el Kanban. NO modifica nada del toolbar, los filtros, las
+     columnas, los partials ni la lógica existente.
+     ===================================================================== #}
+  <div id="kanban-statsbar"
+       class="border-b border-slate-200 bg-slate-50 px-4 py-2 flex items-center justify-between text-xs flex-shrink-0 flex-wrap gap-3">
+    <div class="flex items-center gap-5 flex-wrap">
+      <div class="flex items-center gap-2">
+        <span class="text-slate-500">Total:</span>
+        <span class="font-bold text-slate-800 text-sm" id="kstatbar-total">—</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+        <span class="text-slate-500">Abiertos:</span>
+        <span class="font-bold text-slate-800 text-sm" id="kstatbar-abiertos">—</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-red-500"></span>
+        <span class="text-slate-500">SLA vencido:</span>
+        <span class="font-bold text-red-600 text-sm" id="kstatbar-sla">—</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+        <span class="text-slate-500">Sin asignar:</span>
+        <span class="font-bold text-amber-600 text-sm" id="kstatbar-unassigned">—</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+        <span class="text-slate-500">Reglas activas:</span>
+        <span class="font-bold text-purple-600 text-sm" id="kstatbar-reglas">—</span>
+      </div>
+    </div>
+    <div class="text-slate-500 hidden md:block">
+      Resumen en tiempo real · Refresca con <span class="font-semibold">Actualizar</span>
+    </div>
+  </div>
+
   <!-- Panel de filtros (plegable) -->
   <div id="panel-filtros" class="hidden bg-white border-b border-slate-200 px-4 py-3 flex-shrink-0">
     <div class="flex flex-wrap items-end gap-3">
@@ -402,6 +442,66 @@
   } else {
     initColumnSortable();
   }
+})();
+</script>
+
+<!-- =====================================================================
+     Stats Bar del Tablero de Incidencias — pobla los 5 KPIs del bloque
+     #kanban-statsbar. Reutiliza el mismo endpoint /api/v1/metricas/resumen
+     que ya consume el dashboard; sin cambios en backend, sin duplicación
+     de lógica, sin tocar nada del toolbar / filtros / columnas / drag&drop.
+     ===================================================================== -->
+<script>
+(function(){
+  function poblarStatsBar(data){
+    const map = {
+      'kstatbar-total':       data && data.totales ? data.totales.total        : null,
+      'kstatbar-abiertos':    data && data.totales ? data.totales.abiertos     : null,
+      'kstatbar-sla':         data && data.sla     ? data.sla.incumplidos      : null,
+      'kstatbar-unassigned':  data && data.totales ? data.totales.sin_asignar   : null,
+      'kstatbar-reglas':      data && data.totales ? data.totales.reglas_activas: null,
+    };
+    Object.entries(map).forEach(function(entry){
+      const id = entry[0], v = entry[1];
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = (v === null || v === undefined) ? '—' : v;
+    });
+  }
+
+  async function cargarStatsBar(){
+    if (!document.getElementById('kanban-statsbar')) return;
+    try {
+      const r = await fetch('/api/v1/metricas/resumen?dias=30', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin',
+      });
+      if (!r.ok) return;
+      const data = await r.json();
+      poblarStatsBar(data);
+    } catch (err) {
+      // Silencioso: si falla, los KPIs quedan con '—'
+      console.warn('[kanban-statsbar] no se pudieron cargar las métricas:', err);
+    }
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', cargarStatsBar);
+  } else {
+    cargarStatsBar();
+  }
+
+  // Re-poblar tras acciones HTMX que cambian el estado del tablero
+  document.addEventListener('htmx:afterSwap', function(ev){
+    const tgt = ev.target;
+    if (!tgt) return;
+    // Recargar al refrescar columnas, tickets, archivados, modal de creación, etc.
+    if (tgt.id === 'kanban-board' || tgt.id === 'modal-root' ||
+        (tgt.id && tgt.id.startsWith('column-')) ||
+        (tgt.id && tgt.id.startsWith('count-'))){
+      cargarStatsBar();
+    }
+  });
 })();
 </script>
 
