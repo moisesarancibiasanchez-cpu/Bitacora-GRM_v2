@@ -323,6 +323,38 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     except Exception as e:
         logger.warning("[migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: %s", e)
 
+    # 4.5) Extender el enum nativo de PostgreSQL ``tipoincidencia`` con
+    #      el valor ``resultado_pruebas`` que se añadió al enum de Python
+    #      ``TipoIncidencia``. Sin esto, el INSERT/SELECT desde SQLAlchemy
+    #      lanzaría ``InvalidTextRepresentation: invalid input value for
+    #      enum tipoincidencia: "resultado_pruebas"`` aunque Python acepte
+    #      el valor. ``ADD VALUE IF NOT EXISTS`` es idempotente en PG ≥ 12.
+    if is_pg:
+        try:
+            # Detectar el nombre real del tipo PG (puede variar si fue
+            # creado con uppercase o un schema explícito).
+            res = conn.execute(text(
+                "SELECT t.typname FROM pg_type t "
+                "JOIN pg_enum e ON t.oid = e.enumtypid "
+                "GROUP BY t.typname LIMIT 1"
+            ))
+            row = res.fetchone() if hasattr(res, "fetchone") else None
+            enum_name = row[0] if row else "tipoincidencia"
+            conn.execute(text(
+                f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS 'resultado_pruebas'"
+            ))
+            logger.info(
+                "[migrations] data: enum PG '%s' extendido con 'resultado_pruebas'",
+                enum_name,
+            )
+            total += 1
+        except Exception as e:
+            logger.warning(
+                "[migrations] data: no se pudo extender el enum tipoincidencia "
+                "con 'resultado_pruebas' (puede que la versión de PG sea < 12 "
+                "y no soporte ADD VALUE IF NOT EXISTS): %s", e,
+            )
+
     return total
 
 
