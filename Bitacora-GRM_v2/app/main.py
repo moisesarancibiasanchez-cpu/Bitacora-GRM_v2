@@ -88,6 +88,7 @@ STATIC_DIR = BASE_DIR / "static"
 # compresión brotli/gzip y caché de cabeceras.
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+
 # === Templates ===
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
