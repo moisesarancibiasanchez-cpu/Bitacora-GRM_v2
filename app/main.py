@@ -1632,6 +1632,16 @@ def diag_tickets():
             "ok": 0,
             "errors": [],
         }
+        # Inspeccionar el primer ticket para ver tipo y repr reales
+        if tickets:
+            t = tickets[0]
+            result["first_ticket_debug"] = {
+                "id": t.id,
+                "codigo": t.codigo,
+                "datos_catalogo_type": type(t.datos_catalogo).__name__,
+                "datos_catalogo_repr": repr(t.datos_catalogo)[:300],
+                "datos_catalogo_is_None": t.datos_catalogo is None,
+            }
         for t in tickets:
             result["tried"] += 1
             try:
@@ -1641,15 +1651,19 @@ def diag_tickets():
                 # Capturar info detallada
                 errs = []
                 for e in ve.errors()[:10]:
+                    inp = e.get("input")
                     errs.append({
                         "loc": list(e.get("loc", [])),
                         "type": e.get("type"),
                         "msg": e.get("msg"),
-                        "input": str(e.get("input"))[:200] if e.get("input") is not None else None,
+                        "input_type": type(inp).__name__ if inp is not None else None,
+                        "input_repr": repr(inp)[:200] if inp is not None else None,
                     })
                 result["errors"].append({
                     "ticket_id": t.id,
                     "ticket_codigo": t.codigo,
+                    "datos_catalogo_type": type(t.datos_catalogo).__name__,
+                    "datos_catalogo_repr": repr(t.datos_catalogo)[:200],
                     "errors": errs,
                 })
                 # Solo devolver el primer fallo
