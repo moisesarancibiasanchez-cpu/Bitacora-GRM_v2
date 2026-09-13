@@ -115,8 +115,11 @@ def nueva_columna_form(
                 <h3 class="text-base font-semibold text-slate-800">Nueva columna del Kanban</h3>
                 <p class="text-xs text-slate-500 mt-0.5">Agrega un estado al flujo de trabajo</p>
               </div>
-              <button data-close-modal class="w-8 h-8 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button data-close-modal
+                      class="w-10 h-10 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                      aria-label="Cerrar ventana"
+                      title="Cerrar">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
               </button>

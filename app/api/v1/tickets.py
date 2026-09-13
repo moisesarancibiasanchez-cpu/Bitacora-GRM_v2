@@ -132,7 +132,8 @@ def listar_archivados(
         <p class="text-xs text-slate-500 mt-0.5">{total} ticket(s) en el archivo</p>
       </div>
       <button data-close-modal type="button"
-              class="w-8 h-8 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center"
+              class="w-10 h-10 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center"
+              aria-label="Cerrar ventana"
               title="Cerrar">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
