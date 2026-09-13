@@ -323,37 +323,103 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     except Exception as e:
         logger.warning("[migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: %s", e)
 
-    # 4.5) Extender el enum nativo de PostgreSQL ``tipoincidencia`` con
-    #      el valor ``resultado_pruebas`` que se añadió al enum de Python
-    #      ``TipoIncidencia``. Sin esto, el INSERT/SELECT desde SQLAlchemy
-    #      lanzaría ``InvalidTextRepresentation: invalid input value for
-    #      enum tipoincidencia: "resultado_pruebas"`` aunque Python acepte
-    #      el valor. ``ADD VALUE IF NOT EXISTS`` es idempotente en PG ≥ 12.
+    # 4.5) Extender el enum nativo de PostgreSQL usado por la columna
+    #      ``tickets.tipo`` con el valor ``resultado_pruebas`` que se
+    #      añadió al enum de Python ``TipoIncidencia``. Sin esto, el
+    #      INSERT/SELECT desde SQLAlchemy lanzaría
+    #      ``InvalidTextRepresentation: invalid input value for enum
+    #      <tipo>: "resultado_pruebas"`` aunque Python acepte el valor,
+    #      y el endpoint ``/tickets/crear`` devolvería un 500 al guardar
+    #      un ticket de tipo Resultado Pruebas.
+    #
+    #      Notas críticas:
+    #      - El nombre real del tipo en PG lo detectamos mirando la
+    #        columna ``tickets.tipo`` (no el primer enum que aparece),
+    #        porque SQLAlchemy usa el nombre de la clase Python en
+    #        minúsculas (``tipoincidencia``) y puede haber otros enums
+    #        en la BD (p.ej. ``prioridad``). El ``LIMIT 1`` de la versión
+    #        anterior era propenso a tomar el enum equivocado.
+    #      - ``ALTER TYPE ... ADD VALUE`` debe committearse en su
+    #        PROPIA transacción ANTES de poder usarse: PG prohíbe usar
+    #        un valor recién añadido dentro de la misma transacción que
+    #        lo creó. Por eso usamos un ``eng.begin()`` anidado que
+    #        hace commit al salir del bloque.
+    #      - ``ADD VALUE IF NOT EXISTS`` es idempotente en PG ≥ 12.
     if is_pg:
+        enum_name = None
         try:
-            # Detectar el nombre real del tipo PG (puede variar si fue
-            # creado con uppercase o un schema explícito).
+            # 1) Detectar el enum EXACTO usado por ``tickets.tipo``.
             res = conn.execute(text(
-                "SELECT t.typname FROM pg_type t "
-                "JOIN pg_enum e ON t.oid = e.enumtypid "
-                "GROUP BY t.typname LIMIT 1"
+                "SELECT t.typname "
+                "FROM pg_type t "
+                "JOIN pg_attribute a ON a.atttypid = t.oid "
+                "JOIN pg_class c ON c.oid = a.attrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relname = 'tickets' "
+                "  AND a.attname = 'tipo' "
+                "  AND t.typtype = 'e' "
+                "  AND n.nspname NOT IN ('pg_catalog', 'information_schema')"
             ))
             row = res.fetchone() if hasattr(res, "fetchone") else None
-            enum_name = row[0] if row else "tipoincidencia"
-            conn.execute(text(
-                f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS 'resultado_pruebas'"
-            ))
-            logger.info(
-                "[migrations] data: enum PG '%s' extendido con 'resultado_pruebas'",
-                enum_name,
-            )
-            total += 1
+            enum_name = row[0] if row else None
         except Exception as e:
             logger.warning(
-                "[migrations] data: no se pudo extender el enum tipoincidencia "
-                "con 'resultado_pruebas' (puede que la versión de PG sea < 12 "
-                "y no soporte ADD VALUE IF NOT EXISTS): %s", e,
+                "[migrations] data: no se pudo inspeccionar el enum de tickets.tipo: %s",
+                e,
             )
+
+        if not enum_name:
+            logger.warning(
+                "[migrations] data: no se encontró el enum usado por tickets.tipo; "
+                "no se extendió con 'resultado_pruebas'. Si tu tipo PG tiene un "
+                "nombre distinto, ejecuta manualmente: "
+                "ALTER TYPE <nombre> ADD VALUE IF NOT EXISTS 'resultado_pruebas';"
+            )
+        else:
+            try:
+                # 2) ALTER TYPE en transacción separada que commitea
+                #    inmediatamente. Hacemos COMMIT antes del INSERT
+                #    siguiente para que PG permita usar el nuevo valor.
+                with eng.begin() as conn2:
+                    conn2.execute(text(
+                        f"ALTER TYPE {enum_name} "
+                        f"ADD VALUE IF NOT EXISTS 'resultado_pruebas'"
+                    ))
+                # 3) Verificar que el valor quedó registrado (defensivo).
+                check = eng.connect()
+                try:
+                    with check.begin() as conn3:
+                        res = conn3.execute(text(
+                            "SELECT 1 FROM pg_enum e "
+                            "JOIN pg_type t ON t.oid = e.enumtypid "
+                            "WHERE t.typname = :n AND e.enumlabel = 'resultado_pruebas'"
+                        ), {"n": enum_name})
+                        ok = res.fetchone() is not None
+                finally:
+                    check.close()
+                if ok:
+                    logger.info(
+                        "[migrations] data: enum PG '%s' extendido con "
+                        "'resultado_pruebas' (verificado)",
+                        enum_name,
+                    )
+                    total += 1
+                else:
+                    logger.warning(
+                        "[migrations] data: ALTER TYPE '%s' ADD VALUE "
+                        "se ejecutó pero el valor 'resultado_pruebas' no "
+                        "se encontró en pg_enum tras el commit. Revisa "
+                        "manualmente el estado del enum.",
+                        enum_name,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[migrations] data: no se pudo extender el enum '%s' "
+                    "usado por tickets.tipo con 'resultado_pruebas' "
+                    "(puede que la versión de PG sea < 12 y no soporte "
+                    "ADD VALUE IF NOT EXISTS): %s",
+                    enum_name, e,
+                )
 
     return total
 
