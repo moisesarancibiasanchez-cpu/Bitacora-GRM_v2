@@ -505,9 +505,68 @@
   }
 
   // === Cerrar cualquier modal del modal-root ===
+  // Fix de usabilidad (commit siguiente): los modales "Nueva Incidencia" y
+  // "Detalle Incidencia" se cerraban con facilidad al mover el mouse porque
+  // el listener antiguo disparaba en CUALQUIER click sobre el backdrop oscuro,
+  // incluyendo clicks accidentales generados durante el desplazamiento del
+  // cursor entre campos del formulario. Cambios aplicados:
+  //   1) Tracking de mousedown -> mouseup con umbral de 8px. Solo se cierra
+  //      si el puntero no se movió entre la pulsación y la suelta. Esto
+  //      filtra los clicks "imprecisos" producidos durante el movimiento
+  //      natural del mouse.
+  //   2) Periodo de gracia de 350 ms tras abrir/cambiar el modal. Los
+  //      mousedown que ocurran en ese intervalo se ignoran.
+  //   3) El handler de data-close-modal sigue funcionando con click normal
+  //      (es la acción EXPLÍCITA del usuario).
   function initModalClose() {
+    // Estado del tracking de pulsación. _mDownUntil guarda la marca temporal
+    // hasta la cual se debe ignorar cualquier mousedown (periodo de gracia).
+    let _mDownUntil = 0;
+    // Posición del último mousedown (para verificar que no hubo drag).
+    let _mDownX = 0, _mDownY = 0, _mDownValid = false;
+    const DRAG_THRESHOLD_PX = 8;   // tolerancia para considerar "click intencional"
+    const GRACE_PERIOD_MS  = 350;  // ventana de gracia tras abrir el modal
+
+    // Cada vez que HTMX inserta un modal nuevo, se reinicia el periodo de
+    // gracia. Capturamos también inserciones manuales (e.g. error 401 desde
+    // base.html que hace root.innerHTML = '...').
+    const bumpGrace = () => { _mDownUntil = Date.now() + GRACE_PERIOD_MS; };
+
+    document.body.addEventListener('htmx:afterSwap', (evt) => {
+      // Solo cuando el swap fue dentro de #modal-root
+      if (evt && evt.target && evt.target.id === 'modal-root') bumpGrace();
+    });
+
+    // Observer para detectar inserciones manuales en #modal-root (no HTMX).
+    const modalRoot = document.getElementById('modal-root');
+    if (modalRoot && typeof MutationObserver !== 'undefined') {
+      const mo = new MutationObserver((muts) => {
+        for (const m of muts) {
+          if (m.addedNodes && m.addedNodes.length) { bumpGrace(); break; }
+        }
+      });
+      mo.observe(modalRoot, { childList: true, subtree: false });
+    }
+
+    // === Mousedown: guardar posición y verificar periodo de gracia ===
+    document.body.addEventListener('mousedown', (e) => {
+      // Si estamos en el periodo de gracia, ignorar.
+      if (Date.now() < _mDownUntil) {
+        _mDownValid = false;
+        return;
+      }
+      _mDownX = e.clientX;
+      _mDownY = e.clientY;
+      _mDownValid = true;
+    });
+
+    // === Click: manejar data-close-modal (SIEMPRE funciona, es acción
+    //     explícita) y backdrop-close (solo si mousedown fue estable) ===
     document.body.addEventListener('click', (e) => {
-      // Usar closest() para capturar clicks en el SVG/path dentro del botón
+      // (1) Click en cualquier elemento con [data-close-modal]: cerrar siempre.
+      //     Esto cubre X, Cancelar, Cerrar, etc. No se ve afectado por el
+      //     periodo de gracia ni por el threshold de drag porque es la
+      //     intención explícita del usuario.
       const closeBtn = e.target.closest('[data-close-modal]');
       if (closeBtn) {
         e.preventDefault();
@@ -516,12 +575,27 @@
         if (root) root.innerHTML = '';
         return;
       }
-      // Click en el backdrop (fuera del modal)
+
+      // (2) Click en el backdrop: solo cerrar si fue un click "estable"
+      //     (sin drag significativo) y fuera del periodo de gracia.
       if (e.target.classList && e.target.classList.contains('modal-backdrop')) {
+        if (!_mDownValid) return;                          // durante gracia o inválido
+        if (Date.now() < _mDownUntil) return;              // safety extra
+        const dx = Math.abs(e.clientX - _mDownX);
+        const dy = Math.abs(e.clientY - _mDownY);
+        if (dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX) {
+          // El mouse se movió entre mousedown y mouseup: probablemente fue
+          // un click accidental durante el desplazamiento del cursor.
+          _mDownValid = false;
+          return;
+        }
         const root = document.getElementById('modal-root');
         if (root) root.innerHTML = '';
       }
+      _mDownValid = false;
     });
+
+    // === Escape: cerrar siempre ===
     document.body.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         const root = document.getElementById('modal-root');
