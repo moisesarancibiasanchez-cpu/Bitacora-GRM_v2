@@ -107,3 +107,27 @@ body {
    sin expandir el ancho del body */
 #main-nav { scrollbar-width: none; }
 #main-nav::-webkit-scrollbar { display: none; }
+
+/* === Dropdowns nativos <details>/<summary> ===
+   Tailwind CDN no aplica consistentemente el arbitrary variant
+   [&::-webkit-details-marker]:hidden y <details> por defecto es
+   display:list-item, lo que rompe el layout flex del nav y bloquea
+   los clicks. Forzamos estilos cross-browser. */
+header details {
+  display: inline-flex;
+  flex-direction: column;
+  position: relative;
+}
+header details > summary {
+  display: inline-flex;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+header details > summary::-webkit-details-marker { display: none; }
+header details > summary::marker { display: none; content: ''; }
+header details > summary::-moz-list-bullet { display: none; } /* Firefox */
+/* Cuando el <details> está abierto, asegurar que el contenido se muestre */
+header details[open] > div { display: block; }
