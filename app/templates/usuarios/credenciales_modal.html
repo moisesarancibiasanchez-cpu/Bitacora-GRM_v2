@@ -25,15 +25,32 @@
       <button data-close-modal class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
     </div>
 
-    <!-- Banner de modo de envío -->
-    {% if smtp_configured %}
+    <!-- Banner de modo de envío (3 estados: resend-api / smtp / log) -->
+    {% if active_transport == 'resend-api' %}
     <div class="mx-5 mt-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-md text-[11px] text-emerald-800 flex items-start gap-2">
       <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
       </svg>
       <span>
-        <b>SMTP configurado.</b> El correo se enviará en producción a la dirección
-        del usuario. La contraseña <b>no se mostrará</b> en pantalla por seguridad.
+        <b>Resend HTTP API activa.</b> Envío por HTTPS (puerto 443) —
+        ideal para PaaS. <code class="bg-emerald-100 px-1 rounded">From:</code>
+        <span class="font-mono">{{ transport_info.sender }}</span>. La
+        contraseña <b>no se mostrará</b> en pantalla por seguridad.
+      </span>
+    </div>
+    {% elif active_transport == 'smtp' %}
+    <div class="mx-5 mt-3 px-3 py-2 bg-sky-50 border border-sky-200 rounded-md text-[11px] text-sky-800 flex items-start gap-2">
+      <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span>
+        <b>SMTP configurado</b>
+        (<span class="font-mono">{{ transport_info.smtp_host }}:{{ transport_info.smtp_port }}</span>,
+        {{ 'SMTPS' if transport_info.smtp_use_ssl else 'STARTTLS' if transport_info.smtp_use_tls else 'plain' }}).
+        <b>Atención:</b> en proveedores PaaS (Railway/Heroku/Render) los
+        puertos 25/465/587 suelen estar bloqueados; si falla, configura
+        <code class="bg-sky-100 px-1 rounded">RESEND_API_KEY</code> para envío
+        por HTTPS.
       </span>
     </div>
     {% else %}
@@ -42,10 +59,11 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
       </svg>
       <span>
-        <b>SMTP NO configurado (modo desarrollo).</b> El correo se persistirá
-        en <code class="bg-amber-100 px-1 rounded">tmp/app.email.log</code> para
-        inspección. La contraseña generada se mostrará en pantalla después del
-        envío.
+        <b>Modo desarrollo (sin transporte configurado).</b> El correo se
+        persistirá en
+        <code class="bg-amber-100 px-1 rounded">tmp/app.email.log</code> para
+        inspección. La contraseña generada se mostrará en pantalla después
+        del envío.
       </span>
     </div>
     {% endif %}
@@ -170,14 +188,22 @@
         }
         var body = out.body || {};
         if (out.ok && body.ok) {
-          var transportIcon = body.transport === 'smtp'
+          // Éxito real: el correo salió al mundo (Resend API o SMTP).
+          // Cualquier otro transport (log, disabled, resend-api-failed) es
+          // un fallback / fallo y se muestra en ámbar.
+          var isSuccess = body.transport === 'resend-api' || body.transport === 'smtp';
+          var transportIcon = isSuccess
             ? '<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
             : '<svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
+          // Color del contenedor según éxito/fallback
+          var containerCls = isSuccess
+            ? 'mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-md text-[12px] text-emerald-800 flex items-start gap-2'
+            : 'mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-[12px] text-amber-800 flex items-start gap-2';
           var pwdBlock = body.password_generada
             ? '<div class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-900"><b>Contraseña generada (solo dev):</b> <code class="font-mono">' + esc(body.password_generada) + '</code></div>'
             : '';
           resultado.innerHTML =
-            '<div class="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-md text-[12px] text-emerald-800 flex items-start gap-2">' +
+            '<div class="' + containerCls + '">' +
               transportIcon +
               '<div class="flex-1">' +
                 '<b>' + esc(body.message || 'Enviado') + '</b><br>' +
