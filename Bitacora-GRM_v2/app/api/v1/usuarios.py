@@ -358,17 +358,36 @@ def enviar_credenciales(
         )
 
     # En modo dev/log, devolvemos la contraseña generada para que el
-    # admin la pueda ver (en SMTP real NUNCA se devuelve).
+    # admin la pueda ver (en SMTP/API real NUNCA se devuelve).
     pwd_visible = result.password_generada if result.transport == "log" else None
 
     if result.transport == "disabled":
         msg = "No se pudo enviar el correo: el usuario no tiene email."
     elif result.transport == "log":
-        msg = (
-            "Correo registrado en el log de desarrollo "
-            "(tmp/app.email.log) porque no hay SMTP configurado. "
-            "La contraseña generada se muestra a continuación."
+        # Distinguir: ¿el log es por SMTP bloqueado o por falta de config?
+        # result.detail trae "smtp_falló: ..." cuando el SMTP SÍ estaba
+        # configurado pero el envío falló (timeout, DNS, etc.).
+        detail = (result.detail or "").lower()
+        smtp_intent_failed = (
+            "smtp" in detail
+            or "timeout" in detail
+            or "refused" in detail
+            or "connection" in detail
+            or "resend" in detail
         )
+        if smtp_intent_failed:
+            msg = (
+                "SMTP/API configurados pero el envío falló (lo más probable: "
+                "puertos 25/465/587 bloqueados por el proveedor PaaS). "
+                "El correo quedó respaldado en tmp/app.email.log. "
+                "Configura RESEND_API_KEY en Railway para envío por HTTPS."
+            )
+        else:
+            msg = (
+                "Modo desarrollo: el correo se persistió en tmp/app.email.log "
+                "porque no hay transporte configurado. "
+                "La contraseña generada se muestra a continuación."
+            )
     else:
         msg = f"Credenciales enviadas correctamente a {result.to}."
 
@@ -425,7 +444,7 @@ def preview_email_credenciales(
     rol_str = (
         target.rol.value if hasattr(target.rol, "value") else str(target.rol)
     )
-    from app.services.email_service import email_credenciales_iniciales
+    from app.services.email_service import email_credenciales_iniciales, get_transport_info
     subject, body, html = email_credenciales_iniciales(
         nombre_completo=target.nombre_completo or target.username,
         email_destino=target.email,
@@ -436,7 +455,13 @@ def preview_email_credenciales(
         url_sistema=settings.PUBLIC_BASE_URL or "http://localhost:8000",
     )
 
-    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
+    # Estado real del transporte: considera Resend API → SMTP → log.
+    # Si solo SMTP está "configurado" pero los puertos están bloqueados
+    # por el proveedor PaaS, igualmente lo marcamos como "configurado"
+    # en el preview (el modal se encarga de avisar al admin).
+    transport_info = get_transport_info()
+    active_transport = transport_info["active_transport"]
+    smtp_ok = active_transport in ("resend-api", "smtp")
 
     return PreviewEmailResponse(
         to=target.email,
@@ -479,7 +504,7 @@ def preview_email_credenciales_html(
     rol_str = (
         target.rol.value if hasattr(target.rol, "value") else str(target.rol)
     )
-    from app.services.email_service import email_credenciales_iniciales
+    from app.services.email_service import email_credenciales_iniciales, get_transport_info
     subject, body_text, body_html = email_credenciales_iniciales(
         nombre_completo=target.nombre_completo or target.username,
         email_destino=target.email,
@@ -489,7 +514,12 @@ def preview_email_credenciales_html(
         departamento=target.departamento,
         url_sistema=settings.PUBLIC_BASE_URL or "http://localhost:8000",
     )
-    smtp_ok = bool(settings.SMTP_HOST and settings.SMTP_FROM)
+
+    # Estado real del transporte (Resend API → SMTP → log). El modal
+    # usa active_transport para mostrar el banner correcto según el caso.
+    transport_info = get_transport_info()
+    active_transport = transport_info["active_transport"]
+    smtp_ok = active_transport in ("resend-api", "smtp")
 
     # Render template: reusar la instancia global de main.py para heredar
     # los filtros Jinja2 personalizados (truncate_text, etc.).
@@ -504,6 +534,8 @@ def preview_email_credenciales_html(
             "body_text": body_text,
             "body_html": body_html,
             "smtp_configured": smtp_ok,
+            "active_transport": active_transport,
+            "transport_info": transport_info,
             "password_preview": pwd_preview,
         },
     )
