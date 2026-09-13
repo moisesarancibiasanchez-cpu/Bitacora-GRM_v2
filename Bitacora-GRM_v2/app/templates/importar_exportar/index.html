@@ -71,7 +71,7 @@
 
         <div id="importar-msg" class="mb-3"></div>
 
-        <form hx-post="/api/v1/tickets-ie/importar/csv"
+        <form id="form-importar" hx-post="/api/v1/tickets-ie/importar/csv"
               hx-encoding="multipart/form-data"
               hx-target="#importar-msg" hx-swap="innerHTML"
               hx-on::after-request="
@@ -83,7 +83,6 @@
           <div>
             <label class="block text-[11px] font-semibold text-slate-700 mb-1">Formato del archivo</label>
             <select name="__formato" id="importar-formato"
-                    onchange="var f=this.value; document.querySelectorAll('[id^=importar-form-]').forEach(function(el){el.classList.add('hidden')}); document.getElementById('importar-form-'+f).classList.remove('hidden'); this.form.setAttribute('hx-post','/api/v1/tickets-ie/importar/'+f);"
                     class="w-full text-xs border border-slate-300 rounded-md px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500">
               <option value="csv">CSV (valores separados por coma)</option>
               <option value="json">JSON (arreglo de objetos)</option>
@@ -91,19 +90,10 @@
             </select>
           </div>
 
-          <div id="importar-form-csv" class="space-y-2">
-            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Archivo CSV</label>
-            <input type="file" name="archivo" accept=".csv,text/csv" required
-                   class="block w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-          </div>
-          <div id="importar-form-json" class="hidden space-y-2">
-            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Archivo JSON</label>
-            <input type="file" name="archivo" accept=".json,application/json" required
-                   class="block w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-          </div>
-          <div id="importar-form-txt" class="hidden space-y-2">
-            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Archivo TXT (tab-separated)</label>
-            <input type="file" name="archivo" accept=".txt,text/plain" required
+          <div class="space-y-2">
+            <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="importar-file-label">Archivo CSV</label>
+            <input type="file" name="archivo" id="importar-archivo"
+                   accept=".csv,text/csv" required
                    class="block w-full text-xs text-slate-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
           </div>
 
@@ -121,6 +111,46 @@
             Importar
           </button>
         </form>
+
+        <script>
+          // Cambia el formato del importador de manera robusta:
+          // - Actualiza hx-post del formulario (HTMX re-lee atributos vía MutationObserver)
+          // - Cambia el `accept` y la etiqueta del único <input type="file">
+          // Como ahora hay UN SOLO input file (no tres ocultos), el envío ya no es
+          // bloqueado por validaciones `required` sobre inputs invisibles.
+          (function() {
+            var form = document.getElementById('form-importar');
+            var select = document.getElementById('importar-formato');
+            var fileInput = document.getElementById('importar-archivo');
+            var label = document.getElementById('importar-file-label');
+            if (!form || !select || !fileInput || !label) return;
+
+            var LABELS = {
+              csv:  { accept: '.csv,text/csv',     label: 'Archivo CSV' },
+              json: { accept: '.json,application/json', label: 'Archivo JSON' },
+              txt:  { accept: '.txt,text/plain',   label: 'Archivo TXT (tab-separated)' },
+            };
+
+            function applyFormat(fmt) {
+              var conf = LABELS[fmt] || LABELS.csv;
+              form.setAttribute('hx-post', '/api/v1/tickets-ie/importar/' + fmt);
+              fileInput.setAttribute('accept', conf.accept);
+              label.textContent = conf.label;
+              // Si el archivo previamente seleccionado no coincide con el nuevo
+              // formato, lo limpiamos para evitar confusión.
+              if (fileInput.value && !conf.accept.includes(fileInput.accept.replace(/\./g, ''))) {
+                fileInput.value = '';
+              }
+            }
+
+            select.addEventListener('change', function() {
+              applyFormat(this.value);
+            });
+
+            // Sincronizar por si HTMX re-renderiza el bloque
+            applyFormat(select.value);
+          })();
+        </script>
 
         <details class="mt-3">
           <summary class="text-[11px] text-slate-500 cursor-pointer hover:text-slate-700 font-medium">
