@@ -207,9 +207,41 @@ function renderCalendario(){
     const tks = ticketsFiltrados.filter(t => t.fecha === fechaISO);
     tks.slice(0, 4).forEach(t => {
       const tk = document.createElement('a');
-      tk.href = '/api/v1/tickets/' + t.id + '/detalle-html';
+      const detalleUrl = '/api/v1/tickets/' + t.id + '/detalle-html';
+      tk.href = detalleUrl;
+      // hx-get EXPLÍCITO: garantiza que HTMX trate el enlace como AJAX
+      // aunque el MutationObserver aún no haya procesado el nodo.
+      tk.setAttribute('hx-get', detalleUrl);
       tk.setAttribute('hx-target','#modal-root');
       tk.setAttribute('hx-swap','innerHTML');
+      // Si HTMX no intercepta el click, evitamos la navegación completa
+      tk.addEventListener('click', function(ev){
+          if (typeof htmx === 'undefined' || !htmx.ajax) {
+              // Fallback: fetch directo (como kanban.js)
+              ev.preventDefault();
+              const root = document.getElementById('modal-root');
+              if (!root) return;
+              root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30"><div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3"><div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><span class="text-sm text-slate-600">Cargando detalle...</span></div></div>';
+              fetch(detalleUrl, {
+                  headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1), 'Accept': 'text/html' },
+                  credentials: 'same-origin'
+              }).then(function(r){
+                  if (!r.ok) throw new Error('HTTP ' + r.status);
+                  return r.text();
+              }).then(function(html){
+                  root.innerHTML = html;
+                  if (typeof htmx !== 'undefined' && htmx.process) {
+                      try { htmx.process(root); } catch(_){}
+                  }
+                  if (typeof window.reinitModalExtras === 'function') {
+                      try { window.reinitModalExtras(); } catch(_){}
+                  }
+              }).catch(function(err){
+                  console.error('[calendario] Error al cargar detalle:', err);
+                  if (window.showToast) window.showToast('No se pudo cargar el detalle del ticket', 'error');
+              });
+          }
+      });
       tk.dataset.prioridad = t.prioridad || '';
       tk.dataset.estadoId  = (t.estado_id == null ? '' : t.estado_id);
       tk.dataset.asignadoId= (t.asignado_id == null ? '' : t.asignado_id);
@@ -220,6 +252,10 @@ function renderCalendario(){
       tk.textContent = t.codigo + ' ' + t.titulo;
       c.appendChild(tk);
     });
+    // Procesar los nuevos nodos con HTMX si está disponible
+    if (typeof htmx !== 'undefined' && htmx.process) {
+        try { htmx.process(c); } catch(_){}
+    }
     if (tks.length > 4){
       const mas = document.createElement('div');
       mas.className = 'text-[10px] text-slate-500 font-medium px-1';

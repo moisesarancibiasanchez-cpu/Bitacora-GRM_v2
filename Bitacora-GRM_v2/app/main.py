@@ -193,9 +193,10 @@ async def kanban_page(request: Request):
                 .order_by(Ticket.created_at.desc()).all()
             )
         return templates.TemplateResponse(
+            request,
             "kanban/index.html",
             {
-                "request": request, "usuario": usuario,
+                "usuario": usuario,
                 "estados": estados, "tickets_por_estado": tickets_por_estado,
             },
         )
@@ -295,9 +296,10 @@ async def tickets_page(
             .all()
         )
         return templates.TemplateResponse(
+            request,
             "tickets/list.html",
             {
-                "request": request, "usuario": usuario, "tickets": tickets,
+                "usuario": usuario, "tickets": tickets,
                 "estados": estados, "usuarios": usuarios,
                 "q": q, "estado_id": estado_id, "prioridad": prioridad,
                 "asignado_id": asignado_id, "archivado": archivado,
@@ -388,9 +390,9 @@ async def ticket_nuevo_form(request: Request):
             .all()
         )
         return templates.TemplateResponse(
+            request,
             "tickets/nuevo_modal.html",
             {
-                "request": request,
                 "usuario": usuario,
                 "catalogos_tipos": catalogos_tipos,
                 "catalogos_items": catalogos_items,
@@ -789,8 +791,9 @@ async def catalogos_page(request: Request):
     try:
         tipos = db.query(CatalogoTipo).all()
         return templates.TemplateResponse(
+            request,
             "catalogos/index.html",
-            {"request": request, "usuario": usuario, "tipos": tipos},
+            {"usuario": usuario, "tipos": tipos},
         )
     finally:
         db.close()
@@ -800,13 +803,13 @@ async def catalogos_page(request: Request):
 @app.get("/auth/login", response_class=HTMLResponse)
 async def auth_login_page(request: Request):
     """Página de inicio de sesión."""
-    return templates.TemplateResponse("auth/login.html", {"request": request, "usuario": None})
+    return templates.TemplateResponse(request, "auth/login.html", {"usuario": None})
 
 
 @app.get("/auth/registro", response_class=HTMLResponse)
 async def auth_registro_page(request: Request):
     """Página de registro de nuevos usuarios."""
-    return templates.TemplateResponse("auth/registro.html", {"request": request, "usuario": None})
+    return templates.TemplateResponse(request, "auth/registro.html", {"usuario": None})
 
 
 # === Páginas de Gestión de Usuarios (solo Administrador) ===
@@ -822,8 +825,9 @@ async def usuarios_index_page(request: Request):
     if usuario.rol != RolUsuario.ADMINISTRADOR:
         return RedirectResponse(url="/kanban")
     return templates.TemplateResponse(
+        request,
         "usuarios/index.html",
-        {"request": request, "usuario": usuario},
+        {"usuario": usuario},
     )
 
 
@@ -953,9 +957,10 @@ async def roles_funciones_page(request: Request):
     }
 
     return templates.TemplateResponse(
+        request,
         "roles_funciones/index.html",
         {
-            "request": request, "usuario": usuario,
+            "usuario": usuario,
             "matriz_permisos": matriz_permisos,
             "catalogo_funciones": catalogo_funciones,
             "conteo_por_rol": conteo_por_rol,
@@ -1005,8 +1010,9 @@ async def usuarios_tabla_partial(
             query = query.filter(Usuario.is_active == True)  # noqa: E712
         usuarios = query.order_by(Usuario.nombre_completo.asc()).all()
         return templates.TemplateResponse(
+            request,
             "usuarios/tabla.html",
-            {"request": request, "usuario": usuario, "usuarios": usuarios},
+            {"usuario": usuario, "usuarios": usuarios},
         )
     finally:
         db.close()
@@ -1023,8 +1029,9 @@ async def usuarios_nuevo_modal(request: Request):
     if usuario.rol != RolUsuario.ADMINISTRADOR:
         return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Sin permisos</div>')
     return templates.TemplateResponse(
+        request,
         "usuarios/form.html",
-        {"request": request, "usuario": usuario, "target": None},
+        {"usuario": usuario, "target": None},
     )
 
 
@@ -1045,8 +1052,9 @@ async def usuarios_editar_modal(request: Request, usuario_id: int):
         if not target:
             return HTMLResponse('<div class="p-6 text-center text-red-600 text-sm">Usuario no encontrado</div>')
         return templates.TemplateResponse(
+            request,
             "usuarios/form.html",
-            {"request": request, "usuario": usuario_actual, "target": target},
+            {"usuario": usuario_actual, "target": target},
         )
     finally:
         db.close()
@@ -1072,8 +1080,9 @@ async def importar_exportar_page(request: Request):
         estados = db.query(Estado).order_by(Estado.orden).all()
         etiquetas = db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
         return templates.TemplateResponse(
+            request,
             "importar_exportar/index.html",
-            {"request": request, "usuario": usuario, "estados": estados, "etiquetas": etiquetas},
+            {"usuario": usuario, "estados": estados, "etiquetas": etiquetas},
         )
     finally:
         db.close()
@@ -1113,8 +1122,9 @@ async def espacios_page(request: Request):
             e._total_tableros = db.query(func.count(Tablero.id)).filter(Tablero.espacio_id == e.id).scalar() or 0
             e._total_miembros = db.query(func.count(espacio_miembros.c.usuario_id)).filter(espacio_miembros.c.espacio_id == e.id).scalar() or 0
         return templates.TemplateResponse(
+            request,
             "espacios/index.html",
-            {"request": request, "usuario": usuario, "espacios": espacios},
+            {"usuario": usuario, "espacios": espacios},
         )
     finally:
         db.close()
@@ -1156,9 +1166,10 @@ async def tableros_page(request: Request):
             ).scalar() or 0
             t.total_listas = db.query(func.count(Estado.id)).filter(Estado.tablero_id == t.id).scalar() or 0
         return templates.TemplateResponse(
+            request,
             "tableros/index.html",
             {
-                "request": request, "usuario": usuario,
+                "usuario": usuario,
                 "tableros": tableros, "espacios": espacios, "espacio_actual": espacio_actual,
             },
         )
@@ -1224,9 +1235,10 @@ async def vista_tabla_page(request: Request):
                 f[f"custom_{c.id}"] = str(vc.valor) if vc and vc.valor else None
             filas.append(f)
         return templates.TemplateResponse(
+            request,
             "vistas/tabla.html",
             {
-                "request": request, "usuario": usuario, "filas": filas,
+                "usuario": usuario, "filas": filas,
                 "estados": estados, "usuarios": usuarios, "custom_fields": custom_fields,
                 "espacio_id": espacio_id,
             },
@@ -1351,9 +1363,10 @@ async def vista_calendario_page(
                     "etiqueta_ids": [e.id for e in (t.etiquetas or [])],
                 })
         return templates.TemplateResponse(
+            request,
             "vistas/calendario.html",
             {
-                "request": request, "usuario": usuario,
+                "usuario": usuario,
                 "tickets_cal": tickets_cal, "espacio_id": espacio_id,
                 # Catálogos para el panel de filtros
                 "estados": estados, "usuarios": usuarios, "etiquetas": etiquetas,
@@ -1367,10 +1380,31 @@ async def vista_calendario_page(
 
 
 @app.get("/vistas/timeline", response_class=HTMLResponse)
-async def vista_timeline_page(request: Request):
-    """Vista multidimensional: Timeline (Gantt simple). Requiere sesión activa."""
+async def vista_timeline_page(
+    request: Request,
+    q: str = "",
+    estado_id: str = "",
+    prioridad: str = "",
+    asignado_id: str = "",
+    etiqueta_id: str = "",
+    limite: int = 100,
+):
+    """Vista multidimensional: Timeline (Gantt simple). Requiere sesión activa.
+
+    Soporta los mismos filtros que el Listado de Tickets / Calendario:
+      - ``q``           → búsqueda libre en código, título o descripción
+      - ``estado_id``   → filtrar por estado del ticket
+      - ``prioridad``   → filtrar por prioridad (critica, alta, media, baja)
+      - ``asignado_id`` → filtrar por asignado (o ``-1`` = sin asignar)
+      - ``etiqueta_id`` → filtrar por etiqueta (m2m)
+      - ``limite``      → tope de resultados (default 100)
+    """
     from app.db.session import SessionLocal
-    from app.models.ticket import Ticket
+    from app.models.ticket import Ticket, Prioridad
+    from app.models.estado import Estado
+    from app.models.usuario import Usuario
+    from app.models.etiqueta import Etiqueta
+    from sqlalchemy import or_
     from datetime import datetime
 
     usuario, redirect = _require_session_or_redirect(request)
@@ -1378,9 +1412,20 @@ async def vista_timeline_page(request: Request):
         return redirect
 
     espacio_id = request.query_params.get("espacio")
+
+    # Sanitizar / acotar el límite para evitar consultas abusivas
+    try:
+        limite = int(limite)
+    except (ValueError, TypeError):
+        limite = 100
+    if limite < 1:
+        limite = 1
+    if limite > 500:
+        limite = 500
+
     db = SessionLocal()
     try:
-        q = db.query(Ticket).filter(
+        qset = db.query(Ticket).filter(
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_inicio.isnot(None),
             Ticket.fecha_vencimiento_sla.isnot(None),
@@ -1391,10 +1436,42 @@ async def vista_timeline_page(request: Request):
                 tableros_esp = db.query(Tablero.id).filter(Tablero.espacio_id == int(espacio_id)).all()
                 ids = [t[0] for t in tableros_esp]
                 if ids:
-                    q = q.filter(Ticket.tablero_id.in_(ids))
+                    qset = qset.filter(Ticket.tablero_id.in_(ids))
             except (ValueError, TypeError):
                 pass
-        tickets = q.order_by(Ticket.fecha_inicio.asc()).limit(100).all()
+        # === Filtros estilo "Listado de Tickets" / Calendario ===
+        if q:
+            patron = f"%{q}%"
+            qset = qset.filter(or_(
+                Ticket.codigo.ilike(patron),
+                Ticket.titulo.ilike(patron),
+                Ticket.descripcion.ilike(patron),
+            ))
+        if estado_id:
+            try:
+                qset = qset.filter(Ticket.estado_id == int(estado_id))
+            except (ValueError, TypeError):
+                pass
+        if prioridad:
+            try:
+                qset = qset.filter(Ticket.prioridad == Prioridad(prioridad))
+            except ValueError:
+                pass
+        if asignado_id:
+            if asignado_id == "-1":
+                qset = qset.filter(Ticket.asignado_id.is_(None))
+            else:
+                try:
+                    qset = qset.filter(Ticket.asignado_id == int(asignado_id))
+                except (ValueError, TypeError):
+                    pass
+        if etiqueta_id:
+            try:
+                qset = qset.filter(Ticket.etiquetas.any(Etiqueta.id == int(etiqueta_id)))
+            except (ValueError, TypeError):
+                pass
+
+        tickets = qset.order_by(Ticket.fecha_inicio.asc()).limit(limite).all()
         tickets_tl = []
         for t in tickets:
             inicio = t.fecha_inicio
@@ -1414,15 +1491,44 @@ async def vista_timeline_page(request: Request):
                 "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
                 "prioridad": t.prioridad.value if t.prioridad else "media",
                 "estado": t.estado.nombre if t.estado else "",
+                "estado_id": t.estado_id,
                 "asignado": t.asignado.nombre_completo if t.asignado else None,
+                "asignado_id": t.asignado_id,
+                "etiqueta_ids": [e.id for e in (t.etiquetas or [])],
                 "fecha_inicio": inicio.strftime("%Y-%m-%d"),
                 "fecha_fin": fin.strftime("%Y-%m-%d"),
                 "duracion_dias": max(1, (fin - inicio).days),
                 "progreso": prog, "estado_sla": t.estado_sla_visual,
             })
+
+        # Catálogos para popular los selects del panel de filtros
+        estados = db.query(Estado).order_by(Estado.orden.asc()).all()
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
+        etiquetas = (
+            db.query(Etiqueta)
+            .filter(Etiqueta.activo == True)  # noqa: E712
+            .order_by(Etiqueta.nombre.asc())
+            .all()
+        )
+
         return templates.TemplateResponse(
+            request,
             "vistas/timeline.html",
-            {"request": request, "usuario": usuario, "tickets_timeline": tickets_tl, "espacio_id": espacio_id},
+            {
+                "usuario": usuario,
+                "tickets_timeline": tickets_tl, "espacio_id": espacio_id,
+                # Catálogos para el panel de filtros
+                "estados": estados, "usuarios": usuarios, "etiquetas": etiquetas,
+                # Estado actual de los filtros
+                "q": q, "estado_id": estado_id, "prioridad": prioridad,
+                "asignado_id": asignado_id, "etiqueta_id": etiqueta_id,
+                "limite": limite,
+            },
         )
     finally:
         db.close()
@@ -1531,9 +1637,9 @@ async def vista_panel_page(request: Request):
                 target.append(tarjeta)
 
         return templates.TemplateResponse(
+            request,
             "vistas/panel.html",
             {
-                "request": request,
                 "usuario": usuario,
                 "columnas": columnas,
                 "espacio_id": espacio_id,
@@ -1551,8 +1657,9 @@ async def dashboard_page(request: Request):
     if redirect is not None:
         return redirect
     return templates.TemplateResponse(
+        request,
         "dashboard/index.html",
-        {"request": request, "usuario": usuario},
+        {"usuario": usuario},
     )
 
 
@@ -1573,9 +1680,10 @@ async def butler_page(request: Request):
         botones = db.query(BotonTarjeta).order_by(BotonTarjeta.posicion).all()
         comandos = db.query(ComandoProgramado).order_by(ComandoProgramado.nombre).all()
         return templates.TemplateResponse(
+            request,
             "butler/index.html",
             {
-                "request": request, "usuario": usuario,
+                "usuario": usuario,
                 "reglas": reglas, "botones": botones, "comandos": comandos,
             },
         )
@@ -1602,8 +1710,9 @@ async def notificaciones_page(request: Request):
         for n in notifs:
             n.origen_usuario = n.origen_usuario_id if n.origen_usuario_id else None
         return templates.TemplateResponse(
+            request,
             "notificaciones/index.html",
-            {"request": request, "usuario": usuario, "notificaciones": notifs},
+            {"usuario": usuario, "notificaciones": notifs},
         )
     finally:
         db.close()
@@ -1633,9 +1742,10 @@ async def tablero_publico(slug: str, request: Request):
                 Ticket.estado_id == e.id, Ticket.archivado == False  # noqa: E712
             ).order_by(Ticket.created_at.desc()).all()
         return templates.TemplateResponse(
+            request,
             "tableros/publico.html",
             {
-                "request": request, "tablero": tablero, "estados": estados,
+                "tablero": tablero, "estados": estados,
                 "slug": slug,
             },
         )
