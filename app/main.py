@@ -1236,10 +1236,34 @@ async def vista_tabla_page(request: Request):
 
 
 @app.get("/vistas/calendario", response_class=HTMLResponse)
-async def vista_calendario_page(request: Request):
-    """Vista multidimensional: Calendario. Requiere sesión activa."""
+async def vista_calendario_page(
+    request: Request,
+    q: str = "",
+    estado_id: str = "",
+    prioridad: str = "",
+    asignado_id: str = "",
+    etiqueta_id: str = "",
+):
+    """Vista multidimensional: Calendario. Requiere sesión activa.
+
+    Soporta los mismos filtros que el Listado de Tickets:
+      - ``q``           → búsqueda libre en código, título o descripción
+      - ``estado_id``   → filtrar por estado del ticket
+      - ``prioridad``   → filtrar por prioridad (critica, alta, media, baja)
+      - ``asignado_id`` → filtrar por asignado (o ``-1`` = sin asignar)
+      - ``etiqueta_id`` → filtrar por etiqueta (m2m)
+
+    El filtrado se aplica server-side para que la grilla del calendario
+    sólo reciba los tickets que cumplen los criterios. El template
+    expone además un panel de filtros que también puede aplicarse
+    client-side para una experiencia instantánea.
+    """
     from app.db.session import SessionLocal
-    from app.models.ticket import Ticket
+    from app.models.ticket import Ticket, Prioridad
+    from app.models.estado import Estado
+    from app.models.usuario import Usuario
+    from app.models.etiqueta import Etiqueta
+    from sqlalchemy import or_
 
     usuario, redirect = _require_session_or_redirect(request)
     if redirect is not None:
@@ -1248,33 +1272,95 @@ async def vista_calendario_page(request: Request):
     espacio_id = request.query_params.get("espacio")
     db = SessionLocal()
     try:
-        q = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
+        qset = db.query(Ticket).filter(Ticket.archivado == False)  # noqa: E712
         if espacio_id:
             try:
                 from app.models.espacio import Tablero
                 tableros_esp = db.query(Tablero.id).filter(Tablero.espacio_id == int(espacio_id)).all()
                 ids = [t[0] for t in tableros_esp]
                 if ids:
-                    q = q.filter(Ticket.tablero_id.in_(ids))
+                    qset = qset.filter(Ticket.tablero_id.in_(ids))
             except (ValueError, TypeError):
                 pass
-        tickets = q.filter(Ticket.fecha_vencimiento_sla.isnot(None)).limit(500).all()
+        # === Filtros estilo "Listado de Tickets" ===
+        if q:
+            patron = f"%{q}%"
+            qset = qset.filter(or_(
+                Ticket.codigo.ilike(patron),
+                Ticket.titulo.ilike(patron),
+                Ticket.descripcion.ilike(patron),
+            ))
+        if estado_id:
+            try:
+                qset = qset.filter(Ticket.estado_id == int(estado_id))
+            except (ValueError, TypeError):
+                pass
+        if prioridad:
+            try:
+                qset = qset.filter(Ticket.prioridad == Prioridad(prioridad))
+            except ValueError:
+                pass
+        if asignado_id:
+            if asignado_id == "-1":
+                qset = qset.filter(Ticket.asignado_id.is_(None))
+            else:
+                try:
+                    qset = qset.filter(Ticket.asignado_id == int(asignado_id))
+                except (ValueError, TypeError):
+                    pass
+        if etiqueta_id:
+            try:
+                qset = qset.filter(Ticket.etiquetas.any(Etiqueta.id == int(etiqueta_id)))
+            except (ValueError, TypeError):
+                pass
+
+        tickets = qset.filter(Ticket.fecha_vencimiento_sla.isnot(None)).limit(500).all()
+
+        # Catálogos para popular los selects del panel de filtros
+        estados = db.query(Estado).order_by(Estado.orden.asc()).all()
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
+        etiquetas = (
+            db.query(Etiqueta)
+            .filter(Etiqueta.activo == True)  # noqa: E712
+            .order_by(Etiqueta.nombre.asc())
+            .all()
+        )
+
         tickets_cal = []
         for t in tickets:
             f = t.fecha_vencimiento_sla.strftime("%Y-%m-%d")
             tickets_cal.append({
                 "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
                 "fecha": f, "prioridad": t.prioridad.value if t.prioridad else "media",
+                "estado_id": t.estado_id,
+                "asignado_id": t.asignado_id,
+                "etiqueta_ids": [e.id for e in (t.etiquetas or [])],
             })
             if t.fecha_inicio:
                 tickets_cal.append({
                     "id": t.id, "codigo": t.codigo, "titulo": t.titulo,
                     "fecha": t.fecha_inicio.strftime("%Y-%m-%d"),
                     "prioridad": t.prioridad.value if t.prioridad else "media",
+                    "estado_id": t.estado_id,
+                    "asignado_id": t.asignado_id,
+                    "etiqueta_ids": [e.id for e in (t.etiquetas or [])],
                 })
         return templates.TemplateResponse(
             "vistas/calendario.html",
-            {"request": request, "usuario": usuario, "tickets_cal": tickets_cal, "espacio_id": espacio_id},
+            {
+                "request": request, "usuario": usuario,
+                "tickets_cal": tickets_cal, "espacio_id": espacio_id,
+                # Catálogos para el panel de filtros
+                "estados": estados, "usuarios": usuarios, "etiquetas": etiquetas,
+                # Estado actual de los filtros
+                "q": q, "estado_id": estado_id, "prioridad": prioridad,
+                "asignado_id": asignado_id, "etiqueta_id": etiqueta_id,
+            },
         )
     finally:
         db.close()
