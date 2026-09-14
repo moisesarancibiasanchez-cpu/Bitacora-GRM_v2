@@ -17,6 +17,73 @@
       </div>
     </div>
 
+    {# ============== Panel de filtros (estilo "Listado de Tickets") ============== #}
+    <form id="filtros-calendario"
+          method="get"
+          action="/vistas/calendario"
+          class="bg-white border border-slate-200 rounded-lg px-4 py-3 mb-3 flex flex-wrap items-end gap-3">
+      {# Preservar el espacio si viene en la URL #}
+      {% if espacio_id %}
+        <input type="hidden" name="espacio" value="{{ espacio_id }}">
+      {% endif %}
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Búsqueda</label>
+        <input name="q" type="text" value="{{ q or '' }}" placeholder="Título, código o descripción…"
+               class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 w-56" />
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Estado</label>
+        <select name="estado_id" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 min-w-[10rem]">
+          <option value="">Todos</option>
+          {% for e in estados %}
+            <option value="{{ e.id }}" {% if estado_id and estado_id|int == e.id %}selected{% endif %}>{{ e.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Prioridad</label>
+        <select name="prioridad" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5">
+          <option value="">Todas</option>
+          <option value="critica" {% if prioridad == 'critica' %}selected{% endif %}>Crítica</option>
+          <option value="alta"    {% if prioridad == 'alta' %}selected{% endif %}>Alta</option>
+          <option value="media"   {% if prioridad == 'media' %}selected{% endif %}>Media</option>
+          <option value="baja"    {% if prioridad == 'baja' %}selected{% endif %}>Baja</option>
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Asignado</label>
+        <select name="asignado_id" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 min-w-[10rem]">
+          <option value="">Todos</option>
+          <option value="-1" {% if asignado_id == '-1' %}selected{% endif %}>— Sin asignar —</option>
+          {% for u in usuarios %}
+            <option value="{{ u.id }}" {% if asignado_id and asignado_id|int == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex flex-col">
+        <label class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">Etiqueta</label>
+        <select name="etiqueta_id" class="text-xs border border-slate-300 rounded-md px-2.5 py-1.5 min-w-[10rem]">
+          <option value="">Todas</option>
+          {% for et in etiquetas %}
+            <option value="{{ et.id }}" {% if etiqueta_id and etiqueta_id|int == et.id %}selected{% endif %}>{{ et.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="submit"
+                class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+          Aplicar
+        </button>
+        <button type="button" id="filtros-cal-limpiar-btn"
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600">
+          Limpiar filtros
+        </button>
+      </div>
+      <div class="ml-auto text-[11px] text-slate-500" id="cal-filtros-resumen">
+        Mostrando <span id="cal-filtros-visibles">{{ tickets_cal|length }}</span> tickets en el mes
+      </div>
+    </form>
+
     <!-- Controles -->
     <div class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex items-center justify-between">
       <div class="flex items-center gap-2">
@@ -52,11 +119,56 @@
 </div>
 
 <script>
-const TICKETS = {{ tickets_cal | tojson }};
+const TICKETS_RAW = {{ tickets_cal | tojson }};
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const COLORES = {critica:'bg-red-500',alta:'bg-orange-500',media:'bg-amber-500',baja:'bg-slate-400'};
 let mesActual = new Date().getMonth();
 let anioActual = new Date().getFullYear();
+
+// Filtros activos (state en memoria). Se sincronizan con el form
+// al cargar y al cambiar cualquier campo. El submit estándar recarga
+// la página con los params en la URL.
+let FILTROS = {
+  q:           ({{ (q or '') | tojson }}),
+  estado_id:   ({{ (estado_id or '') | tojson }}),
+  prioridad:   ({{ (prioridad or '') | tojson }}),
+  asignado_id: ({{ (asignado_id or '') | tojson }}),
+  etiqueta_id: ({{ (etiqueta_id or '') | tojson }}),
+};
+
+function ticketCumpleFiltros(t){
+  if (FILTROS.q){
+    const q = FILTROS.q.toLowerCase();
+    const haystack = ((t.codigo || '') + ' ' + (t.titulo || '')).toLowerCase();
+    if (haystack.indexOf(q) === -1) return false;
+  }
+  if (FILTROS.estado_id){
+    if (String(t.estado_id || '') !== String(FILTROS.estado_id)) return false;
+  }
+  if (FILTROS.prioridad){
+    if ((t.prioridad || '') !== FILTROS.prioridad) return false;
+  }
+  if (FILTROS.asignado_id){
+    if (FILTROS.asignado_id === '-1'){
+      if (t.asignado_id != null) return false;
+    } else {
+      if (String(t.asignado_id || '') !== String(FILTROS.asignado_id)) return false;
+    }
+  }
+  if (FILTROS.etiqueta_id){
+    const ids = (t.etiqueta_ids || []).map(String);
+    if (ids.indexOf(String(FILTROS.etiqueta_id)) === -1) return false;
+  }
+  return true;
+}
+
+function getTicketsFiltrados(){
+  // Si NO hay filtros activos, devolvemos todos (más rápido).
+  const hayFiltros = FILTROS.q || FILTROS.estado_id || FILTROS.prioridad
+                  || FILTROS.asignado_id || FILTROS.etiqueta_id;
+  if (!hayFiltros) return TICKETS_RAW;
+  return TICKETS_RAW.filter(ticketCumpleFiltros);
+}
 
 function renderCalendario(){
   const titulo = document.getElementById('cal-titulo');
@@ -68,6 +180,8 @@ function renderCalendario(){
   let diaSemana = primerDia.getDay();
   diaSemana = diaSemana === 0 ? 6 : diaSemana - 1; // Lun=0
   const diasEnMes = new Date(anioActual, mesActual + 1, 0).getDate();
+
+  const ticketsFiltrados = getTicketsFiltrados();
 
   // Celdas vacías antes del primer día
   for (let i = 0; i < diaSemana; i++){
@@ -88,15 +202,21 @@ function renderCalendario(){
     num.textContent = d;
     c.appendChild(num);
 
-    // Tickets de este día
+    // Tickets de este día (ya filtrados)
     const fechaISO = anioActual + '-' + String(mesActual+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
-    const tks = TICKETS.filter(t => t.fecha === fechaISO);
+    const tks = ticketsFiltrados.filter(t => t.fecha === fechaISO);
     tks.slice(0, 4).forEach(t => {
       const tk = document.createElement('a');
       tk.href = '/api/v1/tickets/' + t.id + '/detalle-html';
       tk.setAttribute('hx-target','#modal-root');
       tk.setAttribute('hx-swap','innerHTML');
-      tk.className = 'block px-1.5 py-1 mb-1 rounded text-[10px] font-medium text-white truncate hover:opacity-90 ' + (COLORES[t.prioridad] || 'bg-slate-400');
+      tk.dataset.prioridad = t.prioridad || '';
+      tk.dataset.estadoId  = (t.estado_id == null ? '' : t.estado_id);
+      tk.dataset.asignadoId= (t.asignado_id == null ? '' : t.asignado_id);
+      tk.dataset.etiquetaIds = (t.etiqueta_ids || []).join(',');
+      tk.dataset.codigo = t.codigo || '';
+      tk.dataset.titulo = t.titulo || '';
+      tk.className = 'cal-ticket block px-1.5 py-1 mb-1 rounded text-[10px] font-medium text-white truncate hover:opacity-90 ' + (COLORES[t.prioridad] || 'bg-slate-400');
       tk.textContent = t.codigo + ' ' + t.titulo;
       c.appendChild(tk);
     });
@@ -107,6 +227,12 @@ function renderCalendario(){
       c.appendChild(mas);
     }
     grid.appendChild(c);
+  }
+
+  // Actualizar resumen
+  const resumen = document.getElementById('cal-filtros-visibles');
+  if (resumen){
+    resumen.textContent = ticketsFiltrados.length;
   }
 }
 
@@ -122,6 +248,52 @@ function irHoy(){
   mesActual = h.getMonth(); anioActual = h.getFullYear();
   renderCalendario();
 }
+
+function aplicarFiltrosDesdeForm(){
+  const form = document.getElementById('filtros-calendario');
+  if (!form) return;
+  FILTROS.q           = (form.querySelector('input[name="q"]').value || '').trim();
+  FILTROS.estado_id   = (form.querySelector('select[name="estado_id"]').value || '').trim();
+  FILTROS.prioridad   = (form.querySelector('select[name="prioridad"]').value || '').trim();
+  FILTROS.asignado_id = (form.querySelector('select[name="asignado_id"]').value || '').trim();
+  FILTROS.etiqueta_id = (form.querySelector('select[name="etiqueta_id"]').value || '').trim();
+  renderCalendario();
+}
+
+(function initFiltrosCalendario(){
+  const form = document.getElementById('filtros-calendario');
+  if (!form) return;
+
+  // Aplicar al cambiar cualquier select (respuesta instantánea)
+  form.querySelectorAll('select').forEach(function(el){
+    el.addEventListener('change', aplicarFiltrosDesdeForm);
+  });
+  // Aplicar al escribir en la búsqueda (con pequeño debounce)
+  const qInput = form.querySelector('input[name="q"]');
+  if (qInput){
+    let t = null;
+    qInput.addEventListener('input', function(){
+      clearTimeout(t);
+      t = setTimeout(aplicarFiltrosDesdeForm, 250);
+    });
+  }
+
+  // Botón "Limpiar filtros"
+  const btnLimpiar = document.getElementById('filtros-cal-limpiar-btn');
+  if (btnLimpiar){
+    btnLimpiar.addEventListener('click', function(){
+      FILTROS = {q:'', estado_id:'', prioridad:'', asignado_id:'', etiqueta_id:''};
+      form.querySelectorAll('input, select').forEach(function(el){
+        if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else if (el.type === 'text') el.value = '';
+      });
+      // Limpiar params de la URL y recargar para re-sincronizar con server
+      const url = new URL(window.location.href);
+      ['q','estado_id','prioridad','asignado_id','etiqueta_id'].forEach(function(p){ url.searchParams.delete(p); });
+      window.location.href = url.toString();
+    });
+  }
+})();
 
 document.body.addEventListener('htmx:load', () => {});
 renderCalendario();
