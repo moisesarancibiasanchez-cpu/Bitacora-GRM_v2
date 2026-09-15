@@ -360,6 +360,9 @@ def seed_automatizaciones(db: Session):
         return
 
     admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+    if not admin:
+        print("  · admin no existe, saltando seed de reglas Butler")
+        return
     reglas = [
         {
             "nombre": "Marcar tickets críticos como Urgente",
@@ -411,7 +414,7 @@ def seed_automatizaciones(db: Session):
         },
     ]
     for r in reglas:
-        db.add(ReglaAutomatizacion(creador_id=admin.id if admin else None, **r))
+        db.add(ReglaAutomatizacion(creador_id=admin.id, **r))
     db.flush()
     print(f"  ✓ {len(reglas)} reglas Butler creadas")
 
@@ -422,6 +425,9 @@ def seed_espacios(db: Session):
         print("  · Espacios ya existen, saltando seed")
         return
     admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+    if not admin:
+        print("  · admin no existe, saltando seed de espacios")
+        return
     espacios = [
         Espacio(
             nombre="Operaciones TI",
@@ -430,7 +436,7 @@ def seed_espacios(db: Session):
             color="#6366f1",
             icono="🏢",
             es_publico=False,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
         ),
         Espacio(
             nombre="Proyectos 2026",
@@ -439,7 +445,7 @@ def seed_espacios(db: Session):
             color="#10b981",
             icono="🚀",
             es_publico=True,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
         ),
         Espacio(
             nombre="Atención al Cliente",
@@ -448,7 +454,7 @@ def seed_espacios(db: Session):
             color="#f59e0b",
             icono="🎧",
             es_publico=False,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
         ),
     ]
     for e in espacios:
@@ -471,6 +477,9 @@ def seed_tableros(db: Session):
         print("  · Tableros ya existen, saltando seed")
         return
     admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+    if not admin:
+        print("  · admin no existe, saltando seed de tableros")
+        return
     espacios = db.query(Espacio).all()
     if not espacios:
         return
@@ -479,7 +488,7 @@ def seed_tableros(db: Session):
             nombre="Incidencias de Producción",
             descripcion="Tickets activos de sistemas en producción.",
             espacio_id=espacios[0].id,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
             visibilidad="espacio",
             color_fondo="#1e293b",
             slug_publico="incidencias-prod",
@@ -488,7 +497,7 @@ def seed_tableros(db: Session):
             nombre="Mantenimientos Programados",
             descripcion="Planificación y seguimiento de mantenimientos.",
             espacio_id=espacios[0].id,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
             visibilidad="espacio",
             color_fondo="#0f766e",
             slug_publico="mantto-prog",
@@ -497,7 +506,7 @@ def seed_tableros(db: Session):
             nombre="Roadmap Q1",
             descripcion="Iniciativas y entregables del primer trimestre.",
             espacio_id=espacios[1].id if len(espacios) > 1 else espacios[0].id,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
             visibilidad="publico",
             color_fondo="#7c3aed",
             slug_publico="roadmap-q1",
@@ -506,7 +515,7 @@ def seed_tableros(db: Session):
             nombre="Backlog de Mejoras",
             descripcion="Ideas y solicitudes de mejora pendientes.",
             espacio_id=espacios[1].id if len(espacios) > 1 else espacios[0].id,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
             visibilidad="espacio",
             color_fondo="#ea580c",
         ),
@@ -514,7 +523,7 @@ def seed_tableros(db: Session):
             nombre="Soporte Cliente",
             descripcion="Atención de tickets de clientes.",
             espacio_id=espacios[2].id if len(espacios) > 2 else espacios[0].id,
-            propietario_id=admin.id if admin else None,
+            propietario_id=admin.id,
             visibilidad="privado",
             color_fondo="#be185d",
         ),
