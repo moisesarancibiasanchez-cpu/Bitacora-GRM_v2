@@ -198,22 +198,40 @@ section("3. VALIDACIÓN DE RUTAS FASTAPI")
 
 try:
     from app.main import app
-    routes_by_method = {}
-    for route in app.routes:
-        if hasattr(route, 'methods') and hasattr(route, 'path'):
-            for m in route.methods:
-                if m == 'HEAD':
-                    continue
-                routes_by_method.setdefault(m, []).append(route.path)
+    # FastAPI incluye sub-routers como objetos _IncludedRouter en app.routes.
+    # Para enumerar TODAS las rutas (incluidas las de /api/v1/*) usamos
+    # app.openapi() que entrega el esquema OpenAPI completo.
+    openapi_schema = app.openapi()
+    paths = openapi_schema.get('paths', {})
 
-    total_routes = sum(len(v) for v in routes_by_method.values())
-    ok(f"Total de rutas registradas: {total_routes}")
+    # Conteos directos vs anidados
+    direct_count = 0
+    for r in app.routes:
+        if hasattr(r, 'methods') and hasattr(r, 'path'):
+            if hasattr(r.methods, '__iter__'):
+                direct_count += 1
+
+    # Rutas desde OpenAPI (incluye TODAS las anidadas)
+    api_routes_count = sum(1 for p in paths if p.startswith('/api/'))
+    page_routes_count = sum(1 for p in paths if not p.startswith('/api/'))
+    total_openapi = len(paths)
+
+    ok(f"app.routes directos: {direct_count}")
+    ok(f"OpenAPI paths (TODAS las rutas): {total_openapi}")
+    print(f"     {CYAN}API (/api/*): {api_routes_count} | Páginas: {page_routes_count}{RESET}")
+
+    routes_by_method = {}
+    for path, methods in paths.items():
+        for m in (methods.keys() if isinstance(methods, dict) else []):
+            if m.upper() in ('GET', 'POST', 'PATCH', 'PUT', 'DELETE'):
+                routes_by_method.setdefault(m.upper(), []).append(path)
+
     for method in ['GET', 'POST', 'PATCH', 'PUT', 'DELETE']:
         count = len(routes_by_method.get(method, []))
         if count > 0:
             print(f"     {method}: {count} rutas")
 
-    # Rutas críticas que DEBEN existir
+    # Rutas críticas que DEBEN existir (formato OpenAPI: {estado_id} no se resuelve)
     critical_routes = [
         ('GET', '/api/v1/auth/login'),
         ('POST', '/api/v1/auth/login-form'),
@@ -225,11 +243,11 @@ try:
         ('GET', '/api/v1/kanban'),
         ('GET', '/api/v1/usuarios'),
         ('GET', '/api/v1/catalogos/tipos'),
-        ('GET', '/api/v1/metricas'),
+        ('GET', '/api/v1/metricas/resumen'),
         ('GET', '/api/v1/dev/inbox'),
     ]
     for method, path in critical_routes:
-        paths = routes_by_method.get(method, [])
+        # OpenAPI usa llaves en path parameters; ya están en la lista.
         if path in paths:
             ok(f"{method} {path}")
         else:
@@ -396,10 +414,12 @@ if r.status_code in (200, 303, 302):
 else:
     ok(f"Login con password incorrecta rechazado: status={r.status_code}")
 
-# Test 3: Endpoint protegido sin sesión
+# Test 3: Endpoint protegido sin sesión (con cliente limpio para evitar
+# persistencia de cookies del TestClient entre secciones)
 print()
 print("  [Test] Endpoint protegido sin sesión:")
-r = client.get('/api/v1/usuarios', follow_redirects=False)
+fresh_client = TestClient(app)  # Sin cookies previas
+r = fresh_client.get('/api/v1/usuarios', follow_redirects=False)
 if r.status_code in (401, 403, 303, 302):
     ok(f"Acceso sin sesión bloqueado: status={r.status_code}")
 else:
@@ -504,7 +524,7 @@ try:
         err(f"Ticket NO se movió: estado_id={t_after.estado_id}")
 
     # Verificar historial
-    from app.models.estado import HistorialEstado
+    from app.models.ticket import HistorialEstado
     hist = db3.query(HistorialEstado).filter_by(ticket_id=ticket.id).all()
     if len(hist) >= 1:
         ok(f"Historial creado: {len(hist)} entradas")
