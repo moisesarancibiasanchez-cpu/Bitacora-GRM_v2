@@ -1,6 +1,8 @@
 """
 Endpoints para gestionar el catálogo de estados y sus transiciones.
 """
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
@@ -784,25 +786,67 @@ def responsable_picker(
             headers={"HX-Trigger": "ticket-error"},
         )
 
-    # Listar usuarios activos (excluyendo observadores si quieres, pero por
-    # simplicidad dejamos todos los activos y ordenados por nombre)
-    usuarios = (
+    # 1) Intentamos listar usuarios ACTIVOS primero (caso normal).
+    usuarios_activos = (
         db.query(Usuario)
         .filter(Usuario.is_active == True)  # noqa: E712
         .order_by(Usuario.nombre_completo.asc(), Usuario.username.asc())
         .all()
     )
 
+    # 2) Defensiva: si no hay ningún usuario activo, mostramos los inactivos
+    # con etiqueta "(inactivo)" para que el admin pueda ver por qué el combo
+    # aparecía vacío. Esto evita la UX confusa de "solo Sin responsable"
+    # cuando en realidad la BD tiene usuarios pero todos están desactivados.
+    mostrando_inactivos = False
+    usuarios = usuarios_activos
+    if not usuarios_activos:
+        usuarios_inactivos = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == False)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc(), Usuario.username.asc())
+            .all()
+        )
+        if usuarios_inactivos:
+            usuarios = usuarios_inactivos
+            mostrando_inactivos = True
+
     options = ['<option value="">— Sin responsable —</option>']
     for u in usuarios:
         nombre = u.nombre_completo or u.username
+        sufijo = " (inactivo)" if (mostrando_inactivos or not u.is_active) else ""
         selected = " selected" if estado.responsable_id == u.id else ""
         options.append(
-            f'<option value="{u.id}"{selected}>{nombre} ({u.username})</option>'
+            f'<option value="{u.id}"{selected}>{nombre} ({u.username}){sufijo}</option>'
+        )
+
+    # Banner de ayuda si NO hay usuarios (caso de BD vacía o solo admins
+    # desactivados). Sin este banner el admin no entiende por qué el combo
+    # solo muestra "Sin responsable".
+    ayuda_html = ""
+    if not usuarios:
+        ayuda_html = (
+            f'<div id="column-header-{estado_id}" '
+            f'class="rounded-md border-2 border-amber-300 bg-amber-50 '
+            f'px-2 py-1 text-[11px] text-amber-800 mb-1">'
+            f"No hay usuarios en el sistema. Crea al menos uno en "
+            f"<a href='/usuarios' class='underline font-semibold'>/usuarios</a> "
+            f"para poder asignar un responsable."
+            f"</div>"
+        )
+    elif mostrando_inactivos:
+        ayuda_html = (
+            f'<div id="column-header-{estado_id}-warn" '
+            f'class="rounded-md border border-amber-300 bg-amber-50 '
+            f'px-2 py-1 text-[10px] text-amber-800 mb-1">'
+            f"Muestro usuarios inactivos porque no hay activos. Activa al "
+            f"menos uno en <a href='/usuarios' class='underline font-semibold'>/usuarios</a>."
+            f"</div>"
         )
 
     header_id = f"column-header-{estado.id}"
     return HTMLResponse(
+        ayuda_html +
         f'<div id="{header_id}" '
         f'class="flex items-center gap-2 mb-3 px-1 flex-shrink-0">'
         f'<select name="responsable_id" '
@@ -824,6 +868,68 @@ def responsable_picker(
         f'class="text-[10px] text-slate-500 hover:text-slate-700">cancelar</button>'
         f"</div>"
     )
+
+
+@router.get("/diagnostico/responsables")
+def diagnostico_responsables(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """
+    Endpoint de diagnóstico para investigar por qué el picker de responsable
+    podría aparecer vacío. Devuelve:
+
+    - total / activos / inactivos de usuarios
+    - cantidad de columnas con y sin responsable
+    - transporte de email activo (Resend / SMTP / log)
+    - configuración de ``SMTP_FROM``
+
+    Útil para debugging desde el navegador:
+        GET /api/v1/estados/diagnostico/responsables
+    """
+    total_usuarios = db.query(Usuario).count()
+    activos = db.query(Usuario).filter(Usuario.is_active == True).count()  # noqa: E712
+    inactivos = db.query(Usuario).filter(Usuario.is_active == False).count()  # noqa: E712
+
+    estados_total = db.query(Estado).count()
+    estados_con_resp = (
+        db.query(Estado).filter(Estado.responsable_id.isnot(None)).count()
+    )
+    estados_sin_resp = estados_total - estados_con_resp
+
+    # Detectar transporte de email
+    email_cfg = {
+        "RESEND_API_KEY_configured": bool(os.getenv("RESEND_API_KEY")),
+        "SMTP_HOST": os.getenv("SMTP_HOST") or None,
+        "SMTP_FROM": os.getenv("SMTP_FROM") or None,
+        "transporte_activo": (
+            "resend" if os.getenv("RESEND_API_KEY")
+            else "smtp" if os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM")
+            else "log"
+        ),
+    }
+
+    return {
+        "usuarios": {
+            "total": total_usuarios,
+            "activos": activos,
+            "inactivos": inactivos,
+            "alerta": (
+                "No hay usuarios ACTIVOS: el picker solo mostrará 'Sin responsable'. "
+                "Activa al menos uno en /usuarios."
+                if activos == 0 and total_usuarios > 0
+                else "OK" if activos > 0
+                else "BD de usuarios vacía: crea el primer usuario."
+            ),
+        },
+        "estados": {
+            "total": estados_total,
+            "con_responsable": estados_con_resp,
+            "sin_responsable": estados_sin_resp,
+        },
+        "email": email_cfg,
+        "solicitado_por": usuario.username,
+    }
 
 
 @router.get("/{estado_id}/header", response_class=HTMLResponse)
