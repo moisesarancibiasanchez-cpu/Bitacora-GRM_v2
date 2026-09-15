@@ -1,0 +1,155 @@
+
+[1m[94m======================================================================[0m
+[1m[94m  1. VALIDACIÓN DE IMPORTS Y SINTAXIS[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Encontrados 66 archivos Python
+  [92m✓[0m Sintaxis válida en los 66 archivos .py
+
+[1m[94m======================================================================[0m
+[1m[94m  2. VALIDACIÓN DE MODELOS SQLALCHEMY[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Base.metadata.create_all() sin errores
+  [92m✓[0m Tablas creadas: 31
+     [96madjuntos, auditorias, botones_tarjeta, campos_personalizados, catalogo_items, catalogo_tipos, checklist_items, checklists, comandos_programados, comentarios, ejecuciones_automatizacion, ejecuciones_boton, ejecuciones_comando, espacio_miembros, espacios, estados, etiquetas, historial_estados, menciones_usuario, notificaciones, permisos_tablero, reacciones, reglas_automatizacion, tableros, ticket_etiquetas, ticket_miembros, tickets, transiciones_estado, usuarios, valores_campo, watches[0m
+  [92m✓[0m Estado.responsable_id → usuarios.id (FK correcta)
+  [92m✓[0m Ticket.estado_id → estados.id
+  [92m✓[0m Ticket.tablero_id → tableros.id
+  [92m✓[0m Ticket.creador_id → usuarios.id
+
+[1m[94m======================================================================[0m
+[1m[94m  3. VALIDACIÓN DE RUTAS FASTAPI[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m app.routes directos: 36
+  [92m✓[0m OpenAPI paths (TODAS las rutas): 146
+     [96mAPI (/api/*): 116 | Páginas: 30[0m
+     GET: 95 rutas
+     POST: 56 rutas
+     PATCH: 16 rutas
+     DELETE: 17 rutas
+  [92m✓[0m GET /api/v1/auth/login
+  [92m✓[0m POST /api/v1/auth/login-form
+  [92m✓[0m GET /api/v1/estados
+  [92m✓[0m GET /api/v1/estados/diagnostico/responsables
+  [92m✓[0m GET /api/v1/estados/{estado_id}/responsable-picker
+  [92m✓[0m PATCH /api/v1/estados/{estado_id}
+  [92m✓[0m GET /api/v1/tickets
+  [92m✓[0m GET /api/v1/kanban
+  [92m✓[0m GET /api/v1/usuarios
+  [92m✓[0m GET /api/v1/catalogos/tipos
+  [92m✓[0m GET /api/v1/metricas/resumen
+  [92m✓[0m GET /api/v1/dev/inbox
+
+[1m[94m======================================================================[0m
+[1m[94m  4. VALIDACIÓN DE TEMPLATES JINJA2[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Encontrados 26 templates HTML
+  [92m✓[0m Sintaxis básica OK en 26 templates
+     [96m58 URLs únicas referenciadas[0m
+
+[1m[94m======================================================================[0m
+[1m[94m  5. VALIDACIÓN DE ARCHIVOS ESTÁTICOS[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Encontrados 8 archivos estáticos
+  [92m✓[0m Referencias únicas a /static/... en templates/código: 8
+  [92m✓[0m Todas las 8 referencias a /static/ existen
+
+[1m[94m======================================================================[0m
+[1m[94m  6. VALIDACIÓN DE AUTENTICACIÓN[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Admin creado: id=1
+  [92m✓[0m Agente creado: id=2
+  [92m✓[0m Usuario inactivo creado: id=3
+
+  [Test] Login con credenciales válidas:
+  [92m✓[0m Login admin OK: status=200
+  [92m✓[0m Login con password incorrecta rechazado: status=400
+
+  [Test] Endpoint protegido sin sesión:
+  [92m✓[0m Acceso sin sesión bloqueado: status=401
+
+[1m[94m======================================================================[0m
+[1m[94m  7. VALIDACIÓN DE AUTORIZACIÓN POR ROLES[0m
+[1m[94m======================================================================[0m
+  [setup] Login agente: status=200
+
+  [Test] Agente NO puede asignar responsable:
+  [92m✓[0m Picker como agente → 403 Forbidden (correcto)
+
+[1m[94m======================================================================[0m
+[1m[94m  8. VALIDACIÓN DEL FLUJO KANBAN[0m
+[1m[94m======================================================================[0m
+  [setup] Espacio=1, Tablero=1
+  [setup] Col A=2, Col B=3, Ticket=1
+  [setup] Transición A→B creada
+
+  [Test] Mover ticket de A → B:
+  [92m✓[0m Ticket movido a Col B: estado_id=3
+  [92m✓[0m Historial creado: 1 entradas
+  [92m✓[0m Auditoría registrada: 1 entradas
+
+[1m[94m======================================================================[0m
+[1m[94m  9. VALIDACIÓN DE ASIGNACIÓN DE RESPONSABLE[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Picker muestra 2 usuarios activos (excluyendo inactivo)
+  [92m✓[0m PATCH responsable_id=agente → status=200
+  [92m✓[0m responsable_id guardado en BD: 2
+
+[1m[94m======================================================================[0m
+[1m[94m  10. VALIDACIÓN DE NOTIFICACIONES IN-APP[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Notificación creada para agente: 1
+     tipo=estado titulo=Ticket VAL-002 en tu columna «Col B»
+
+[1m[94m======================================================================[0m
+[1m[94m  11. VALIDACIÓN DEL EMAIL SERVICE[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Email log contiene referencia al ticket reciente
+
+[1m[94m======================================================================[0m
+[1m[94m  12. VALIDACIÓN DEL ENDPOINT DE DIAGNÓSTICO[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Diagnóstico devuelve todas las claves esperadas
+  [92m✓[0m   usuarios.total = 3
+  [92m✓[0m   usuarios.activos = 2
+  [92m✓[0m   usuarios.inactivos = 1
+  [92m✓[0m   usuarios.alerta = OK
+  [92m✓[0m   email.RESEND_API_KEY_configured = False
+  [92m✓[0m   email.SMTP_HOST = None
+  [92m✓[0m   email.SMTP_FROM = None
+  [92m✓[0m   email.transporte_activo = log
+
+[1m[94m======================================================================[0m
+[1m[94m  13. VALIDACIÓN DE CONFIGURACIÓN CELERY/REDIS[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m Celery app importada: bitacora_grm
+  [92m✓[0m Celery broker: redis://localhost:6379/1
+  [92m✓[0m Celery result backend: redis://localhost:6379/2
+  [92m✓[0m Broker parece ser Redis o memory (correcto)
+
+[1m[94m======================================================================[0m
+[1m[94m  14. VALIDACIÓN DE CONFIGURACIÓN DE PRODUCCIÓN[0m
+[1m[94m======================================================================[0m
+  [92m✓[0m .env.example contiene DATABASE_URL
+  [92m✓[0m .env.example contiene SECRET_KEY
+  [92m✓[0m .env.example contiene SMTP_FROM
+  [92m✓[0m .env.example contiene CELERY_BROKER_URL
+  [92m✓[0m .env.example contiene CELERY_RESULT_BACKEND
+  [92m✓[0m Procfile define procesos web y worker
+  [92m✓[0m requirements.txt menciona fastapi
+  [92m✓[0m requirements.txt menciona sqlalchemy
+  [92m✓[0m requirements.txt menciona jinja2
+  [92m✓[0m requirements.txt menciona celery
+  [92m✓[0m requirements.txt menciona redis
+  [92m✓[0m requirements.txt menciona pydantic
+  [92m✓[0m requirements.txt menciona python-multipart
+  [92m✓[0m requirements.txt menciona passlib
+  [92m✓[0m requirements.txt menciona alembic
+
+[1m[94m======================================================================[0m
+[1m[94m  RESUMEN DE VALIDACIÓN[0m
+[1m[94m======================================================================[0m
+  [92m✓ OKs:        70[0m
+  [93m⚠ Warnings:  0[0m
+  [91m✗ Errors:    0[0m
+
+[92m[1m✅ VALIDACIÓN COMPLETA - TODO OK[0m
