@@ -264,6 +264,42 @@ def lookup_tablero_default(db: Session) -> Optional[int]:
 
 
 # ============================================================================
+# MAPPING resultado_pruebas → estado (Tablero Incidencias de Producción)
+# ============================================================================
+# Reglas de negocio Bitácora GRM:
+#   N/A          → Cancelado
+#   OK           → produccion ok
+#   OK CON OBS.  → APROBADO QA
+#   POSTERGADA   → BackLog
+#   NOK          → Analisis/Bloqueado
+#   (en blanco)  → BackLog   (default = estado inicial)
+RESULTADO_A_ESTADO_NOMBRE = {
+    "N/A":         "Cancelado",
+    "OK":          "produccion ok",
+    "OK CON OBS.": "APROBADO QA",
+    "POSTERGADA":  "BackLog",
+    "NOK":         "Analisis/Bloqueado",
+}
+
+
+def lookup_estado_id_por_resultado(db: Session, resultado: Optional[str]) -> int:
+    """Devuelve el ``estado_id`` apropiado para un valor de ``resultado_pruebas``.
+
+    Si el resultado no está en el mapping o la BD no tiene el estado,
+    devuelve el estado inicial del sistema (BackLog).
+    """
+    if resultado:
+        nombre_estado = RESULTADO_A_ESTADO_NOMBRE.get(resultado.strip())
+        if nombre_estado:
+            row = db.execute(text(
+                "SELECT id FROM estados WHERE nombre = :n LIMIT 1"
+            ), {"n": nombre_estado}).first()
+            if row:
+                return row[0]
+    return lookup_estado_inicial(db)
+
+
+# ============================================================================
 # DESCRIPCIÓN MARKDOWN
 # ============================================================================
 def descripcion_markdown(row: Dict[str, Any]) -> str:
@@ -434,12 +470,12 @@ def ejecutar_insercion(
       - by_resultado: conteo por resultado_pruebas (de los transformados)
       - by_modulo:     conteo por módulo (de los transformados)
     """
-    # Resolver FKs (estado + tablero) una sola vez
-    estado_id = lookup_estado_inicial(db)
+    # Resolver FKs (tablero + estado por mapping resultado_pruebas → estado)
     tablero_id = lookup_tablero_default(db)
     for t in transformed:
-        t["estado_id"] = estado_id
         t["tablero_id"] = tablero_id
+        # Mapear resultado_pruebas al estado correcto del Tablero Incidencias
+        t["estado_id"] = lookup_estado_id_por_resultado(db, t.get("resultado_pruebas"))
 
     # Snapshot antes de insertar para medir confirmaciones reales
     pre_total = db.execute(text("SELECT count(*) FROM tickets")).scalar() or 0
