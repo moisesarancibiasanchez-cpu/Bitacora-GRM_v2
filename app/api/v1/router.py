@@ -4,7 +4,7 @@ Router principal v1: agrupa todos los endpoints.
 from fastapi import APIRouter
 from app.api.v1 import tickets, estados, catalogos, kanban, features
 from app.api.v1 import trello_features, metricas, buscar, butler
-from app.api.v1 import auth, usuarios, import_export, dev_inbox
+from app.api.v1 import auth, usuarios, import_export, dev_inbox, admin_uat
 
 
 api_router = APIRouter()
@@ -21,3 +21,4 @@ api_router.include_router(auth.router)
 api_router.include_router(usuarios.router)
 api_router.include_router(import_export.router)
 api_router.include_router(dev_inbox.router)
+api_router.include_router(admin_uat.router)
