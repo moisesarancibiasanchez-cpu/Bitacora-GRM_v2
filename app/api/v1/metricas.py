@@ -272,18 +272,45 @@ def cuenta_resultado(
         "(en blanco)",
     ]
 
-    # Mapeo: nombre en front → valor literal en tickets.resultado_pruebas
-    # La columna "(en blanco)" se calcula como "IS NULL OR = ''".
-    # Si se agrega un nuevo valor al LOV, basta con agregarlo también aquí
-    # y en ``columnas_front`` para que el pivot lo refleje.
+    # Mapeo: nombre canónico en front → variantes literales aceptadas en
+    # ``tickets.resultado_pruebas``. Cada columna del pivot acepta TODAS
+    # las variantes equivalentes para no perder tickets por nomenclatura
+    # heredada, mayúsculas distintas o espacios accidentales
+    # (regresión detectada 2026-09-17: tickets cuyo valor en BD era
+    # ``"OK CON OBS"`` sin punto final NO aparecían en la columna
+    # ``OK CON OBS.`` del pivot, deformando laCuenta de Resultado).
+    #
+    # Si en el futuro se agregan nuevos valores al LOV, basta con sumarlos
+    # a su variante correspondiente aquí y (si son variantes distintas)
+    # crear una nueva entrada en ``columnas_front``.
+    def _eq_ci(*literales):
+        """Construye una condición SQL case-insensitive y tolerante a
+        espacios que matchee si ``resultado_pruebas`` normalizado coincide
+        con cualquiera de los literales dados."""
+        from sqlalchemy import or_
+        norm = func.upper(func.trim(Ticket.resultado_pruebas))
+        return or_(*[norm == lit.upper() for lit in literales])
+
     sql_columnas = [
-        ("N/A",          Ticket.resultado_pruebas == "N/A"),
-        ("NOK",          Ticket.resultado_pruebas == "NOK"),
-        ("OK",           Ticket.resultado_pruebas == "OK"),
-        ("OK CON OBS.",  Ticket.resultado_pruebas == "OK CON OBS."),
-        ("POSTERGADA",   Ticket.resultado_pruebas == "POSTERGADA"),
-        ("DESESTIMADA",  Ticket.resultado_pruebas == "DESESTIMADA"),
-        ("(en blanco)",  Ticket.resultado_pruebas.is_(None) | (Ticket.resultado_pruebas == "")),
+        ("N/A",          _eq_ci("N/A")),
+        ("NOK",          _eq_ci("NOK")),
+        ("OK",           _eq_ci("OK")),
+        # "OK CON OBS." es el LOV canónico pero aceptamos también las
+        # variantes sin punto, con tilde/tilde invertida, plural, etc.
+        ("OK CON OBS.",  _eq_ci(
+            "OK CON OBS.", "OK CON OBS", "OK CON OBSERVACIONES",
+            "OK CON OBSERVACIÓN", "OK CON OBSERVACION",
+            "OK CON OBSERV.", "OK C/OBS", "OK COBS",
+        )),
+        # POSTERGADA / POSTERGADA A GARANTÍA (legacy) van juntas porque
+        # la migración UAT normalizó a la forma corta.
+        ("POSTERGADA",   _eq_ci(
+            "POSTERGADA", "POSTERGADA A GARANTÍA",
+            "POSTERGADA A GARANTIA", "POSTERGADO",
+        )),
+        ("DESESTIMADA",  _eq_ci("DESESTIMADA", "DESESTIMADO")),
+        # NULL / cadena vacía / sólo espacios.
+        ("(en blanco)",  Ticket.resultado_pruebas.is_(None) | (func.trim(Ticket.resultado_pruebas) == "")),  # noqa: E501
     ]
 
     # Construir agregación con CASE WHEN por columna (una sola pasada SQL).
