@@ -398,3 +398,274 @@ def cuenta_resultado(
             "'POSTERGADA A GARANTÍA' en la migración UAT."
         ),
     }
+
+
+@router.get("/cuenta-resultado/detalle")
+def cuenta_resultado_detalle(
+    modulo: str,
+    resultado: str,
+    ambiente: str = "QA",
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Drill-down: devuelve el HTML con el detalle de tickets de una celda del pivot.
+
+    Endpoint consumido por HTMX al hacer clic en cualquier celda numérica
+    de la tabla "Cuenta de Resultado" del Dashboard. Replica el
+    comportamiento de doble-clic en una tabla dinámica Excel: muestra
+    las filas (tickets) que componen el valor agregado de la celda.
+
+    Query params:
+      - ``modulo``:     etiqueta de fila del pivot (ej: ``"Auditoría"``,
+                        ``"(en blanco)"`` para tickets sin módulo).
+      - ``resultado``:  etiqueta de columna del pivot (ej: ``"OK"``,
+                        ``"(en blanco)"`` para tickets sin resultado).
+      - ``ambiente``:   filtro de ambiente (default ``"QA"``).
+
+    Respuesta: fragmento HTML (no JSON) que el front inyecta dentro
+    del modal. Incluye el contexto del filtro aplicado (módulo y
+    resultado) en el header para que el usuario entienda qué celda
+    está inspeccionando.
+    """
+    from fastapi.responses import HTMLResponse
+    from app.models.ticket import Prioridad
+
+    # Validación básica de parámetros: si vienen vacíos los tratamos como
+    # la categoría "(en blanco)" del pivot. Nunca devolvemos TODOS los
+    # tickets por accidente.
+    modulo_filtro = (modulo or "").strip()
+    resultado_filtro = (resultado or "").strip()
+    ambiente_filtro = (ambiente or "QA").strip().upper()
+    if ambiente_filtro not in ("QA", "PRODUCCION"):
+        ambiente_filtro = "QA"
+
+    # === Filtro de MÓDULO ===
+    # Aplicamos la misma normalización que en ``cuenta_resultado``: si el
+    # usuario pide "(en blanco)" buscamos tickets SIN módulo; si pide un
+    # módulo canónico (ej: "Registro de Información") incluimos también
+    # sus variantes conocidas (mapeadas en MODULO_ALIAS) para no perder
+    # filas por nomenclatura heredada de la migración UAT.
+    if modulo_filtro == "(en blanco)":
+        modulo_cond = Ticket.modulo.is_(None) | (func.trim(Ticket.modulo) == "")
+    else:
+        # Construimos una condición OR: módulo igual al canónico O igual
+        # a cualquiera de sus variantes en MODULO_ALIAS invertidas.
+        from sqlalchemy import or_
+        variantes = [modulo_filtro]
+        for alias, canonico in MODULO_ALIAS.items():
+            if canonico == modulo_filtro:
+                variantes.append(alias)
+        # También contemplamos el caso inverso: si el front pidió la
+        # variante "alias" sin pasar por la normalización (defensa).
+        for alias, canonico in MODULO_ALIAS.items():
+            if alias == modulo_filtro:
+                variantes.append(canonico)
+        modulo_cond = or_(*[
+            func.upper(func.trim(Ticket.modulo)) == v.upper()
+            for v in variantes
+        ])
+
+    # === Filtro de RESULTADO PRUEBAS ===
+    # Misma normalización case-insensitive + tolerante a variantes que
+    # en ``cuenta_resultado`` (N/A, NOK, OK, OK CON OBS., POSTERGADA,
+    # DESESTIMADA, o "(en blanco)" para NULL/vacío). Usamos la misma
+    # tabla ``sql_columnas`` de arriba para mantener consistencia: si
+    # agregamos un valor al LOV, sólo hay que tocar la lista.
+    resultado_norm = func.upper(func.trim(Ticket.resultado_pruebas))
+
+    # Mapeo explícito de cada etiqueta canónica → set de literales
+    # aceptados. Idéntico al de ``cuenta_resultado`` para que el drill-down
+    # muestre exactamente los mismos tickets que cuenta la celda del pivot.
+    if resultado_filtro == "(en blanco)":
+        resultado_cond = (
+            Ticket.resultado_pruebas.is_(None)
+            | (func.trim(Ticket.resultado_pruebas) == "")
+        )
+    elif resultado_filtro.upper() == "N/A":
+        resultado_cond = resultado_norm == "N/A"
+    elif resultado_filtro.upper() == "NOK":
+        resultado_cond = resultado_norm == "NOK"
+    elif resultado_filtro.upper() == "OK":
+        resultado_cond = resultado_norm == "OK"
+    elif resultado_filtro.upper() in ("OK CON OBS.", "OK CON OBS"):
+        resultado_cond = resultado_norm.in_([
+            "OK CON OBS.", "OK CON OBS", "OK CON OBSERVACIONES",
+            "OK CON OBSERVACIÓN", "OK CON OBSERVACION",
+            "OK CON OBSERV.", "OK C/OBS", "OK COBS",
+        ])
+    elif resultado_filtro.upper() == "POSTERGADA":
+        resultado_cond = resultado_norm.in_([
+            "POSTERGADA", "POSTERGADA A GARANTÍA",
+            "POSTERGADA A GARANTIA", "POSTERGADO",
+        ])
+    elif resultado_filtro.upper() == "DESESTIMADA":
+        resultado_cond = resultado_norm.in_(["DESESTIMADA", "DESESTIMADO"])
+    else:
+        # Valor desconocido → 0 filas en vez de explotar.
+        resultado_cond = func.upper(func.trim(Ticket.resultado_pruebas)) == resultado_filtro.upper()
+
+    # === Query de tickets ===
+    # Hacemos JOIN con Estado (para nombre+color) y con Usuario asignado
+    # (para nombre_completo). Ordenamos por código ascendente para que el
+    # drill-down sea estable entre recargas.
+    tickets_q = (
+        db.query(Ticket, Estado, Usuario)
+        .outerjoin(Estado, Ticket.estado_id == Estado.id)
+        .outerjoin(Usuario, Ticket.asignado_id == Usuario.id)
+        .filter(Ticket.ambiente == ambiente_filtro)
+        .filter(modulo_cond)
+        .filter(resultado_cond)
+        .order_by(Ticket.codigo.asc())
+        .all()
+    )
+
+    # === Helpers de presentación ===
+    def _color_prioridad(p):
+        return {
+            "critica": ("bg-red-100 text-red-700", "CRÍTICA"),
+            "alta":    ("bg-orange-100 text-orange-700", "ALTA"),
+            "media":   ("bg-yellow-100 text-yellow-700", "MEDIA"),
+            "baja":    ("bg-slate-100 text-slate-600", "BAJA"),
+        }.get(getattr(p, "value", "") or "", ("bg-slate-100 text-slate-600", "—"))
+
+    def _fmt_fecha(dt):
+        if not dt:
+            return '<span class="text-slate-400">—</span>'
+        try:
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return str(dt)
+
+    def _fmt_resultado(val):
+        if val is None or (isinstance(val, str) and val.strip() == ""):
+            return '<span class="text-slate-400 italic">(en blanco)</span>'
+        return val
+
+    def _fmt_item(val):
+        if val is None or (isinstance(val, str) and val.strip() == ""):
+            return '<span class="text-slate-400">—</span>'
+        return val
+
+    # === Render del HTML ===
+    # Header del modal: muestra qué celda se está inspeccionando.
+    rows_html = []
+    for t, estado, asignado in tickets_q:
+        prio_cls, prio_label = _color_prioridad(t.prioridad)
+        estado_nombre = estado.nombre if estado else "—"
+        estado_color = estado.color if (estado and estado.color) else "#94a3b8"
+        asignado_nombre = asignado.nombre_completo if asignado else "—"
+        rows_html.append(
+            "<tr class='hover:bg-slate-50'>"
+            f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{t.codigo or ''}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-800 max-w-xs truncate' title='{t.titulo or ''}'>{t.titulo or ''}</td>"
+            "<td class='px-3 py-2 text-xs'>"
+            f"<span class='inline-flex items-center gap-1.5'>"
+            f"<span class='w-2 h-2 rounded-full' style='background:{estado_color}'></span>"
+            f"<span class='text-slate-700'>{estado_nombre}</span>"
+            "</span></td>"
+            f"<td class='px-3 py-2 text-xs'>{_fmt_resultado(t.resultado_pruebas)}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600'>{_fmt_item(t.item)}</td>"
+            "<td class='px-3 py-2 text-xs'>"
+            f"<span class='px-2 py-0.5 text-[10px] font-semibold rounded-full {prio_cls}'>{prio_label}</span>"
+            "</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600'>{asignado_nombre}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600 whitespace-nowrap'>{_fmt_fecha(t.fecha_vencimiento_sla)}</td>"
+            "</tr>"
+        )
+
+    total_count = len(rows_html)
+    rows_str = "\n".join(rows_html) if rows_html else (
+        "<tr><td colspan='8' class='px-4 py-10 text-center text-slate-400 text-sm'>"
+        "No se encontraron tickets para esta combinación de módulo y resultado.</td></tr>"
+    )
+
+    # Badge con color del resultado en el header del modal.
+    color_cfg = CUENTA_RESULTADO_COLORES_PARA_MODAL.get(resultado_filtro)
+    if color_cfg is None:
+        # Fallback: si el resultado no está en el mapeo conocido, usamos
+        # slate para no romper el modal.
+        color_cfg = {"bg": "#475569", "text": "#ffffff"}
+    resultado_badge = (
+        f"<span class='inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold' "
+        f"style='background:{color_cfg['bg']}; color:{color_cfg['text']};'>{resultado_filtro}</span>"
+    )
+
+    # El contenedor devuelto lleva TODO el modal (overlay + tarjeta). El
+    # front lo inyecta en #modal-cuenta-resultado-root. El backdrop
+    # permite cerrar haciendo clic fuera de la tarjeta (handler en JS).
+    html = f"""
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+     onclick="if(event.target===this) cerrarModalCuentaResultado()">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200"
+       onclick="event.stopPropagation()">
+
+    <!-- Header -->
+    <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap bg-slate-50">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h3 class="text-sm font-semibold text-slate-800">Detalle de Cuenta de Resultado</h3>
+        <div class="flex items-center gap-2 text-xs text-slate-500">
+          <span class="text-[10px] uppercase tracking-wide text-slate-400">Módulo:</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{modulo_filtro}</span>
+          <span class="text-[10px] uppercase tracking-wide text-slate-400">Resultado:</span>
+          {resultado_badge}
+          <span class="text-[10px] uppercase tracking-wide text-slate-400">Ambiente:</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{ambiente_filtro}</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-500 font-mono">{total_count} ticket(s)</span>
+        <button type="button" onclick="cerrarModalCuentaResultado()"
+                class="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                title="Cerrar">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-auto flex-1">
+      <table class="w-full text-xs border-collapse">
+        <thead class="bg-slate-100 text-[10px] uppercase text-slate-600 sticky top-0 z-10">
+          <tr>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Código</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Título</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Estado</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Resultado Prueba</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Ítem</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Prioridad</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Asignado</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Fecha Vencimiento</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {rows_str}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div class="px-5 py-2.5 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-500 flex items-center justify-between">
+      <span>Drill-down generado el {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</span>
+      <span>Esc para cerrar</span>
+    </div>
+  </div>
+</div>
+"""
+    return HTMLResponse(html)
+
+
+# Mapa de colores para el badge del modal. Réplica (sólo bg + text) del
+# objeto JS ``CUENTA_RESULTADO_COLORES`` que usa la tabla del Dashboard,
+# para que el header del modal muestre el MISMO color que el header de
+# la columna del pivot. Mantener sincronizado con el front.
+CUENTA_RESULTADO_COLORES_PARA_MODAL = {
+    "N/A":         {"bg": "#94a3b8", "text": "#ffffff"},
+    "NOK":         {"bg": "#dc2626", "text": "#ffffff"},
+    "OK":          {"bg": "#16a34a", "text": "#ffffff"},
+    "OK CON OBS.": {"bg": "#eab308", "text": "#1f2937"},
+    "POSTERGADA":  {"bg": "#ea580c", "text": "#ffffff"},
+    "DESESTIMADA": {"bg": "#7c3aed", "text": "#ffffff"},
+    "(en blanco)": {"bg": "#cbd5e1", "text": "#475569"},
+}
