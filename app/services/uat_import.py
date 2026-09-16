@@ -26,6 +26,7 @@ Decisiones de diseño:
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -456,14 +457,22 @@ def ejecutar_insercion(
         for i in range(0, len(transformed), batch_size):
             batch = transformed[i:i + batch_size]
             for t in batch:
-                cols = list(t.keys())
+                # Serializar campos JSON/dict que psycopg2 no puede adaptar
+                # directamente. datos_catalogo es JSONB.
+                params = dict(t)
+                if isinstance(params.get("datos_catalogo"), dict):
+                    params["datos_catalogo"] = json.dumps(
+                        params["datos_catalogo"], ensure_ascii=False, default=str
+                    )
+
+                cols = list(params.keys())
                 placeholders = ", ".join([f":{c}" for c in cols])
                 col_list = ", ".join(cols)
                 sql = (
                     f"INSERT INTO tickets ({col_list}) VALUES ({placeholders}) "
                     f"ON CONFLICT (codigo) DO NOTHING"
                 )
-                db.execute(text(sql), t)
+                db.execute(text(sql), params)
                 inserted_attempts += 1
             log.info(
                 "Insertados %d/%d",
