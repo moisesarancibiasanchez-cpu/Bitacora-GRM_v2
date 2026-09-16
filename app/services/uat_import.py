@@ -354,8 +354,8 @@ def transformar_fila(idx: int, raw: Dict[str, Any]) -> Dict[str, Any]:
         "codigo": codigo,
         "titulo": titulo,
         "descripcion": descripcion_markdown(raw),
-        "tipo": "incidencia",
-        "prioridad": "media",
+        "tipo": "INCIDENCIA",
+        "prioridad": "MEDIA",
         "estado_id": None,                 # Resuelto por lookup
         "creador_id": 1,                   # admin
         "asignado_id": None,
