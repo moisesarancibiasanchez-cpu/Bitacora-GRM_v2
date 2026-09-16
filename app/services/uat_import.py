@@ -453,24 +453,23 @@ def ejecutar_insercion(
 
     inserted_attempts = 0
     try:
-        with db.bind.begin() if False else _session_begin(db):
-            for i in range(0, len(transformed), batch_size):
-                batch = transformed[i:i + batch_size]
-                for t in batch:
-                    cols = list(t.keys())
-                    placeholders = ", ".join([f":{c}" for c in cols])
-                    col_list = ", ".join(cols)
-                    sql = (
-                        f"INSERT INTO tickets ({col_list}) VALUES ({placeholders}) "
-                        f"ON CONFLICT (codigo) DO NOTHING"
-                    )
-                    db.execute(text(sql), t)
-                    inserted_attempts += 1
-                log.info(
-                    "Insertados %d/%d",
-                    min(i + batch_size, len(transformed)),
-                    len(transformed),
+        for i in range(0, len(transformed), batch_size):
+            batch = transformed[i:i + batch_size]
+            for t in batch:
+                cols = list(t.keys())
+                placeholders = ", ".join([f":{c}" for c in cols])
+                col_list = ", ".join(cols)
+                sql = (
+                    f"INSERT INTO tickets ({col_list}) VALUES ({placeholders}) "
+                    f"ON CONFLICT (codigo) DO NOTHING"
                 )
+                db.execute(text(sql), t)
+                inserted_attempts += 1
+            log.info(
+                "Insertados %d/%d",
+                min(i + batch_size, len(transformed)),
+                len(transformed),
+            )
         db.commit()
     except Exception:
         db.rollback()
@@ -485,16 +484,6 @@ def ejecutar_insercion(
         "by_resultado": by_resultado,
         "by_modulo": by_modulo,
     }
-
-
-class _session_begin:
-    """Contexto noop (placeholder por si en el futuro se quiere migrar a
-    transacciones explícitas)."""
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
 
 
 # ============================================================================
