@@ -552,6 +552,14 @@ class TicketService:
         "ambiente", "item",
     }
 
+    # Subset de CAMPOS_EDITABLES que son LOVs y por tanto pueden llegar vacíos
+    # accidentalmente desde el frontend (ej: un <select> que no tiene la opción
+    # coincidente con el valor heredado). Ver defensa en ``actualizar_campos``.
+    LOV_NULLABLE = frozenset({
+        "modulo", "vista", "hu_o_caso_prueba", "nota_observacion",
+        "resultado_pruebas", "ambiente", "item",
+    })
+
     def actualizar_campos(
         self,
         ticket_id: int,
@@ -655,7 +663,30 @@ class TicketService:
                         ticket.asignado_id = nuevo_id
                         nuevo_legible = nuevo_id
                 else:
-                    # Campos simples (titulo, descripcion)
+                    # Campos simples (titulo, descripcion, modulo, vista,
+                    # hu_o_caso_prueba, nota_observacion, resultado_pruebas,
+                    # ambiente, item).
+                    #
+                    # DEFENSA CRÍTICA contra pérdida de datos: para campos
+                    # LOV nullable, si el nuevo valor llega vacío/None y el
+                    # valor actual es NO vacío, IGNORAR el cambio. Esto evita
+                    # que un <select> que no encuentra coincidencia con el
+                    # valor heredado (ej: "Registro Información" sin "de")
+                    # envíe value="" y haga que el ticket desaparezca de su
+                    # fila original en el pivot "Cuenta de Resultado" del
+                    # Dashboard (regresión detectada el 2026-09-16). El
+                    # usuario sigue pudiendo limpiar campos explícitamente
+                    # mediante otros mecanismos; este endpoint sólo aplica
+                    # cambios INTENCIONALES (valor nuevo distinto y no vacío).
+                    if campo in LOV_NULLABLE:
+                        _valor_vacio = valor is None or (
+                            isinstance(valor, str) and valor.strip() == ""
+                        )
+                        _actual_vacio = str(anterior_raw or "").strip() == ""
+                        if _valor_vacio and not _actual_vacio:
+                            # Frontend envió vacío para un campo que ya
+                            # tenía valor: preservar (no borrar).
+                            continue
                     nuevo_legible = valor
                     if str(anterior_raw or "") == str(nuevo_legible or ""):
                         continue  # sin cambio

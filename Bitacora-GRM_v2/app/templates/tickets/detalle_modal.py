@@ -211,7 +211,22 @@ DETALLE_TEMPLATE = Template(r"""
             </h4>
             <div class="grid grid-cols-2 gap-3 text-xs">
 
-              {# Módulo (LOV fijo) #}
+              {# Módulo (LOV fijo).
+                 IMPORTANTE: Si el ticket ya tiene un valor de módulo que NO está
+                 en la lista canónica (ej: "Registro Información" sin "de",
+                 heredado de la migración UAT), agregamos una opción fallback
+                 seleccionada para preservar el valor original. Sin esta opción
+                 fallback, el <select> enviaría value="" (porque ninguna opción
+                 coincide) y el backend borraría el módulo, haciendo que el ticket
+                 desaparezca de la fila "Registro Información" y aparezca en la fila
+                 "(en blanco)" del pivot "Cuenta de Resultado" del Dashboard. #}
+              {% set _modulos_canonicos = (
+                'Control ERM', 'Gobierno', 'Incidencias', 'Validación',
+                'Auditoria', 'Filiales', 'Información Inventario',
+                'Registro de Información', 'Documentación',
+                'Mejoras Transversales', 'Seguimiento y Control',
+              ) %}
+              {% set _modulo_es_canonico = ticket.modulo in _modulos_canonicos %}
               <div>
                 <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Módulo</span>
                 <select name="valor_modulo"
@@ -229,7 +244,17 @@ DETALLE_TEMPLATE = Template(r"""
                   <option value="Documentación" {% if ticket.modulo == 'Documentación' %}selected{% endif %}>Documentación</option>
                   <option value="Mejoras Transversales" {% if ticket.modulo == 'Mejoras Transversales' %}selected{% endif %}>Mejoras Transversales</option>
                   <option value="Seguimiento y Control" {% if ticket.modulo == 'Seguimiento y Control' %}selected{% endif %}>Seguimiento y Control</option>
+                  {# Fallback: si el módulo actual no está en la lista canónica, lo
+                     agregamos como opción seleccionada para preservar el valor. #}
+                  {% if ticket.modulo and not _modulo_es_canonico %}
+                    <option value="{{ ticket.modulo }}" selected>{{ ticket.modulo }} (valor heredado)</option>
+                  {% endif %}
                 </select>
+                {% if ticket.modulo and not _modulo_es_canonico %}
+                  <p class="text-[10px] text-amber-600 mt-0.5 italic">
+                    Valor heredado de la migración UAT. Para normalizar, selecciona la opción canónica correspondiente.
+                  </p>
+                {% endif %}
               </div>
 
               {# Ambiente (LOV cerrado QA / PRODUCCION). Reemplaza al antiguo campo "Categoría". #}
