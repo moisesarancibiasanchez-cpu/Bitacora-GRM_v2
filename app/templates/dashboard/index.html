@@ -150,6 +150,48 @@
         </div>
       </div>
 
+      {# === Tabla pivote "Cuenta de Resultado" (réplica del rango A64:H81
+         de la hoja REPORTE del Excel UAT). Se ubica inmediatamente ANTES
+         de los componentes "Actividad (últimos 30 días)" y "Top etiquetas",
+         según especificación de PROMPT 2. No modifica esos componentes. #}
+      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400"
+                  title="Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT. Filtro por defecto: ambiente = QA.">
+              A64:H81 · QA
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="cuenta-resultado-export"
+                    onclick="exportarCuentaResultado()"
+                    class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+        <div id="cuenta-resultado-container" class="overflow-x-auto">
+          <div id="cuenta-resultado-loading" class="text-center py-6 text-slate-400 text-xs">
+            Cargando tabla pivote...
+          </div>
+          <table id="cuenta-resultado-table"
+                 class="hidden w-full text-xs border-collapse"
+                 aria-label="Tabla pivote Cuenta de Resultado">
+            <thead id="cuenta-resultado-thead"></thead>
+            <tbody id="cuenta-resultado-tbody"></tbody>
+            <tfoot id="cuenta-resultado-tfoot"></tfoot>
+          </table>
+        </div>
+        <p id="cuenta-resultado-footer"
+           class="hidden mt-2 text-[10px] text-slate-400 italic">
+          POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
+        </p>
+      </div>
+
       <!-- Actividad reciente (sparkline simple) y top agentes/etiquetas -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div class="bg-white border border-slate-200 rounded-xl p-4 lg:col-span-2">
@@ -210,6 +252,136 @@ async function cargarMetricas() {
   } catch (e) {
     document.getElementById('dashboard-loading').innerHTML = `<div class="text-red-600">Error: ${e.message}</div>`;
   }
+
+  // Cargar tabla pivote "Cuenta de Resultado" en paralelo. La falla
+  // de este fetch NO debe afectar la carga del resto del dashboard.
+  cargarCuentaResultado().catch(err => {
+    const cont = document.getElementById('cuenta-resultado-container');
+    if (cont) cont.innerHTML = `<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ${err.message}</div>`;
+  });
+}
+
+// === Tabla pivote "Cuenta de Resultado" ===
+// Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+// Los totales por columna y total general se calculan en el backend
+// (endpoint /api/v1/metricas/cuenta-resultado). Esta función solo
+// pinta la tabla con formato condicional por columna.
+
+const CUENTA_RESULTADO_COLORES = {
+  "N/A":         { bg: '#94a3b8', text: '#ffffff' },  // gray neutral
+  "NOK":         { bg: '#dc2626', text: '#ffffff' },  // red
+  "OK":          { bg: '#16a34a', text: '#ffffff' },  // green
+  "OK CON OBS.": { bg: '#eab308', text: '#1f2937' },  // yellow
+  "POSTERGADA":  { bg: '#ea580c', text: '#ffffff' },  // orange
+  "(en blanco)": { bg: '#cbd5e1', text: '#475569' },  // light gray
+};
+
+// Última respuesta cacheada para export CSV.
+let _cuentaResultadoCache = null;
+
+async function cargarCuentaResultado() {
+  const cont = document.getElementById('cuenta-resultado-container');
+  const loading = document.getElementById('cuenta-resultado-loading');
+  const table = document.getElementById('cuenta-resultado-table');
+  const thead = document.getElementById('cuenta-resultado-thead');
+  const tbody = document.getElementById('cuenta-resultado-tbody');
+  const tfoot = document.getElementById('cuenta-resultado-tfoot');
+  const footer = document.getElementById('cuenta-resultado-footer');
+
+  const r = await fetch('/api/v1/metricas/cuenta-resultado', {
+    headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  _cuentaResultadoCache = data;
+
+  const columnas = data.columnas;
+  const filas = data.filas;
+  const totales = data.totales_por_columna;
+  const totalGeneral = data.total_general;
+
+  // === Encabezado ===
+  thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
+    '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
+    columnas.map(c => {
+      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+      return `<th class="px-3 py-2 font-semibold border border-slate-700 text-center"
+                   style="background:${color.bg}; color:${color.text};"
+                   title="Tickets con resultado_pruebas = '${c}'">${c}</th>`;
+    }).join('') +
+    '<th class="px-3 py-2 font-semibold border border-slate-700 text-center bg-slate-900">Total general</th>' +
+    '</tr>';
+
+  // === Filas ===
+  tbody.innerHTML = filas.map(f => {
+    const esBlanco = f.modulo === '(en blanco)';
+    const trClass = esBlanco
+      ? 'italic text-slate-400 bg-slate-50/50'
+      : 'text-slate-700';
+    const celdas = columnas.map(c => {
+      const v = f.valores[c] || 0;
+      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569' };
+      // Valor 0 → guion; en blanco si es la fila (en blanco) entera.
+      const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
+      // Fondo muy tenue para celdas con valor, completamente blanco si es 0.
+      const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
+      return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono"
+                   style="background:${bg}; color:${color.text};">
+                ${contenido}
+              </td>`;
+    }).join('');
+    const totalCell = esBlanco
+      ? `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono text-slate-400">—</td>`
+      : `<td class="px-3 py-1.5 border border-slate-300 text-center font-mono font-semibold bg-slate-100">${f.total}</td>`;
+    return `<tr class="${trClass} hover:bg-slate-50">
+              <td class="px-3 py-1.5 border border-slate-200 text-left">${f.modulo}</td>
+              ${celdas}
+              ${totalCell}
+            </tr>`;
+  }).join('');
+
+  // === Pie: Total general ===
+  tfoot.innerHTML = '<tr class="bg-slate-200 font-bold text-slate-800">' +
+    '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
+    columnas.map(c => {
+      const v = totales[c] || 0;
+      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+      const contenido = v === 0 ? '—' : v;
+      return `<td class="px-3 py-2 border border-slate-400 text-center font-mono"
+                   style="background:${color.bg}; color:${color.text};">
+                ${contenido}
+              </td>`;
+    }).join('') +
+    `<td class="px-3 py-2 border border-slate-400 text-center font-mono bg-slate-300">${totalGeneral}</td>` +
+    '</tr>';
+
+  loading.classList.add('hidden');
+  table.classList.remove('hidden');
+  footer.classList.remove('hidden');
+}
+
+function exportarCuentaResultado() {
+  if (!_cuentaResultadoCache) return;
+  const data = _cuentaResultadoCache;
+  const cols = ['Etiqueta de fila', ...data.columnas, 'Total general'];
+  const filas = data.filas.map(f => [
+    f.modulo,
+    ...data.columnas.map(c => f.valores[c] || 0),
+    f.total,
+  ]);
+  const totales = ['Total general', ...data.columnas.map(c => data.totales_por_columna[c] || 0), data.total_general];
+  const csvRows = [cols, ...filas, totales]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const csv = '\uFEFF' + csvRows.join('\n'); // BOM para Excel
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cuenta_resultado_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function colorPrioridad(p) {
