@@ -267,13 +267,19 @@ async function cargarMetricas() {
 // (endpoint /api/v1/metricas/cuenta-resultado). Esta función solo
 // pinta la tabla con formato condicional por columna.
 
+// Color del texto de los números en CADA CELDA de datos: debe coincidir con
+// el color del texto de la columna "Total general" (data cells con bg-slate-100
+// y texto slate-800 por herencia del <body>). Se usa #1f2937 (slate-800) en
+// TODAS las columnas para garantizar contraste legible sobre los fondos
+// tenues (`color.bg + '22'`). Los headers sí mantienen su color original
+// porque su fondo es sólido (no el tinte `+ '22'`).
 const CUENTA_RESULTADO_COLORES = {
-  "N/A":         { bg: '#94a3b8', text: '#ffffff' },  // gray neutral
-  "NOK":         { bg: '#dc2626', text: '#ffffff' },  // red
-  "OK":          { bg: '#16a34a', text: '#ffffff' },  // green
-  "OK CON OBS.": { bg: '#eab308', text: '#1f2937' },  // yellow
-  "POSTERGADA":  { bg: '#ea580c', text: '#ffffff' },  // orange
-  "(en blanco)": { bg: '#cbd5e1', text: '#475569' },  // light gray
+  "N/A":         { bg: '#94a3b8', text: '#ffffff', cellText: '#1f2937' },  // gray neutral
+  "NOK":         { bg: '#dc2626', text: '#ffffff', cellText: '#1f2937' },  // red
+  "OK":          { bg: '#16a34a', text: '#ffffff', cellText: '#1f2937' },  // green
+  "OK CON OBS.": { bg: '#eab308', text: '#1f2937', cellText: '#1f2937' },  // yellow
+  "POSTERGADA":  { bg: '#ea580c', text: '#ffffff', cellText: '#1f2937' },  // orange
+  "(en blanco)": { bg: '#cbd5e1', text: '#475569', cellText: '#1f2937' },  // light gray
 };
 
 // Última respuesta cacheada para export CSV.
@@ -320,13 +326,15 @@ async function cargarCuentaResultado() {
       : 'text-slate-700';
     const celdas = columnas.map(c => {
       const v = f.valores[c] || 0;
-      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569' };
+      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569', cellText: '#1f2937' };
       // Valor 0 → guion; en blanco si es la fila (en blanco) entera.
       const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
       // Fondo muy tenue para celdas con valor, completamente blanco si es 0.
+      // Texto: SIEMPRE cellText (mismo color que la columna "Total general")
+      // para garantizar contraste legible sobre el fondo tenue `color.bg + '22'`.
       const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
       return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono"
-                   style="background:${bg}; color:${color.text};">
+                   style="background:${bg}; color:${color.cellText};">
                 ${contenido}
               </td>`;
     }).join('');
@@ -345,8 +353,10 @@ async function cargarCuentaResultado() {
     '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
     columnas.map(c => {
       const v = totales[c] || 0;
-      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff', cellText: '#ffffff' };
       const contenido = v === 0 ? '—' : v;
+      // En el tfoot los fondos son sólidos (no el tinte `+ '22'`), así que
+      // aquí sí usamos el `text` blanco original (legible sobre fondo saturado).
       return `<td class="px-3 py-2 border border-slate-400 text-center font-mono"
                    style="background:${color.bg}; color:${color.text};">
                 ${contenido}
