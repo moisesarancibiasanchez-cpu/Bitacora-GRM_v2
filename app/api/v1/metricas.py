@@ -20,14 +20,36 @@ from app.models.automacion import ReglaAutomatizacion
 
 # Columnas esperadas para la tabla pivote "Cuenta de Resultado"
 # Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+#
+# NOTA: Incluye TODOS los valores del LOV de ``resultado_pruebas``
+# (N/A, NOK, OK, OK CON OBS., POSTERGADA, DESESTIMADA) más la
+# categoría derivada "(en blanco)" para valores NULL/vacíos. Si
+# el LOV crece en el futuro, basta con agregar el nuevo valor aquí
+# y darlo de alta en ``sql_columnas`` más abajo para que el pivot
+# lo refleje sin perder tickets.
 _RESULTADOS_PIVOTE = (
     "N/A",
     "NOK",
     "OK",
     "OK CON OBS.",
     "POSTERGADA",
+    "DESESTIMADA",
     "",  # (en blanco) — sin resultado
 )
+
+# Normalización de etiquetas de módulo para la tabla pivote.
+# Mapea variantes conocidas (ej: heredadas de la migración UAT) a
+# su forma canónica. Si en el futuro aparecen nuevas variantes, se
+# agregan aquí para que el pivot muestre una fila única y consistente.
+MODULO_ALIAS = {
+    "Registro Información": "Registro de Información",
+}
+
+def _normalizar_modulo(modulo: str) -> str:
+    """Devuelve la etiqueta canónica del módulo para mostrar en el pivot."""
+    if not modulo or not modulo.strip():
+        return "(en blanco)"
+    return MODULO_ALIAS.get(modulo, modulo)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/metricas", tags=["Métricas"])
@@ -243,18 +265,24 @@ def cuenta_resultado(
 
     # Columnas dinámicas: usamos la misma definición que el front (incluye
     # la columna "(en blanco)" que agrupa NULL/vacío en resultado_pruebas).
+    # DESESTIMADA se incluye explícitamente para que los tickets con ese
+    # resultado_pruebas NO queden excluidos del pivot.
     columnas_front = [
-        "N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "(en blanco)",
+        "N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "DESESTIMADA",
+        "(en blanco)",
     ]
 
     # Mapeo: nombre en front → valor literal en tickets.resultado_pruebas
     # La columna "(en blanco)" se calcula como "IS NULL OR = ''".
+    # Si se agrega un nuevo valor al LOV, basta con agregarlo también aquí
+    # y en ``columnas_front`` para que el pivot lo refleje.
     sql_columnas = [
         ("N/A",          Ticket.resultado_pruebas == "N/A"),
         ("NOK",          Ticket.resultado_pruebas == "NOK"),
         ("OK",           Ticket.resultado_pruebas == "OK"),
         ("OK CON OBS.",  Ticket.resultado_pruebas == "OK CON OBS."),
         ("POSTERGADA",   Ticket.resultado_pruebas == "POSTERGADA"),
+        ("DESESTIMADA",  Ticket.resultado_pruebas == "DESESTIMADA"),
         ("(en blanco)",  Ticket.resultado_pruebas.is_(None) | (Ticket.resultado_pruebas == "")),
     ]
 
@@ -281,30 +309,43 @@ def cuenta_resultado(
         .all()
     )
 
-    # Normalizar filas: módulo NULL o vacío → "(en blanco)".
-    filas = []
+    # Normalizar filas: módulo NULL o vacío → "(en blanco)". También
+    # agrupamos variantes conocidas (ej: "Registro Información" sin
+    # "de" → "Registro de Información") bajo la misma etiqueta canónica
+    # para que el pivot no muestre filas duplicadas por motivos de
+    # nomenclatura heredada de la migración UAT.
+    filas = {}
     totales_por_columna = {c: 0 for c in columnas_front}
     total_general = 0
 
     for r in rows:
-        modulo = r.modulo if (r.modulo and r.modulo.strip()) else "(en blanco)"
+        modulo_canonico = _normalizar_modulo(r.modulo)
         valores = {}
         fila_total = 0
         for nombre_col, _ in sql_columnas:
             v = int(getattr(r, nombre_col, 0) or 0)
             valores[nombre_col] = v
-            totales_por_columna[nombre_col] += v
             fila_total += v
-        filas.append({
-            "modulo": modulo,
-            "valores": valores,
-            "total": fila_total,
-        })
+        # Acumular en la fila canónica (puede que ya exista si había
+        # múltiples variantes del mismo módulo).
+        if modulo_canonico in filas:
+            existente = filas[modulo_canonico]
+            for col, v in valores.items():
+                existente["valores"][col] = existente["valores"].get(col, 0) + v
+            existente["total"] += fila_total
+        else:
+            filas[modulo_canonico] = {
+                "modulo": modulo_canonico,
+                "valores": valores,
+                "total": fila_total,
+            }
+        for col, v in valores.items():
+            totales_por_columna[col] += v
         total_general += fila_total
 
-    # Ordenar filas con "(en blanco)" al final para coincidir con el Excel.
+    # Convertir dict a lista y ordenar con "(en blanco)" al final.
     filas_ordenadas = sorted(
-        filas,
+        filas.values(),
         key=lambda f: (f["modulo"] == "(en blanco)", f["modulo"]),
     )
 
