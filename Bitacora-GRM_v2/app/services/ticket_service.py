@@ -678,7 +678,17 @@ class TicketService:
                     # usuario sigue pudiendo limpiar campos explícitamente
                     # mediante otros mecanismos; este endpoint sólo aplica
                     # cambios INTENCIONALES (valor nuevo distinto y no vacío).
-                    if campo in LOV_NULLABLE:
+                    #
+                    # NOTA: usar ``self.LOV_NULLABLE`` (atributo de clase).
+                    # La versión anterior usaba el nombre corto y lanzaba
+                    # ``NameError: name 'LOV_NULLABLE' is not defined`` al
+                    # ejecutarse el método (regresión detectada 2026-09-17:
+                    # el backend devolvía HTTP 400 sin aplicar ningún cambio,
+                    # lo que provocaba que el frontend "no actualizara"
+                    # resultado_pruebas mientras el módulo ya había sido
+                    # "limpiado" en operaciones anteriores, dejando el
+                    # pivot inconsistente).
+                    if campo in self.LOV_NULLABLE:
                         _valor_vacio = valor is None or (
                             isinstance(valor, str) and valor.strip() == ""
                         )
@@ -783,7 +793,23 @@ class TicketService:
                         return ticket, None, None, f"asignado_id inválido: {valor}"
                     nuevo_legible = ticket.asignado_id
             else:
-                # Campos simples (titulo, descripcion)
+                # Campos simples (titulo, descripcion, modulo, vista,
+                # hu_o_caso_prueba, nota_observacion, resultado_pruebas,
+                # ambiente, item).
+                #
+                # DEFENSA CRÍTICA contra pérdida de datos: replicar la
+                # misma salvaguarda que ``actualizar_campos`` para los
+                # campos LOV nullable. Si llega un valor vacío/None para
+                # un campo que ya tiene un valor no vacío, preservar el
+                # valor actual en vez de borrarlo (regresión detectada
+                # 2026-09-17 en el flujo de auto-save).
+                if campo in self.LOV_NULLABLE:
+                    _valor_vacio = valor is None or (
+                        isinstance(valor, str) and valor.strip() == ""
+                    )
+                    _actual_vacio = str(anterior_raw or "").strip() == ""
+                    if _valor_vacio and not _actual_vacio:
+                        return ticket, valor_anterior, valor_anterior, None
                 setattr(ticket, campo, valor)
                 nuevo_legible = valor
         except Exception as exc:
