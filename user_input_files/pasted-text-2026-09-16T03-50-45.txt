@@ -1,0 +1,250 @@
+Actúa como analista de datos, arquitecto ETL y consultor de migración UAT.
+
+CONTEXTO:
+Archivo "Consolidado_UAT_Cruce_GARANTIA_v3.xlsx". La hoja "CONSOLIDADO UAT" es la fuente oficial y única para la carga masiva al sistema de gestión de incidencias (tabla `tickets`). Se debe procesar la totalidad de filas de esa hoja.
+
+OBJETIVO:
+1. Detectar cada una de las columnas de "CONSOLIDADO UAT".
+2. Proponer la estructura de transformación para cargar cada fila como un ticket en la tabla `tickets` (31 columnas).
+3. Validar el tipo de dato de cada campo origen y destino antes de la carga.
+4. Aplicar la lógica de la Bitácora GRM: los tickets con `Resultado = OK` deben quedar establecidos en la columna **"produccion ok"** de la Bitácora GRM.
+
+FUENTE (hoja CONSOLIDADO UAT):
+A. Módulo
+B. Hoja Origen
+C. Código HU
+D. Prioridad
+E. Historia de Usuario
+F. Vista
+G. Actores
+H. Código Caso Prueba
+I. Caso de Prueba (Texto)
+J. Caso Nuevo?
+K. Fecha Prueba
+L. Resultado
+M. Categoría
+N. Criticidad
+O. Detalle Incidente
+P. Evidencia?
+Q. Resultado Histórico
+R. Fecha Entrega
+S. Observaciones
+
+DESTINO (tabla `tickets`, 31 columnas):
+1. id (PK, autoincremental, no se carga)
+2. codigo (String 20, único)
+3. titulo (String 200)
+4. descripcion (Text)
+5. tipo (ENUM, default 'incidencia')
+6. prioridad (ENUM, default 'media')
+7. estado_id (FK → estados.id, nullable)
+8. creador_id (FK → usuarios.id)
+9. asignado_id (FK → usuarios.id, nullable)
+10. catalogo_tipo_id (FK → catalogo_tipos.id, nullable)
+11. tablero_id (FK → tableros.id, nullable)
+12. datos_catalogo (JSON, default {})
+13. fecha_vencimiento_sla (DateTime, nullable)
+14. sla_cumplido (Integer, default 1)
+15. fecha_inicio (DateTime, nullable)
+16. fecha_completado (DateTime, nullable)
+17. fecha_cumplida (Boolean, default False)
+18. portada_color (String 20)
+19. portada_adjunto_id (FK → adjuntos.id, nullable)
+20. descripcion_md (Boolean, default False)
+21. posicion (Integer, default 0)
+22. archivado (Boolean, default False)
+23. modulo (String 80)
+24. ambiente (String 40)
+25. item (String 80)
+26. vista (String 200)
+27. hu_o_caso_prueba (String 200)
+28. nota_observacion (Text)
+29. resultado_pruebas (String 40)
+30. created_at (DateTime)
+31. updated_at (DateTime)
+
+REGLAS DE TRANSFORMACIÓN OBLIGATORIAS:
+
+1. Una fila de "CONSOLIDADO UAT" = un ticket.
+
+2. `id` no se incluye (autoincremental).
+
+3. `codigo`: prefijo "GAR_" + `Código Caso Prueba` + '-' + correlativo (3 dígitos). Ej: "GAR_SC_30.2-001". Máx. 20 caracteres. Tipo String(20).
+
+4. `titulo`: `LEFT(CONCAT(Código Caso Prueba, ' - ', [RESUMEN] Caso de Prueba (Texto)), 200)`.
+
+   IMPORTANTE — DEFINICIÓN DE [RESUMEN]:
+   El [RESUMEN] NO es un truncado ni un recorte mecánico de caracteres. Es una SÍNTESIS SEMÁNTICA que se genera leyendo el texto COMPLETO de la columna "Caso de Prueba (Texto)" y produciendo una versión corta y coherente que capture la idea principal.
+
+   Reglas del [RESUMEN] semántico:
+   - Leer el contenido COMPLETO de "Caso de Prueba (Texto)".
+   - Producir una síntesis coherente y legible de ~50 caracteres (máximo 60).
+   - Frase comprensible por sí misma, no un corte arbitrario.
+   - Mantener el sujeto/verbo principal.
+   - Eliminar palabras vacías, redundancias y enumeraciones largas.
+   - No incluir saltos de línea ni espacios múltiples.
+   - No cortar palabras a la mitad.
+   - Si "Caso de Prueba (Texto)" viene vacío → usar `Código HU`.
+   - Si ambos vacíos → usar `Historia de Usuario`.
+   - Tipo String(200).
+
+   Ejemplos:
+   - "Al completar los campos obligatorios y presionar el botón guardar, se calcula la Calificación Final por fórmula del mantenedor..." → "Validar cálculo de calificación al guardar"
+   - "Realizar prueba conjunta Desarrollo y Negocio para confirmar control de exceciones por borrado de tabla..." → "Prueba conjunta de control de excepciones"
+   - "Dentro de la pestaña Informes Validación, se visualiza el campo Nota Inicial..." → "Verificar visualización y cálculo de Nota Inicial"
+   - "Si el servicio de correo no está disponible, el sistema registra el error en los logs..." → "Validar manejo de error y reintento de correo"
+
+5. `descripcion`: concatenar los 19 campos originales con etiquetas. Tipo Text.
+
+6. `tipo`: por defecto 'Resultado Pruebas'. Tipo ENUM.
+
+7. `prioridad`: DEFECTO. No se mapea desde la hoja origen. Se asigna el valor por defecto definido en la tabla `tickets` (default 'media'). Tipo ENUM.
+
+8. `estado_id`: DEFECTO o NULL. No se realiza lookup contra la tabla `estados`. Tipo Integer (FK).
+
+9. `creador_id`: default 1 (usuario migrador UAT). Tipo Integer (FK).
+
+10. `asignado_id`: NULL. Tipo Integer (FK, nullable).
+
+11. `catalogo_tipo_id`: NULL. Tipo Integer (FK, nullable).
+
+12. `tablero_id`: DEFECTO. No se realiza lookup por Módulo. Tipo Integer (FK).
+
+13. `datos_catalogo`: JSON con los 19 campos originales. Tipo JSON.
+
+14. `fecha_vencimiento_sla`: si `Resultado` = OK y `Fecha Entrega` tiene valor → = `Fecha Entrega`. Si no → NULL. Tipo DateTime (ISO 8601 UTC).
+
+15. `sla_cumplido`: 1. Tipo Integer.
+
+16. `fecha_inicio`: NULL o NOW(). Tipo DateTime (ISO 8601 UTC).
+
+17. `fecha_completado`: **`Fecha Entrega` si el ticket está OK; si no NULL.** Tipo DateTime (ISO 8601 UTC).
+
+18. `fecha_cumplida`: False. True si `Resultado` = OK y `Fecha Entrega` tiene valor. Tipo Boolean.
+
+19. `portada_color`: alta → #FF0000; media → #FFA500; baja → #008000. Tipo String(20).
+
+20. `portada_adjunto_id`: NULL. Tipo Integer (FK, nullable).
+
+21. `descripcion_md`: True si la descripción se genera con markdown; si no False. Tipo Boolean.
+
+22. `posicion`: ROW_NUMBER(). Tipo Integer.
+
+23. `archivado`: False. Tipo Boolean.
+
+24. `modulo`: Módulo (truncar a 80). Tipo String(80).
+
+25. `ambiente`: 'QA' (fijo). Tipo String(40).
+
+26. `item`: 'Portal WEB APEX' (fijo). Tipo String(80).
+
+27. `vista`: Vista (truncar a 200). Tipo String(200).
+
+28. `hu_o_caso_prueba`: `Código Caso Prueba` (solo el código, truncar a 200). Tipo String(200).
+
+29. `nota_observacion`: `Observaciones` (Text, sin concatenar). Tipo Text.
+
+30. `resultado_pruebas`: `Resultado`. Si `Resultado` = "POSTERGADA A GARANTÍA" → "POSTERGADA". Truncar a 40. Tipo String(40).
+
+31. `created_at` y `updated_at`: `Fecha Prueba` si existe; si no → NOW(). Tipo DateTime (ISO 8601 UTC).
+
+REGLA ESPECIAL — BITÁCORA GRM:
+- Los tickets cuyo `Resultado` = OK deben quedar establecidos en la columna **"produccion ok"** de la Bitácora GRM.
+- Implementación sugerida:
+  - Agregar un campo booleano auxiliar en el ETL: `produccion_ok = (Resultado = 'OK')`.
+  - En la Bitácora GRM, la columna "produccion ok" debe poblarse con `TRUE` cuando `resultado_pruebas = 'OK'`.
+  - Si la Bitácora GRM se construye a partir de `tickets`, la regla es:
+    `produccion ok = IF(tickets.resultado_pruebas = 'OK', TRUE, FALSE)`
+  - Si la Bitácora GRM es una tabla independiente, se debe insertar/actualizar el registro con `resultado_pruebas = 'OK'` y marcar `produccion_ok = TRUE`.
+
+VALIDACIÓN DE TIPOS DE DATO (obligatoria antes de la carga):
+Para cada campo origen y destino, verificar:
+
+| Columna origen | Tipo esperado | Validación |
+|---|---|---|
+| A. Módulo | String | No vacío |
+| B. Hoja Origen | String | Puede ser vacío |
+| C. Código HU | String | Puede ser vacío (RI_0_x) |
+| D. Prioridad | String | ALTA/MEDIA/BAJA/Alto/Medio/Bajo/Alta/Media/Baja o vacío |
+| E. Historia de Usuario | String | No vacío |
+| F. Vista | String | Puede contener "/" |
+| G. Actores | String | Puede ser "N/A" o "Sistema (Automático)" |
+| H. Código Caso Prueba | String | No vacío, único |
+| I. Caso de Prueba (Texto) | Text | Puede ser largo o vacío |
+| J. Caso Nuevo? | String | No/Si/vacío |
+| K. Fecha Prueba | Date | ISO 8601 o vacío |
+| L. Resultado | String | OK/NOK/N/A/OK CON OBS./POSTERGADA A GARANTÍA/BLOQUEADO PARA EJECUTAR/vacío |
+| M. Categoría | String | OK/NOOK/OBS/POST/N/A/vacío |
+| N. Criticidad | String | Número o palabra o vacío |
+| O. Detalle Incidente | Text | Puede ser largo o vacío |
+| P. Evidencia? | String | Si/vacío |
+| Q. Resultado Histórico | String | Frase o vacío |
+| R. Fecha Entrega | Date | ISO 8601 o vacío |
+| S. Observaciones | Text | Puede ser largo o vacío |
+
+| Columna destino | Tipo destino | Validación |
+|---|---|---|
+| codigo | String(20) | Único, no nulo |
+| titulo | String(200) | No nulo |
+| descripcion | Text | No nulo |
+| tipo | ENUM | Valor válido del ENUM |
+| prioridad | ENUM | Valor por defecto |
+| estado_id | Integer | Valor por defecto o NULL |
+| creador_id | Integer | FK válida (default 1) |
+| asignado_id | Integer | NULL |
+| catalogo_tipo_id | Integer | NULL |
+| tablero_id | Integer | Valor por defecto o NULL |
+| datos_catalogo | JSON | JSON válido |
+| fecha_vencimiento_sla | DateTime | ISO 8601 UTC o NULL |
+| sla_cumplido | Integer | 1 |
+| fecha_inicio | DateTime | ISO 8601 UTC o NULL |
+| fecha_completado | DateTime | ISO 8601 UTC o NULL |
+| fecha_cumplida | Boolean | True/False |
+| portada_color | String(20) | HEX válido |
+| portada_adjunto_id | Integer | NULL |
+| descripcion_md | Boolean | True/False |
+| posicion | Integer | >= 0 |
+| archivado | Boolean | True/False |
+| modulo | String(80) | No nulo |
+| ambiente | String(40) | 'QA' |
+| item | String(80) | 'Portal WEB APEX' |
+| vista | String(200) | Puede ser vacío |
+| hu_o_caso_prueba | String(200) | No nulo |
+| nota_observacion | Text | Puede ser vacío |
+| resultado_pruebas | String(40) | No nulo |
+| created_at | DateTime | ISO 8601 UTC |
+| updated_at | DateTime | ISO 8601 UTC |
+
+SALIDA ESPERADA:
+1. Mapeo columna origen → columna destino con tipo de dato origen y destino.
+2. Template de carga masiva con el orden exacto de las 30 columnas a importar (sin `id`).
+3. Ejemplos de transformación para 3 filas reales, mostrando:
+   - El texto COMPLETO de "Caso de Prueba (Texto)".
+   - El [RESUMEN] semántico generado.
+   - El `titulo` final resultante.
+   - El valor de `fecha_completado` (solo si Resultado = OK).
+   - El valor de `produccion ok` para la Bitácora GRM.
+   Casos a ejemplificar:
+   - Una fila con `Resultado = OK` y `Fecha Entrega` con valor.
+   - Una fila con `Caso de Prueba (Texto)` vacío (usar `Código HU`).
+   - Una fila POSTERGADA A GARANTÍA.
+4. Recomendaciones para la carga (unicidad, validaciones, longitudes, fechas ISO, booleanos).
+5. Estrategia para generar el [RESUMEN] semántico.
+6. Regla de negocio para la Bitácora GRM: cómo poblar la columna "produccion ok".
+
+RESTRICCIONES:
+- No modificar la hoja original.
+- Ya NO se requiere validar `estado_id` ni `tablero_id` contra tablas maestras.
+- Normalizar fechas a ISO 8601 UTC.
+- Convertir Si/No a True/False.
+- Respetar longitudes máximas:
+  - codigo: 20
+  - titulo: 200
+  - modulo: 80
+  - ambiente: 40
+  - item: 80
+  - vista: 200
+  - hu_o_caso_prueba: 200
+  - resultado_pruebas: 40
+- Si hay ambigüedad, proponer una regla y justificarla.
+- El [RESUMEN] debe ser semántico (síntesis), NO un truncado de caracteres.

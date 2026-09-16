@@ -5,7 +5,7 @@ Sprint 1 - Feature Trello premium: Dashboard con KPIs.
 import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
@@ -17,6 +17,17 @@ from app.models.auditoria import Auditoria
 from app.models.comentario import Comentario
 from app.models.etiqueta import Etiqueta, ticket_etiquetas
 from app.models.automacion import ReglaAutomatizacion
+
+# Columnas esperadas para la tabla pivote "Cuenta de Resultado"
+# Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+_RESULTADOS_PIVOTE = (
+    "N/A",
+    "NOK",
+    "OK",
+    "OK CON OBS.",
+    "POSTERGADA",
+    "",  # (en blanco) — sin resultado
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/metricas", tags=["Métricas"])
@@ -195,4 +206,127 @@ def resumen_dashboard(
         "actividad_por_dia": serie_actividad,
         "top_etiquetas": top_etiquetas_list,
         "top_agentes": top_agentes_list,
+    }
+
+
+@router.get("/cuenta-resultado")
+def cuenta_resultado(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Tabla pivote "Cuenta de Resultado" — réplica del rango A64:H81 del Excel.
+
+    Devuelve el conteo de tickets agrupados por módulo y resultado_pruebas
+    filtrado por ``ambiente`` (default ``QA``). La respuesta se serializa
+    con la forma exacta esperada por el componente del dashboard:
+
+      {
+        "ambiente": "QA",
+        "columnas": ["N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "(en blanco)"],
+        "filas": [
+          {"modulo": "Auditoría", "valores": {"N/A": 1, "NOK": 0, ...}, "total": 9},
+          ...
+          {"modulo": "(en blanco)", "valores": {...}, "total": 0},
+        ],
+        "totales_por_columna": {"N/A": 130, "NOK": 10, "OK": 635, ...},
+        "total_general": 877
+      }
+
+    Notas:
+      - ``(en blanco)`` como columna cuenta tickets con ``resultado_pruebas``
+        ``NULL`` o cadena vacía.
+      - ``(en blanco)`` como fila cuenta tickets con ``modulo`` ``NULL`` o
+        cadena vacía.
+      - El parámetro ``ambiente`` acepta ``QA`` o ``PRODUCCION``.
+    """
+    ambiente_filtro = "QA"
+
+    # Columnas dinámicas: usamos la misma definición que el front (incluye
+    # la columna "(en blanco)" que agrupa NULL/vacío en resultado_pruebas).
+    columnas_front = [
+        "N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "(en blanco)",
+    ]
+
+    # Mapeo: nombre en front → valor literal en tickets.resultado_pruebas
+    # La columna "(en blanco)" se calcula como "IS NULL OR = ''".
+    sql_columnas = [
+        ("N/A",          Ticket.resultado_pruebas == "N/A"),
+        ("NOK",          Ticket.resultado_pruebas == "NOK"),
+        ("OK",           Ticket.resultado_pruebas == "OK"),
+        ("OK CON OBS.",  Ticket.resultado_pruebas == "OK CON OBS."),
+        ("POSTERGADA",   Ticket.resultado_pruebas == "POSTERGADA"),
+        ("(en blanco)",  Ticket.resultado_pruebas.is_(None) | (Ticket.resultado_pruebas == "")),
+    ]
+
+    # Construir agregación con CASE WHEN por columna (una sola pasada SQL).
+    sums = []
+    for nombre, cond in sql_columnas:
+        # `case((cond, 1), else_=0)` produce un entero 0/1 que se suma.
+        sums.append(
+            func.coalesce(
+                func.sum(case((cond, 1), else_=0)),
+                0,
+            ).label(nombre)
+        )
+
+    rows = (
+        db.query(
+            Ticket.modulo.label("modulo"),
+            *sums,
+            func.count(Ticket.id).label("total"),
+        )
+        .filter(Ticket.ambiente == ambiente_filtro)
+        .group_by(Ticket.modulo)
+        .order_by(Ticket.modulo.asc())
+        .all()
+    )
+
+    # Normalizar filas: módulo NULL o vacío → "(en blanco)".
+    filas = []
+    totales_por_columna = {c: 0 for c in columnas_front}
+    total_general = 0
+
+    for r in rows:
+        modulo = r.modulo if (r.modulo and r.modulo.strip()) else "(en blanco)"
+        valores = {}
+        fila_total = 0
+        for nombre_col, _ in sql_columnas:
+            v = int(getattr(r, nombre_col, 0) or 0)
+            valores[nombre_col] = v
+            totales_por_columna[nombre_col] += v
+            fila_total += v
+        filas.append({
+            "modulo": modulo,
+            "valores": valores,
+            "total": fila_total,
+        })
+        total_general += fila_total
+
+    # Ordenar filas con "(en blanco)" al final para coincidir con el Excel.
+    filas_ordenadas = sorted(
+        filas,
+        key=lambda f: (f["modulo"] == "(en blanco)", f["modulo"]),
+    )
+
+    # Asegurar que el modulo "(en blanco)" exista aunque no haya tickets.
+    if not any(f["modulo"] == "(en blanco)" for f in filas_ordenadas):
+        filas_ordenadas.append({
+            "modulo": "(en blanco)",
+            "valores": {c: 0 for c in columnas_front},
+            "total": 0,
+        })
+
+    return {
+        "ambiente": ambiente_filtro,
+        "columnas": columnas_front,
+        "filas": filas_ordenadas,
+        "totales_por_columna": totales_por_columna,
+        "total_general": total_general,
+        # Metadatos para tooltips / trazabilidad.
+        "fuente": "tickets",
+        "filtro_ambiente_default": "QA",
+        "nota_postergada": (
+            "POSTERGADA es la normalización del valor original "
+            "'POSTERGADA A GARANTÍA' en la migración UAT."
+        ),
     }

@@ -1,0 +1,170 @@
+Actúa como arquitecto de software, analista de datos y desarrollador frontend/backend.
+
+CONTEXTO:
+Existe una página **DASHBOARD** ya implementada en el sistema de gestión de incidencias, que muestra reportes basados en la tabla `tickets` (poblada desde la migración UAT del archivo "Consolidado_UAT_Cruce_GARANTIA_v3.xlsx").
+
+La página DASHBOARD YA EXISTE. El objetivo NO es crear una página nueva ni agregar múltiples bloques. El trabajo es una **MODIFICACIÓN PUNTUAL** para agregar/reemplazar un único componente: la **tabla pivote "Cuenta de Resultado"** que replica exactamente el rango **A64:H81** de la hoja "REPORTE" del Excel.
+
+OBJETIVO:
+Modificar la página DASHBOARD existente para incorporar la tabla pivote **"Cuenta de Resultado"** con la siguiente estructura exacta:
+
+--- TABLA PIVOTE "CUENTA DE RESULTADO" (rango A64:H81 del Excel) ---
+
+| Etiquetas de fila | N/A | NOK | OK | OK CON OBS. | POSTERGADA A GARANTÍA | (en blanco) | Total general |
+|---|---|---|---|---|---|---|---|
+| Auditoría | 1 | | 8 | | | | 9 |
+| Control ERM | 3 | | 49 | | | | 52 |
+| Documentación | 6 | | 25 | 1 | | | 32 |
+| Filiales | 3 | | 17 | 3 | | | 23 |
+| Gobierno | 21 | | 26 | 1 | | | 48 |
+| Incidencias | 8 | | 28 | 2 | | | 38 |
+| Información Inventario | 16 | | 36 | 2 | | | 54 |
+| Mejoras Transversales | 33 | 4 | 38 | | 43 | | 118 |
+| Registro Información | 6 | | 155 | | 27 | | 188 |
+| Seguimiento y Control | 5 | 6 | 109 | 7 | 14 | | 141 |
+| Validación | 28 | | 144 | 2 | | | 174 |
+| (en blanco) | | | | | | | |
+| **Total general** | **130** | **10** | **635** | **18** | **84** | | **877** |
+
+UBICACIÓN EN LA PÁGINA DASHBOARD:
+
+El nuevo componente **"Cuenta de Resultado"** debe ubicarse **ANTES** de los siguientes dos componentes existentes:
+- **Item "Actividad (últimos 30 días)"**
+- **Item "Top etiquetas"**
+
+
+REGLAS DE POSICIONAMIENTO:
+- La tabla pivote "Cuenta de Resultado" debe insertarse **inmediatamente antes** del componente "Actividad (últimos 30 días)".
+- No modificar la posición de "Actividad (últimos 30 días)" ni de "Top etiquetas".
+- No modificar la estructura, datos ni comportamiento de esos dos componentes existentes.
+- Mantener la coherencia visual (anchos, márgenes, tipografía, colores) con los componentes vecinos.
+- Si la página usa grid de 12 columnas, la tabla pivote puede ocupar el ancho completo (12/12) o el ancho que mejor se adapte al diseño existente.
+
+CONSULTA SQL PARA POBLAR LA TABLA PIVOTE:
+
+```sql
+SELECT
+  modulo,
+  SUM(CASE WHEN resultado_pruebas = 'N/A' THEN 1 ELSE 0 END) AS na,
+  SUM(CASE WHEN resultado_pruebas = 'NOK' THEN 1 ELSE 0 END) AS nok,
+  SUM(CASE WHEN resultado_pruebas = 'OK' THEN 1 ELSE 0 END) AS ok,
+  SUM(CASE WHEN resultado_pruebas = 'OK CON OBS.' THEN 1 ELSE 0 END) AS ok_con_obs,
+  SUM(CASE WHEN resultado_pruebas = 'POSTERGADA' THEN 1 ELSE 0 END) AS postergada,
+  SUM(CASE WHEN resultado_pruebas IS NULL OR resultado_pruebas = '' THEN 1 ELSE 0 END) AS en_blanco,
+  COUNT(*) AS total_general
+FROM tickets
+WHERE ambiente = 'QA'
+GROUP BY modulo
+ORDER BY modulo;
+
+
+
+REGLAS DE TRANSFORMACIÓN:
+
+Los tickets con resultado_pruebas = 'POSTERGADA' provienen de la normalización de "POSTERGADA A GARANTÍA" en la migración UAT.
+
+La columna "(en blanco)" cuenta tickets sin resultado asignado.
+
+La fila "(en blanco)" cuenta tickets sin módulo asignado.
+
+La fila "Total general" suma todas las filas por columna.
+
+La columna "Total general" suma todas las columnas por fila.
+
+FORMATO VISUAL REQUERIDO:
+
+Encabezados de columna: fondo oscuro, texto blanco, negrita.
+
+Fila "Total general": fondo gris claro, negrita.
+
+Fila "(en blanco)": cursiva, color gris.
+
+Celdas con valor 0 o vacío: mostrar en blanco o con "—".
+
+Formato condicional por columna:
+
+N/A → gris neutro
+
+NOK → rojo
+
+OK → verde
+
+OK CON OBS. → amarillo
+
+POSTERGADA A GARANTÍA → naranjo
+
+(en blanco) → gris claro
+
+Alineación: texto a la izquierda en primera columna, números centrados o alineados a la derecha.
+
+Bordes: finos entre celdas, gruesos en encabezados y totales.
+
+Título del componente: "Cuenta de Resultado" (opcional, según estilo de los demás componentes).
+
+VALIDACIÓN DE CONSISTENCIA:
+
+El componente debe replicar EXACTAMENTE las cifras del rango A64:H81.
+
+Total general fila = 877.
+
+Total general columna N/A = 130.
+
+Total general columna NOK = 10.
+
+Total general columna OK = 635.
+
+Total general columna OK CON OBS. = 18.
+
+Total general columna POSTERGADA A GARANTÍA = 84.
+
+Total general columna (en blanco) = 0.
+
+SALIDA ESPERADA:
+
+Descripción del componente a agregar (tabla pivote "Cuenta de Resultado").
+
+Confirmación de ubicación: antes de "Actividad (últimos 30 días)" y "Top etiquetas".
+
+Wireframe de la sección donde se insertará, mostrando el orden de los componentes.
+
+Consulta SQL para poblar la tabla.
+
+Reglas de formato visual y condicional.
+
+Código de ejemplo (HTML/CSS, React, Vue o el framework que use el proyecto) del componente.
+
+Plan de pruebas para validar que las cifras del dashboard coinciden con el rango A64:H81.
+
+Consideraciones de rendimiento al agregar la tabla pivote.
+
+RESTRICCIONES:
+
+La página DASHBOARD YA EXISTE: el trabajo es una MODIFICACIÓN, no una reescritura.
+
+Solo se debe agregar UN componente: la tabla pivote "Cuenta de Resultado".
+
+La ubicación es fija y obligatoria: antes de "Actividad (últimos 30 días)" y "Top etiquetas".
+
+No modificar, eliminar ni reordenar los demás componentes del dashboard.
+
+No incluir los otros bloques del Excel (KPIs ejecutivos, cobertura, resultados desnormalizados, registro diario, detalle entregas).
+
+El filtro por defecto debe ser ambiente = 'QA'.
+
+No modificar la hoja REPORTE original.
+
+Documentar el cambio aplicado (antes / después).
+
+Si hay ambigüedad en el formato, proponer una opción y justificarla.
+
+NOTAS ADICIONALES:
+
+El rango A64:H81 es la fuente de verdad para este componente.
+
+La diferencia entre "POSTERGADA A GARANTÍA" (Excel) y "POSTERGADA" (tabla tickets) se debe documentar en el componente o en tooltips.
+
+El componente debe ser exportable a Excel/PDF (opcional).
+
+Si el dashboard ya tiene filtros por módulo o resultado, la tabla pivote debe respetarlos.
+
+Mantener coherencia visual con los componentes "Actividad (últimos 30 días)" y "Top etiquetas" que están inmediatamente después.
