@@ -342,16 +342,21 @@ async function cargarCuentaResultado() {
       // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
       // Celdas con valor 0 o de la fila "(en blanco)" NO son clickeables
       // para no abrir modals vacíos que confundan al usuario.
+      //
+      // NOTA: NO se usa `onclick` inline porque entra en conflicto con el
+      // event listener delegado de HTMX y el htmx-fallback.js, dejando el
+      // modal atascado en "Cargando detalle…". El feedback visual se hace
+      // vía el evento `htmx:beforeRequest` (ver installDrillDownListeners).
       const clickable = !esBlanco && v > 0;
       if (clickable) {
         const url = `/api/v1/metricas/cuenta-resultado/detalle?modulo=${encodeURIComponent(f.modulo)}&resultado=${encodeURIComponent(c)}&ambiente=${encodeURIComponent(data.ambiente || 'QA')}`;
         return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono p-0"
                      style="background:${bg}; color:${color.cellText};">
                   <button type="button"
+                          data-drill-cr="1"
                           hx-get="${url}"
                           hx-target="#modal-cuenta-resultado-root"
                           hx-swap="innerHTML"
-                          onclick="abrirModalCuentaResultado()"
                           title="Ver detalle: ${f.modulo} / ${c}"
                           class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">
                     ${contenido}
@@ -422,31 +427,20 @@ function exportarCuentaResultado() {
 // === Drill-down modal: Cuenta de Resultado ===
 // HTMX inyecta el contenido del modal en #modal-cuenta-resultado-root
 // cuando el usuario hace clic en una celda con valor > 0 del pivot.
-// El botón (celda) llama a abrirModalCuentaResultado() SINCRÓNICAMENTE
-// antes del swap para mostrar feedback inmediato (overlay semitransparente),
-// y cerrarModalCuentaResultado() se llama desde el botón "X" del header
-// o desde el backdrop (vía el onclick inline en el HTML devuelto por el
-// endpoint). Esc también cierra el modal.
-function abrirModalCuentaResultado() {
-  // Mientras HTMX carga el contenido del modal, mostramos un overlay
-  // semitransparente con spinner para feedback inmediato (evita que el
-  // usuario piense que no pasó nada al hacer clic).
-  const root = document.getElementById('modal-cuenta-resultado-root');
-  if (!root) return;
-  // Sólo mostramos el placeholder si el modal aún no tiene contenido.
-  if (!root.innerHTML.trim()) {
-    root.innerHTML = `
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-        <div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">
-          <svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-          </svg>
-          Cargando detalle de tickets...
-        </div>
-      </div>`;
-  }
-}
+//
+// Implementación robusta basada en eventos nativos de HTMX (NO en onclick
+// inline), para evitar el conflicto con el event listener delegado de HTMX
+// y con htmx-fallback.js que dejaba el modal atascado en "Cargando…":
+//
+//   1. Antes de la petición (htmx:beforeRequest): si el botón tiene
+//      `data-drill-cr="1"`, mostramos un overlay con spinner.
+//   2. HTMX hace la petición GET y, al recibir respuesta, hace swap
+//      innerHTML → el contenido del modal reemplaza al spinner.
+//   3. Si algo falla (htmx:responseError), limpiamos el contenedor.
+//
+// cerrarModalCuentaResultado() sigue disponible globalmente porque el
+// HTML del modal (devuelto por el endpoint) la invoca desde el botón "X"
+// y desde el backdrop. Esc también cierra el modal.
 
 function cerrarModalCuentaResultado() {
   const root = document.getElementById('modal-cuenta-resultado-root');
@@ -454,16 +448,68 @@ function cerrarModalCuentaResultado() {
   root.innerHTML = '';
 }
 
-// Listener único a nivel document para que la tecla Esc cierre el modal.
-// Se instala UNA sola vez (no en cada swap) para evitar acumulación de
-// listeners cuando el usuario abre/cierra el modal varias veces. Verifica
-// que el modal esté abierto antes de actuar.
-document.addEventListener('keydown', function(e) {
-  if (e.key !== 'Escape') return;
+function _mostrarSpinnerDrillCr() {
   const root = document.getElementById('modal-cuenta-resultado-root');
-  if (!root || !root.innerHTML.trim()) return;
-  cerrarModalCuentaResultado();
-});
+  if (!root) return;
+  // Sólo pintamos el spinner si el contenedor está vacío; si ya hay un
+  // modal abierto, no lo sobrescribimos (defensa ante doble clic rápido).
+  if (root.innerHTML.trim()) return;
+  root.innerHTML = `
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">
+        <svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        Cargando detalle de tickets...
+      </div>
+    </div>`;
+}
+
+// Spinner: se muestra cuando el usuario hace clic en una celda drill-cr.
+// Usamos el evento nativo `htmx:beforeRequest` con check del trigger,
+// para no interferir con el swap de HTMX.
+function installDrillDownListeners() {
+  if (typeof document === 'undefined') return;
+  document.body.addEventListener('htmx:beforeRequest', function (evt) {
+    try {
+      const trigger = evt.detail && evt.detail.trigger;
+      if (trigger && trigger.getAttribute && trigger.getAttribute('data-drill-cr') === '1') {
+        _mostrarSpinnerDrillCr();
+      }
+    } catch (e) { /* noop */ }
+  });
+
+  // Si la petición falla, limpiamos el spinner para que no quede colgado.
+  // El listener global `htmx:responseError` de base.html ya muestra el
+  // toast con el detalle del error, pero adicionalmente vaciamos el root
+  // aquí para que el siguiente clic funcione.
+  document.body.addEventListener('htmx:responseError', function (evt) {
+    try {
+      const targetPath = (evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+      if (targetPath.indexOf('/cuenta-resultado/detalle') >= 0) {
+        cerrarModalCuentaResultado();
+      }
+    } catch (e) { /* noop */ }
+  });
+
+  // Listener único a nivel document para que la tecla Esc cierre el modal.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    const root = document.getElementById('modal-cuenta-resultado-root');
+    if (!root || !root.innerHTML.trim()) return;
+    cerrarModalCuentaResultado();
+  });
+}
+
+// Se instala una sola vez al cargar la página (los botones se regeneran
+// en cada `cargarCuentaResultado()`, pero los listeners delegados en
+// `document.body` persisten entre swaps).
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', installDrillDownListeners);
+} else {
+  installDrillDownListeners();
+}
 
 function colorPrioridad(p) {
   return { critica: '#dc2626', alta: '#ea580c', media: '#eab308', baja: '#64748b' }[p] || '#94a3b8';
