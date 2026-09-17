@@ -554,6 +554,33 @@ def cuenta_resultado_detalle(
         estado_nombre = estado.nombre if estado else "—"
         estado_color = estado.color if (estado and estado.color) else "#94a3b8"
         asignado_nombre = asignado.nombre_completo if asignado else "—"
+        # Botón "Ver" que abre el detalle completo del ticket individual
+        # (reusa /api/v1/tickets/{id}/detalle-html que ya devuelve el modal
+        # con tabs de detalles/comentarios/adjuntos/auditorías). El target
+        # es el MISMO contenedor del modal drill-down, así HTMX reemplaza
+        # la lista por el detalle del ticket (que ya trae su propio
+        # backdrop y botón cerrar).
+        ticket_id = getattr(t, "id", None)
+        if ticket_id is not None:
+            accion_html = (
+                "<td class='px-3 py-2 text-center whitespace-nowrap'>"
+                f"<button type='button' "
+                f"data-ticket-id='{ticket_id}' "
+                f"data-drill-cr-row='1' "
+                f"hx-get='/api/v1/tickets/{ticket_id}/detalle-html?tab=detalles' "
+                f"hx-target='#modal-cuenta-resultado-root' "
+                f"hx-swap='innerHTML' "
+                f"title='Ver y editar ticket {t.codigo or ticket_id}' "
+                f"class='inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 transition'>"
+                "<svg class='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>"
+                "<path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M15 12a3 3 0 11-6 0 3 3 0 016 0z'/>"
+                "<path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'/>"
+                "</svg>"
+                "</button>"
+                "</td>"
+            )
+        else:
+            accion_html = "<td class='px-3 py-2 text-center text-slate-300'>—</td>"
         rows_html.append(
             "<tr class='hover:bg-slate-50'>"
             f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{t.codigo or ''}</td>"
@@ -570,12 +597,13 @@ def cuenta_resultado_detalle(
             "</td>"
             f"<td class='px-3 py-2 text-xs text-slate-600'>{asignado_nombre}</td>"
             f"<td class='px-3 py-2 text-xs text-slate-600 whitespace-nowrap'>{_fmt_fecha(t.fecha_vencimiento_sla)}</td>"
+            f"{accion_html}"
             "</tr>"
         )
 
     total_count = len(rows_html)
     rows_str = "\n".join(rows_html) if rows_html else (
-        "<tr><td colspan='8' class='px-4 py-10 text-center text-slate-400 text-sm'>"
+        "<tr><td colspan='9' class='px-4 py-10 text-center text-slate-400 text-sm'>"
         "No se encontraron tickets para esta combinación de módulo y resultado.</td></tr>"
     )
 
@@ -637,6 +665,7 @@ def cuenta_resultado_detalle(
             <th class="px-3 py-2 text-left border-b border-slate-200">Prioridad</th>
             <th class="px-3 py-2 text-left border-b border-slate-200">Asignado</th>
             <th class="px-3 py-2 text-left border-b border-slate-200">Fecha Vencimiento</th>
+            <th class="px-3 py-2 text-center border-b border-slate-200" title="Ver y editar ticket individual">Acciones</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
