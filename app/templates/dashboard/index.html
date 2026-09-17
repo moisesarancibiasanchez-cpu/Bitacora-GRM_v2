@@ -158,10 +158,6 @@
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div class="flex items-center gap-2">
             <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado</h3>
-            <span class="text-[10px] uppercase tracking-wide text-slate-400"
-                  title="Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT. Filtro por defecto: ambiente = QA.">
-              A64:H81 · QA
-            </span>
           </div>
           <div class="flex items-center gap-2">
             <button id="cuenta-resultado-export"
@@ -398,6 +394,18 @@ async function cargarCuentaResultado() {
   loading.classList.add('hidden');
   table.classList.remove('hidden');
   footer.classList.remove('hidden');
+
+  // === Procesar los nuevos botones con HTMX ===
+  // HTMX 1.x NO escanea automáticamente los nodos agregados al DOM
+  // mediante `innerHTML = ...`. Sin este `htmx.process(tbody)`, los
+  // botones drill-down generados dinámicamente NO registran listeners
+  // de HTMX, así que hacer clic en ellos no dispara la petición y el
+  // modal nunca se abre. Llamamos a htmx.process() sobre el tbody para
+  // que HTMX escanee sus descendientes y registre los handlers de los
+  // atributos `hx-get`/`hx-target`/`hx-swap`/`data-drill-cr`.
+  if (typeof htmx !== 'undefined' && htmx.process) {
+    try { htmx.process(tbody); } catch (e) { /* noop */ }
+  }
 }
 
 function exportarCuentaResultado() {
