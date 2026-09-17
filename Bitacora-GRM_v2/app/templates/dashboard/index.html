@@ -236,6 +236,11 @@
   </div>
 </div>
 
+{# Contenedor para el modal de drill-down de Cuenta de Resultado.
+   HTMX inyecta aquí el HTML devuelto por /api/v1/metricas/cuenta-resultado/detalle
+   cuando el usuario hace clic en una celda numérica de la tabla pivote. #}
+<div id="modal-cuenta-resultado-root"></div>
+
 <script>
 async function cargarMetricas() {
   const periodo = document.getElementById('periodo').value;
@@ -334,6 +339,25 @@ async function cargarCuentaResultado() {
       // Texto: SIEMPRE cellText (mismo color que la columna "Total general")
       // para garantizar contraste legible sobre el fondo tenue `color.bg + '22'`.
       const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
+      // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
+      // Celdas con valor 0 o de la fila "(en blanco)" NO son clickeables
+      // para no abrir modals vacíos que confundan al usuario.
+      const clickable = !esBlanco && v > 0;
+      if (clickable) {
+        const url = `/api/v1/metricas/cuenta-resultado/detalle?modulo=${encodeURIComponent(f.modulo)}&resultado=${encodeURIComponent(c)}&ambiente=${encodeURIComponent(data.ambiente || 'QA')}`;
+        return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono p-0"
+                     style="background:${bg}; color:${color.cellText};">
+                  <button type="button"
+                          hx-get="${url}"
+                          hx-target="#modal-cuenta-resultado-root"
+                          hx-swap="innerHTML"
+                          onclick="abrirModalCuentaResultado()"
+                          title="Ver detalle: ${f.modulo} / ${c}"
+                          class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">
+                    ${contenido}
+                  </button>
+                </td>`;
+      }
       return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono"
                    style="background:${bg}; color:${color.cellText};">
                 ${contenido}
@@ -394,6 +418,52 @@ function exportarCuentaResultado() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// === Drill-down modal: Cuenta de Resultado ===
+// HTMX inyecta el contenido del modal en #modal-cuenta-resultado-root
+// cuando el usuario hace clic en una celda con valor > 0 del pivot.
+// El botón (celda) llama a abrirModalCuentaResultado() SINCRÓNICAMENTE
+// antes del swap para mostrar feedback inmediato (overlay semitransparente),
+// y cerrarModalCuentaResultado() se llama desde el botón "X" del header
+// o desde el backdrop (vía el onclick inline en el HTML devuelto por el
+// endpoint). Esc también cierra el modal.
+function abrirModalCuentaResultado() {
+  // Mientras HTMX carga el contenido del modal, mostramos un overlay
+  // semitransparente con spinner para feedback inmediato (evita que el
+  // usuario piense que no pasó nada al hacer clic).
+  const root = document.getElementById('modal-cuenta-resultado-root');
+  if (!root) return;
+  // Sólo mostramos el placeholder si el modal aún no tiene contenido.
+  if (!root.innerHTML.trim()) {
+    root.innerHTML = `
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">
+          <svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          Cargando detalle de tickets...
+        </div>
+      </div>`;
+  }
+}
+
+function cerrarModalCuentaResultado() {
+  const root = document.getElementById('modal-cuenta-resultado-root');
+  if (!root) return;
+  root.innerHTML = '';
+}
+
+// Listener único a nivel document para que la tecla Esc cierre el modal.
+// Se instala UNA sola vez (no en cada swap) para evitar acumulación de
+// listeners cuando el usuario abre/cierra el modal varias veces. Verifica
+// que el modal esté abierto antes de actuar.
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  const root = document.getElementById('modal-cuenta-resultado-root');
+  if (!root || !root.innerHTML.trim()) return;
+  cerrarModalCuentaResultado();
+});
 
 function colorPrioridad(p) {
   return { critica: '#dc2626', alta: '#ea580c', media: '#eab308', baja: '#64748b' }[p] || '#94a3b8';
