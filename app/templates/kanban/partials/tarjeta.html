@@ -8,6 +8,7 @@
      data-descripcion="{{ ((ticket.descripcion or '')|truncate_text(70))|lower }}"
      data-asignado-id="{{ ticket.asignado_id or '' }}"
      data-asignado-nombre="{{ (ticket.asignado.nombre_completo if ticket.asignado else '')|lower }}"
+     data-tipo="{{ ticket.tipo.value }}"
      data-etiquetas="{% for e in ticket.etiquetas %}{{ e.id }}{% if not loop.last %},{% endif %}{% endfor %}"
      role="button"
      tabindex="0"
