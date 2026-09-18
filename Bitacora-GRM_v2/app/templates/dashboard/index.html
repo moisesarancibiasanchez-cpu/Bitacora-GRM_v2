@@ -508,6 +508,48 @@ function installDrillDownListeners() {
     if (!root || !root.innerHTML.trim()) return;
     cerrarModalCuentaResultado();
   });
+
+  // =====================================================================
+  // CIERRE DEL MODAL DE DETALLE DE TICKET (inyectado por HTMX dentro de
+  // #modal-cuenta-resultado-root):
+  //   1. Botones [data-close-modal]  →  cierran el modal
+  //   2. Click en el overlay .modal-backdrop (solo si el target ES el
+  //      backdrop, no sus hijos)  →  también cierra el modal
+  //
+  // Se usa delegación de eventos sobre `document.body` para que los
+  // handlers funcionen incluso después de que HTMX reemplace el
+  // innerHTML de #modal-cuenta-resultado-root (los listeners NO se
+  // pierden porque viven en `document.body`).
+  //
+  // El modal de detalle del ticket (renderizado por
+  // app/templates/tickets/detalle_modal.py) define `data-close-modal`
+  // en sus dos botones de cierre (la "X" del header y el botón "Cerrar"
+  // del footer) y la clase `modal-backdrop` en el overlay. Sin este
+  // handler, esos botones y el click sobre el fondo oscuro no hacen
+  // nada y el modal queda atrapado en pantalla.
+  // =====================================================================
+  document.body.addEventListener('click', function (e) {
+    const root = document.getElementById('modal-cuenta-resultado-root');
+    if (!root || !root.innerHTML.trim()) return;
+
+    // Caso 1: click sobre cualquier [data-close-modal] dentro del modal
+    const closeBtn = e.target.closest('[data-close-modal]');
+    if (closeBtn && root.contains(closeBtn)) {
+      e.preventDefault();
+      e.stopPropagation();
+      cerrarModalCuentaResultado();
+      return;
+    }
+
+    // Caso 2: click sobre el overlay .modal-backdrop (solo si el target
+    // es el backdrop mismo, para no cerrar cuando se interactúa con el
+    // contenido del modal como formularios, botones de tabs, etc.)
+    const backdrop = e.target.closest('.modal-backdrop');
+    if (backdrop && root.contains(backdrop) && backdrop === e.target) {
+      cerrarModalCuentaResultado();
+      return;
+    }
+  });
 }
 
 // Se instala una sola vez al cargar la página (los botones se regeneran

@@ -777,6 +777,7 @@
     return {
       q: (document.getElementById('filtro-q')?.value || '').trim().toLowerCase(),
       prioridad: document.getElementById('filtro-prioridad')?.value || '',
+      tipo: document.getElementById('filtro-tipo')?.value || '',
       asignado: document.getElementById('filtro-asignado')?.value || '',
       etiqueta: document.getElementById('filtro-etiqueta')?.value || '',
       mios: document.getElementById('filtro-mios')?.checked || false,
@@ -788,6 +789,7 @@
     let n = 0;
     if (s.q) n++;
     if (s.prioridad) n++;
+    if (s.tipo) n++;
     if (s.asignado) n++;
     if (s.etiqueta) n++;
     if (s.mios) n++;
@@ -812,6 +814,8 @@
       }
       // Prioridad
       if (ok && s.prioridad && card.dataset.prioridad !== s.prioridad) ok = false;
+      // Tipo de ticket (Incidencia, Resultado Pruebas, Solicitud, Cambio, Problema)
+      if (ok && s.tipo && card.dataset.tipo !== s.tipo) ok = false;
       // Asignado
       if (ok && s.asignado && String(card.dataset.asignadoId) !== String(s.asignado)) ok = false;
       // Etiqueta
@@ -868,7 +872,7 @@
     });
 
     // Escuchar cambios en los inputs
-    const ids = ['filtro-q', 'filtro-prioridad', 'filtro-asignado', 'filtro-etiqueta', 'filtro-mios', 'filtro-criticos'];
+    const ids = ['filtro-q', 'filtro-prioridad', 'filtro-tipo', 'filtro-asignado', 'filtro-etiqueta', 'filtro-mios', 'filtro-criticos'];
     ids.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -885,6 +889,8 @@
         if (q) q.value = '';
         const p = document.getElementById('filtro-prioridad');
         if (p) p.value = '';
+        const t = document.getElementById('filtro-tipo');
+        if (t) t.value = '';
         const a = document.getElementById('filtro-asignado');
         if (a) a.value = '';
         const e = document.getElementById('filtro-etiqueta');
