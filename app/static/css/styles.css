@@ -77,3 +77,13 @@ body {
 .kanban-list::-webkit-scrollbar-track { background: transparent; }
 .kanban-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 .kanban-list::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* === Prioridad (badges pequeños) — usado por Dashboard y Riesgo SLA === */
+.prio-critica { background-color: #fecaca; color: #b91c1c; }
+.prio-alta    { background-color: #fed7aa; color: #c2410c; }
+.prio-media   { background-color: #fef08a; color: #a16207; }
+.prio-baja    { background-color: #e2e8f0; color: #475569; }
+
+/* === Dashboard v2: elementos auxiliares === */
+.funnel-item { transition: opacity 0.15s ease; }
+.funnel-item:hover { opacity: 0.85; }
