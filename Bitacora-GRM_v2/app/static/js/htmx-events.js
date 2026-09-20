@@ -440,8 +440,8 @@
       tabs.className = 'flex items-center justify-between bg-slate-50 border-b border-slate-200 px-2 py-1';
       tabs.innerHTML =
         '<div class="flex items-center gap-1">' +
-          '<button type="button" data-md-tab="write" class="md-tab px-2 py-0.5 text-[11px] font-medium rounded bg-white text-slate-700 border border-slate-200">Escribir</button>' +
-          '<button type="button" data-md-tab="preview" class="md-tab px-2 py-0.5 text-[11px] font-medium rounded text-slate-500 hover:text-slate-700">Vista previa</button>' +
+          '<button type="button" data-md-tab="preview" class="md-tab px-2 py-0.5 text-[11px] font-medium rounded bg-white text-slate-700 border border-slate-200">Vista previa</button>' +
+          '<button type="button" data-md-tab="write" class="md-tab px-2 py-0.5 text-[11px] font-medium rounded text-slate-500 hover:text-slate-700">Escribir</button>' +
         '</div>' +
         '<span class="text-[10px] text-slate-400">Markdown: **negrita** *itálica* `código` [link](url)</span>';
       wrap.appendChild(tabs);
@@ -490,7 +490,10 @@
           preview.innerHTML = renderMarkdown(ta.value || '');
         }
       });
-      setActive('write');
+      // Por defecto arrancamos en "Vista previa" para que el usuario vea
+      // la descripción ya formateada al abrir el modal. Cambiar a "Escribir"
+      // sólo cuando quiera editar.
+      setActive('preview');
     });
   }
 
