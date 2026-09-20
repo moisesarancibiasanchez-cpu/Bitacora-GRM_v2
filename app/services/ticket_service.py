@@ -216,7 +216,7 @@ class TicketService:
             #      para no pisar valores editados manualmente cuando el
             #      usuario reordena dentro de la misma columna.
             nombre_destino_norm = (estado_destino.nombre or "").strip().lower()
-            if nombre_destino_norm in ("cancelado", "desestimada"):
+            if nombre_destino_norm in ("cancelado", "desestimada", "desestimado"):
                 if ticket.resultado_pruebas != "DESESTIMADA":
                     logger.info(
                         "[ticket_service] Side-effect: ticket %s → %s; "

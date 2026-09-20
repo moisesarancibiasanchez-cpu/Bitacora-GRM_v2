@@ -42,17 +42,21 @@
   <p class="text-xs text-slate-500 line-clamp-2 mb-2 break-words" title="{{ ticket.descripcion or '' }}">{{ ticket.descripcion | truncate_text(70) }}</p>
   {# ===========================================================
      Badge "Listo en Prod" - Sólo cuando el ticket está en estado
-     "Producción OK". Muestra:
+     "Producción OK" (match case-insensitive: cubre tanto
+     'Producción OK' como 'produccion ok' o 'PRODUCCION OK').
+     Muestra:
        - Icono cohete (🚀) + texto
        - Fecha del pase a Producción OK (desde historial_estados)
        - Quién lo confirmó (usuario del historial_estados)
      El historial_estados viene ordenado por fecha DESC, así que el
      primer match es la última transición al estado Producción OK.
      =========================================================== #}
-  {% if ticket.estado.nombre == 'Producción OK' %}
+  {% set estado_norm = (ticket.estado.nombre or '')|lower|trim %}
+  {% if estado_norm == 'produccion ok' %}
     {% set prod_hist = None %}
     {% for h in ticket.historial_estados %}
-      {% if h.estado_destino and h.estado_destino.nombre == 'Producción OK' %}
+      {% set dest_norm = (h.estado_destino.nombre if h.estado_destino else '')|lower|trim %}
+      {% if dest_norm == 'produccion ok' %}
         {% set prod_hist = h %}
       {% endif %}
     {% endfor %}
