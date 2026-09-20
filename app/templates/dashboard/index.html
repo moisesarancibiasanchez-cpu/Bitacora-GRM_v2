@@ -577,7 +577,15 @@
     renderRiesgo(d.riesgo_sla || []);
 
     // === Fila 4: Cuenta de Resultado ===
-    renderCuentaResultado(d.cuenta_resultado || []);
+    // NOTA: No se renderiza aquí. El contenedor #cuenta-resultado-container
+    // es propiedad exclusiva del loader dedicado `cargarCuentaResultado()`
+    // (lanzado en paralelo en cargarMetricas), que consume el endpoint
+    // GET /api/v1/metricas/cuenta-resultado y monta la tabla pivote con
+    // columnas OK / NOK / OK CON OBS. / POSTERGADA / DESESTIMADA / N/A /
+    // (en blanco). Renderizar aquí sobrescribiría ese contenedor con un
+    // estado vacío cuando /dashboard-completo no expone `cuenta_resultado`,
+    // rompiendo la carga del loader dedicado (sus safeId() devuelven null
+    // porque la tabla ya no existe). Por eso se omite intencionalmente.
 
     // === Fila 5: Top agentes ===
     renderTopAgentes(d.top_agentes || []);
@@ -836,10 +844,37 @@
     const data = await r.json();
     _cuentaResultadoCache = data;
 
-    const columnas = data.columnas;
-    const filas = data.filas;
-    const totales = data.totales_por_columna;
-    const totalGeneral = data.total_general;
+    const columnas = data.columnas || [];
+    const filas = data.filas || [];
+    const totales = data.totales_por_columna || {};
+    const totalGeneral = data.total_general || 0;
+
+    // === Si el endpoint no devuelve filas, mostramos estado vacío
+    //     explícito en el contenedor (deja la tabla oculta) en lugar de
+    //     pintar una tabla con un único <tbody></tbody> que confunde al
+    //     usuario con información incompleta.
+    const sinFilas = !filas.length || filas.every(f => (f.valores
+      ? Object.values(f.valores).every(v => !v)
+      : Object.keys(f).filter(k => k !== 'modulo' && k !== 'total').every(k => !f[k])
+    ));
+    if (sinFilas) {
+      if (loading) loading.classList.add('hidden');
+      table.classList.add('hidden');
+      if (footer) footer.classList.add('hidden');
+      const ambiente = (data && data.ambiente) ? data.ambiente : 'QA';
+      cont.innerHTML =
+          '<div class="text-center py-10 px-4">'
+        +   '<svg class="mx-auto h-10 w-10 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">'
+        +     '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2a4 4 0 014-4h2m-7 8a4 4 0 01-4-4V7a4 4 0 014-4h10a4 4 0 014 4v8a4 4 0 01-4 4H9z"/>'
+        +   '</svg>'
+        +   '<p class="mt-2 text-sm font-medium text-slate-600">Sin incidencias cerradas con resultado de pruebas en el periodo</p>'
+        +   '<p class="mt-1 text-xs text-slate-400">Filtro aplicado: ambiente = <code class="px-1 py-0.5 rounded bg-slate-100">' + ambiente + '</code>. '
+        +     'Para ver datos, registra tickets tipo <em>Incidencia</em> con módulo, estado <em>Cerrado</em> y un valor en <code>resultado_pruebas</code>.</p>'
+        + '</div>';
+      // Marcar el drill-down como inerte (no hay celdas clickeables)
+      _cuentaResultadoCache = Object.assign({}, data, { filas: [] });
+      return;
+    }
 
     // === Encabezado ===
     thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
