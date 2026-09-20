@@ -9,6 +9,7 @@ Reglas de validación (cumplen con ITIL/ITSM):
 5. Todo cambio se registra en historial_estados y auditoria (obligatorio).
 """
 from datetime import datetime, timedelta
+import logging
 from typing import Optional, Tuple, List, Any, Dict
 
 from sqlalchemy import and_, or_
@@ -18,6 +19,8 @@ from app.models.estado import Estado, TransicionEstado
 from app.models.ticket import Ticket, HistorialEstado, Prioridad
 from app.models.usuario import Usuario, RolUsuario
 from app.services.auditoria_service import registrar_auditoria
+
+logger = logging.getLogger(__name__)
 
 
 class TransicionInvalidaError(Exception):
@@ -204,6 +207,23 @@ class TicketService:
         valor_anterior = {"estado_id": estado_origen.id, "estado": estado_origen.nombre}
         if not mismo_estado:
             ticket.estado_id = estado_destino.id
+            # 4.1) Side-effect: si el ticket cae en Cancelado (o en un
+            #      futuro renombrado a DESESTIMADA), marcamos
+            #      automáticamente ``resultado_pruebas='DESESTIMADA'``
+            #      para que los reportes de QA reflejen que la prueba
+            #      no se ejecutó y el ticket se cerró por otra vía.
+            #      Solo se aplica cuando REALMENTE hubo cambio de estado
+            #      para no pisar valores editados manualmente cuando el
+            #      usuario reordena dentro de la misma columna.
+            nombre_destino_norm = (estado_destino.nombre or "").strip().lower()
+            if nombre_destino_norm in ("cancelado", "desestimada"):
+                if ticket.resultado_pruebas != "DESESTIMADA":
+                    logger.info(
+                        "[ticket_service] Side-effect: ticket %s → %s; "
+                        "resultado_pruebas='DESESTIMADA' (auto)",
+                        ticket.id, estado_destino.nombre,
+                    )
+                    ticket.resultado_pruebas = "DESESTIMADA"
         if orden is not None:
             # Asegurar que datos_catalogo sea un dict (puede ser None o string antiguo)
             datos_actuales = ticket.datos_catalogo

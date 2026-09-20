@@ -94,12 +94,15 @@ def seed_estados(db: Session):
         return
 
     estados = [
-        Estado(nombre="Nuevo",       color="#64748b", orden=1, es_inicial=True,  es_final=False, categoria="abierto",  sla_horas=24,  descripcion="Ticket recién creado, sin asignar"),
-        Estado(nombre="En curso",    color="#3b82f6", orden=2, es_inicial=False, es_final=False, categoria="abierto",  sla_horas=48,  descripcion="Agente trabajando activamente"),
-        Estado(nombre="En espera",   color="#f59e0b", orden=3, es_inicial=False, es_final=False, categoria="pausado",  sla_horas=72,  descripcion="Esperando información del solicitante o proveedor"),
-        Estado(nombre="Resuelto",    color="#10b981", orden=4, es_inicial=False, es_final=False, categoria="cerrado",  sla_horas=24,  descripcion="Solución aplicada, pendiente de cierre formal"),
-        Estado(nombre="Cerrado",     color="#475569", orden=5, es_inicial=False, es_final=True,  categoria="cerrado",  sla_horas=None, descripcion="Incidencia cerrada, SLA evaluado"),
-        Estado(nombre="Cancelado",   color="#9ca3af", orden=6, es_inicial=False, es_final=True,  categoria="cerrado",  sla_horas=None, descripcion="Cancelado por el solicitante o duplicado"),
+        Estado(nombre="Nuevo",          color="#64748b", orden=1, es_inicial=True,  es_final=False, categoria="abierto",  sla_horas=24,  descripcion="Ticket recién creado, sin asignar"),
+        Estado(nombre="En curso",       color="#3b82f6", orden=2, es_inicial=False, es_final=False, categoria="abierto",  sla_horas=48,  descripcion="Agente trabajando activamente"),
+        Estado(nombre="En espera",      color="#f59e0b", orden=3, es_inicial=False, es_final=False, categoria="pausado",  sla_horas=72,  descripcion="Esperando información del solicitante o proveedor"),
+        Estado(nombre="Resuelto",       color="#10b981", orden=4, es_inicial=False, es_final=False, categoria="cerrado",  sla_horas=24,  descripcion="Solución aplicada, pendiente de cierre formal"),
+        Estado(nombre="Cerrado",        color="#475569", orden=5, es_inicial=False, es_final=True,  categoria="cerrado",  sla_horas=None, descripcion="Incidencia cerrada, SLA evaluado"),
+        Estado(nombre="Cancelado",      color="#9ca3af", orden=6, es_inicial=False, es_final=True,  categoria="cerrado",  sla_horas=None, descripcion="Cancelado por el solicitante o duplicado"),
+        # Producción OK: estado TERMINAL posterior a Cerrado. Indica que
+        # la corrección fue desplegada y verificada en ambiente productivo.
+        Estado(nombre="Producción OK",  color="#0d9488", orden=7, es_inicial=False, es_final=True,  categoria="produccion_ok", sla_horas=None, descripcion="Corrección desplegada y verificada en ambiente productivo"),
     ]
     for e in estados:
         db.add(e)
@@ -133,6 +136,12 @@ def seed_transiciones(db: Session):
         ("Resuelto", "Cancelado",   "administrador", True,  "Cancelar ticket resuelto"),
         # Desde Cerrado/Cancelado normalmente no se mueve, pero permitimos reapertura
         ("Cerrado", "En curso",     "administrador", True,  "Reabrir ticket cerrado"),
+        # Producción OK: estado terminal que confirma el deploy en producción.
+        # Todas estas transiciones requieren comentario obligatorio para
+        # documentar build/PR/ambiente o el motivo del rollback.
+        ("Cerrado", "Producción OK", "agente_senior", True,  "Confirmar deploy verificado en producción. Obligatorio documentar build/PR/ambiente."),
+        ("Producción OK", "Cerrado", "agente_senior", True,  "Rollback: el deploy en producción tuvo un incidente. Obligatorio documentar el motivo."),
+        ("Producción OK", "En curso", "administrador", True, "Reabrir ticket: el fix en producción presenta un bug que requiere trabajo."),
     ]
     for origen, destino, rol, comentario, desc in transiciones:
         db.add(TransicionEstado(
