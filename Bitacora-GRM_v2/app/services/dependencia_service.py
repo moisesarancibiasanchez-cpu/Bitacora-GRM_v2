@@ -350,15 +350,51 @@ class MSProjectXMLParser:
         return tareas
 
     def _parse_links(self) -> List[dict]:
-        """Lee los ``<PredecessorLink>`` y los mapea al enum interno."""
+        """Lee los ``<PredecessorLink>`` y los mapea al enum interno.
+
+        Soporta DOS formatos de MS Project XML:
+
+        Formato A (moderno, MP 2010+): el elemento incluye tanto
+        ``<PredecessorUID>`` como ``<SuccessorUID>`` y ``<PredecessorType>``.
+            <PredecessorLink>
+              <PredecessorUID>5</PredecessorUID>
+              <SuccessorUID>6</SuccessorUID>
+              <PredecessorType>1</PredecessorType>
+              <LinkLag>0</LinkLag>
+            </PredecessorLink>
+
+        Formato B (MP 2007/legacy): NO hay ``<SuccessorUID>`` (el sucesor
+        es el Task padre del PredecessorLink) y el tipo se llama ``<Type>``.
+            <PredecessorLink>
+              <PredecessorUID>389</PredecessorUID>
+              <Type>1</Type>
+              <CrossProject>0</CrossProject>
+              <LinkLag>0</LinkLag>
+              <LagFormat>7</LagFormat>
+            </PredecessorLink>
+
+        En el formato B el ``<Task>`` que CONTIENE el ``<PredecessorLink>``
+        es el sucesor; por eso necesitamos leer también el ``<UID>`` del
+        padre. La función acepta ambos formatos transparentemente.
+        """
         links: List[dict] = []
         contenedor = self._root.find(f"{self.NS}Tasks")
         if contenedor is None:
             return links
         for t in contenedor.findall(f"{self.NS}Task"):
+            # Sucesor: primero intentamos leer el UID del Task padre
+            # (válido en ambos formatos; en el formato A debe coincidir
+            # con <SuccessorUID> si está presente).
+            try:
+                parent_uid = int((t.findtext(f"{self.NS}UID") or "0").strip())
+            except ValueError:
+                parent_uid = 0
             for pl in t.findall(f"{self.NS}PredecessorLink"):
                 p = (pl.findtext(f"{self.NS}PredecessorUID") or "").strip()
+                # Soporta ambos formatos: <SuccessorUID> (A) o parent UID (B).
                 s = (pl.findtext(f"{self.NS}SuccessorUID") or "").strip()
+                if not s:
+                    s = str(parent_uid)
                 if not p or not s:
                     continue
                 try:
@@ -366,8 +402,16 @@ class MSProjectXMLParser:
                     suc_uid = int(s)
                 except ValueError:
                     continue
-                pred_type = (pl.findtext(f"{self.NS}PredecessorType") or "1").strip()
-                # Por defecto FS si no se reconoce el código
+                if pred_uid == suc_uid:
+                    # Una tarea no puede depender de sí misma.
+                    continue
+                # Tipo: <PredecessorType> (formato A) o <Type> (formato B).
+                # Ambos usan los mismos códigos: 0=FF, 1=FS, 2=SF, 3=SS.
+                pred_type = (
+                    (pl.findtext(f"{self.NS}PredecessorType") or "").strip()
+                    or (pl.findtext(f"{self.NS}Type") or "").strip()
+                    or "1"
+                )
                 tipo_enum = self.PRED_TYPE_MAP.get(pred_type, TipoDependencia.FS)
                 lag_str = (pl.findtext(f"{self.NS}LinkLag") or "0").strip()
                 try:
