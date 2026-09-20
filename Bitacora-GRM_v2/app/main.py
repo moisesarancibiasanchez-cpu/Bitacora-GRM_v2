@@ -2074,33 +2074,42 @@ async def admin_deadline_ejecutar(request: Request):
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Acceso restringido a Administradores")
 
+    from app.db.session import SessionLocal
+
     form = await request.form()
     trigger = (form.get("trigger") or "todos").lower()
 
-    if trigger == "today":
-        res = trigger_deadline_today()
-        resultados = {"today": res}
-    elif trigger == "missed":
-        res = trigger_deadline_missed()
-        resultados = {"missed": res}
-    elif trigger == "approaching":
-        res = trigger_deadline_approaching()
-        resultados = {"approaching": res}
-    elif trigger == "overdue":
-        res = trigger_task_overdue()
-        resultados = {"overdue": res}
-    else:
-        resultados = ejecutar_todos_los_triggers()
+    db = SessionLocal()
+    try:
+        if trigger == "today":
+            res = trigger_deadline_today(db)
+            resultados = {"today": res}
+        elif trigger == "missed":
+            res = trigger_deadline_missed(db)
+            resultados = {"missed": res}
+        elif trigger == "approaching":
+            res = trigger_deadline_approaching(db)
+            resultados = {"approaching": res}
+        elif trigger == "overdue":
+            res = trigger_task_overdue(db)
+            resultados = {"overdue": res}
+        else:
+            resultados = ejecutar_todos_los_triggers(db)
 
-    # Serializar a dict
-    payload = {}
-    for k, v in resultados.items():
-        payload[k] = {
-            "total": v.total,
-            "notificados": v.notificados,
-            "errores": v.errores,
-        }
-    return JSONResponse({"ok": True, "resultados": payload})
+        # Serializar a dict usando los campos reales de ResultadoTrigger
+        payload = {}
+        for k, v in resultados.items():
+            payload[k] = {
+                "trigger": v.trigger,
+                "tickets_encontrados": v.tickets_encontrados,
+                "notificaciones_creadas": v.notificaciones_creadas,
+                "emails_enviados": v.emails_enviados,
+                "tickets": v.tickets,
+                "errores": v.errores,
+            }
+        return JSONResponse({"ok": True, "resultados": payload})
+    finally:
+        db.close()
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
