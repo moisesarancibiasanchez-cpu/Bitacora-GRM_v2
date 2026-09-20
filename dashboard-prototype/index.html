@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard de Incidencias · Bitácora GRM v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+
+<!-- ============== TOP BAR ============== -->
+<header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+  <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-slate-800">Dashboard de Incidencias Levantadas</h1>
+        <p class="text-[11px] text-slate-500">Bitácora GRM v2 · Reporte operativo</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <!-- Period selector -->
+      <div class="inline-flex rounded-md border border-slate-200 overflow-hidden text-xs">
+        <button class="period-btn px-3 py-1.5 hover:bg-slate-100" data-dias="7">7d</button>
+        <button class="period-btn px-3 py-1.5 bg-indigo-600 text-white" data-dias="30">30d</button>
+        <button class="period-btn px-3 py-1.5 hover:bg-slate-100" data-dias="90">90d</button>
+      </div>
+      <button id="btn-refresh" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 inline-flex items-center gap-1.5">
+        <svg id="icon-refresh" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Actualizar
+      </button>
+      <button id="btn-autorefresh" class="px-2 py-1.5 text-xs rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="Auto-refresh 60s">
+        <span class="hidden md:inline">Auto-refresh</span> <span id="auto-state">OFF</span>
+      </button>
+      <button id="btn-export" class="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        CSV
+      </button>
+      <button id="btn-theme" class="px-2 py-1.5 text-xs rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="Modo oscuro">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- STATS BAR -->
+  <div class="border-t border-slate-100 bg-slate-50/60">
+    <div class="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-between text-xs flex-wrap gap-3">
+      <div class="flex items-center gap-5 flex-wrap">
+        <div class="flex items-center gap-1.5"><span class="text-slate-500">Total:</span><span class="font-bold text-slate-800" id="stat-total">—</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span><span class="text-slate-500">Nuevas (7d):</span><span class="font-bold text-slate-800" id="stat-nuevas">—</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span><span class="text-slate-500">Abiertas:</span><span class="font-bold text-slate-800" id="stat-abiertas">—</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span class="text-slate-500">% SLA:</span><span class="font-bold text-emerald-600" id="stat-sla">—</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span><span class="text-slate-500">Crít. sin asignar:</span><span class="font-bold text-red-600" id="stat-crit">—</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span><span class="text-slate-500">Backlog &gt;7d:</span><span class="font-bold text-amber-600" id="stat-backlog">—</span></div>
+      </div>
+      <div class="text-slate-500 hidden md:flex items-center gap-1">
+        <span id="last-update">—</span>
+        <span>·</span>
+        <span class="font-semibold text-indigo-600">en vivo</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============== MAIN ============== -->
+<main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+  <!-- FILA 1 — KPIs principales -->
+  <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- KPI 1 -->
+    <div class="kpi-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Incidencias levantadas</p>
+        <div class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        </div>
+      </div>
+      <p class="text-3xl font-bold text-slate-800" id="kpi-levantadas">—</p>
+      <p class="text-[11px] text-slate-500 mt-1"><span id="kpi-levantadas-delta" class="font-semibold">—</span> vs periodo anterior</p>
+      <div class="mt-3"><svg id="spark-levantadas" viewBox="0 0 100 30" class="w-full h-8" preserveAspectRatio="none"></svg></div>
+    </div>
+
+    <!-- KPI 2 -->
+    <div class="kpi-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">TME Resolución</p>
+        <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+      </div>
+      <p class="text-3xl font-bold text-slate-800" id="kpi-tme">—<span class="text-base font-medium text-slate-500">h</span></p>
+      <p class="text-[11px] text-slate-500 mt-1"><span id="kpi-tme-delta" class="font-semibold">—</span> vs periodo anterior</p>
+      <div class="mt-3"><svg id="spark-tme" viewBox="0 0 100 30" class="w-full h-8" preserveAspectRatio="none"></svg></div>
+    </div>
+
+    <!-- KPI 3 -->
+    <div class="kpi-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">% SLA Cumplido</p>
+        <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+      </div>
+      <p class="text-3xl font-bold text-emerald-600" id="kpi-sla">—<span class="text-base font-medium text-slate-500">%</span></p>
+      <p class="text-[11px] text-slate-500 mt-1"><span id="kpi-sla-delta" class="font-semibold">—</span> pp vs periodo anterior</p>
+      <div class="mt-3"><svg id="spark-sla" viewBox="0 0 100 30" class="w-full h-8" preserveAspectRatio="none"></svg></div>
+    </div>
+
+    <!-- KPI 4 -->
+    <div class="kpi-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Backlog activo</p>
+        <div class="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+        </div>
+      </div>
+      <p class="text-3xl font-bold text-slate-800" id="kpi-backlog">—</p>
+      <p class="text-[11px] text-slate-500 mt-1"><span id="kpi-backlog-delta" class="font-semibold">—</span> vs periodo anterior</p>
+      <div class="mt-3"><svg id="spark-backlog" viewBox="0 0 100 30" class="w-full h-8" preserveAspectRatio="none"></svg></div>
+    </div>
+  </section>
+
+  <!-- FILA 2 — Funnel + Actividad -->
+  <section class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+    <!-- Funnel -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm lg:col-span-2">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18M6 4v16m12-16v16M9 9h6m-6 4h6"/></svg>
+          Funnel de avance
+        </h3>
+        <span class="text-[11px] text-slate-400">click para detalle</span>
+      </div>
+      <div id="funnel-container" class="space-y-2"></div>
+    </div>
+
+    <!-- Actividad diaria -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm lg:col-span-3">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+          Actividad diaria
+        </h3>
+        <div class="flex items-center gap-2 text-[11px] text-slate-500">
+          <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-indigo-500"></span>Levantadas</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span>Cerradas</span>
+          <span class="inline-flex items-center gap-1 ml-2"><span class="w-3 h-0.5 bg-amber-500"></span>Media 7d</span>
+        </div>
+      </div>
+      <svg id="chart-activity" viewBox="0 0 600 180" class="w-full h-44" preserveAspectRatio="none"></svg>
+    </div>
+  </section>
+
+  <!-- FILA 3 — Aging + Riesgo -->
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Aging -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Aging del backlog
+        </h3>
+        <span class="text-[11px] text-slate-400">cohorte por antigüedad</span>
+      </div>
+      <div id="aging-container" class="space-y-2.5"></div>
+    </div>
+
+    <!-- Próximos a vencer SLA -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Próximos a vencer SLA (72h)
+        </h3>
+        <select id="riesgo-horas" class="text-[11px] border border-slate-200 rounded px-1.5 py-0.5">
+          <option value="24">24 h</option>
+          <option value="48">48 h</option>
+          <option value="72" selected>72 h</option>
+        </select>
+      </div>
+      <div class="overflow-y-auto max-h-72">
+        <table class="w-full text-xs">
+          <thead class="text-[10px] uppercase text-slate-500 sticky top-0 bg-white">
+            <tr>
+              <th class="text-left py-2 px-2 font-semibold">Código</th>
+              <th class="text-left font-semibold">Título</th>
+              <th class="text-left font-semibold">Prioridad</th>
+              <th class="text-left font-semibold">Estado</th>
+              <th class="text-right font-semibold">Vence en</th>
+              <th class="text-left font-semibold">Asignado</th>
+            </tr>
+          </thead>
+          <tbody id="riesgo-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- FILA 4 — Carga + Origen -->
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Carga por agente -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          Carga por agente
+        </h3>
+        <span class="text-[11px] text-slate-400">Top 8 asignados</span>
+      </div>
+      <div id="carga-container" class="space-y-2"></div>
+    </div>
+
+    <!-- Por origen -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          Por origen / canal
+        </h3>
+        <span class="text-[11px] text-slate-400">tickets del periodo</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4 items-center">
+        <svg id="donut-origen" viewBox="0 0 120 120" class="w-full max-w-[180px] mx-auto"></svg>
+        <div id="origen-legend" class="space-y-1.5 text-xs"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FILA 5 — Mini Kanban demo (drag&drop) + Cierre -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Mini kanban -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm lg:col-span-2">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10v-2m0-10V5"/></svg>
+          Mini Kanban (demostración drag&drop)
+        </h3>
+        <span class="text-[11px] text-slate-400">arrastra para simular transición</span>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs">
+        <div class="kanban-col bg-slate-50 border border-slate-200 rounded-lg p-2 min-h-[140px]" data-estado="BackLog">
+          <div class="font-semibold text-slate-700 mb-2 text-center">BackLog</div>
+          <div class="kanban-list space-y-1.5"></div>
+        </div>
+        <div class="kanban-col bg-slate-50 border border-slate-200 rounded-lg p-2 min-h-[140px]" data-estado="En desarrollo">
+          <div class="font-semibold text-blue-700 mb-2 text-center">En desarrollo</div>
+          <div class="kanban-list space-y-1.5"></div>
+        </div>
+        <div class="kanban-col bg-slate-50 border border-slate-200 rounded-lg p-2 min-h-[140px]" data-estado="QA">
+          <div class="font-semibold text-purple-700 mb-2 text-center">UAT-QA</div>
+          <div class="kanban-list space-y-1.5"></div>
+        </div>
+      </div>
+      <p class="mt-3 text-[11px] text-slate-500"><strong>Demuestra:</strong> la interacción drag&drop que se integra con FastAPI + audit + Celery. Cada transición se registra y dispara recálculo SLA.</p>
+    </div>
+
+    <!-- Distribución de cierre -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Distribución de cierre
+        </h3>
+        <span class="text-[11px] text-slate-400">en periodo</span>
+      </div>
+      <svg id="donut-cierre" viewBox="0 0 120 120" class="w-full max-w-[180px] mx-auto"></svg>
+      <div id="cierre-legend" class="mt-3 space-y-1 text-xs"></div>
+    </div>
+  </section>
+
+  <!-- FILA 6 — Tabla de tickets recientes -->
+  <section class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <div class="flex items-center justify-between p-4 border-b border-slate-100">
+      <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+        <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+        Últimas incidencias levantadas
+      </h3>
+      <div class="flex items-center gap-2">
+        <input id="tickets-filter" type="text" placeholder="Buscar código/título..." class="text-xs px-3 py-1.5 border border-slate-200 rounded-md w-56 focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
+        <select id="tickets-prio" class="text-xs px-2 py-1.5 border border-slate-200 rounded-md">
+          <option value="">Toda prioridad</option>
+          <option value="CRITICA">Crítica</option>
+          <option value="ALTA">Alta</option>
+          <option value="MEDIA">Media</option>
+          <option value="BAJA">Baja</option>
+        </select>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="bg-slate-50 text-[10px] uppercase text-slate-500">
+          <tr>
+            <th class="text-left py-2.5 px-3 font-semibold">Código</th>
+            <th class="text-left font-semibold">Título</th>
+            <th class="text-left font-semibold">Estado</th>
+            <th class="text-left font-semibold">Prioridad</th>
+            <th class="text-left font-semibold">Asignado</th>
+            <th class="text-left font-semibold">Solicitante</th>
+            <th class="text-left font-semibold">SLA</th>
+            <th class="text-left font-semibold">Creado</th>
+          </tr>
+        </thead>
+        <tbody id="tickets-tbody" class="divide-y divide-slate-100"></tbody>
+      </table>
+    </div>
+    <div class="px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+      <span id="tickets-count">Mostrando 0 tickets</span>
+      <span>Pulsa una fila para detalle</span>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============== MODAL DETALLE ============== -->
+<div id="modal-backdrop" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden animate-fadeIn">
+    <div class="flex items-start justify-between p-5 border-b border-slate-100">
+      <div>
+        <span class="text-[10px] font-mono px-2 py-0.5 bg-slate-100 rounded text-slate-600" id="modal-codigo">—</span>
+        <h3 class="text-base font-bold text-slate-800 mt-1.5" id="modal-titulo">—</h3>
+      </div>
+      <button id="modal-close" class="text-slate-400 hover:text-slate-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-5 space-y-3 text-sm">
+      <div class="grid grid-cols-2 gap-3">
+        <div><p class="text-[10px] uppercase text-slate-500">Estado</p><p class="font-semibold" id="modal-estado">—</p></div>
+        <div><p class="text-[10px] uppercase text-slate-500">Prioridad</p><p class="font-semibold" id="modal-prioridad">—</p></div>
+        <div><p class="text-[10px] uppercase text-slate-500">Asignado a</p><p class="font-semibold" id="modal-asignado">—</p></div>
+        <div><p class="text-[10px] uppercase text-slate-500">Solicitante</p><p class="font-semibold" id="modal-solicitante">—</p></div>
+        <div><p class="text-[10px] uppercase text-slate-500">Vence SLA</p><p class="font-semibold" id="modal-vence">—</p></div>
+        <div><p class="text-[10px] uppercase text-slate-500">Creado</p><p class="font-semibold" id="modal-creado">—</p></div>
+      </div>
+      <div>
+        <p class="text-[10px] uppercase text-slate-500">Etiquetas</p>
+        <div id="modal-etiquetas" class="flex flex-wrap gap-1 mt-1"></div>
+      </div>
+      <div>
+        <p class="text-[10px] uppercase text-slate-500">Descripción</p>
+        <p class="mt-1 text-slate-700 text-xs leading-relaxed bg-slate-50 rounded p-2 border border-slate-100" id="modal-desc">—</p>
+      </div>
+    </div>
+    <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+      <button class="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-700 hover:bg-white">Ver historial</button>
+      <button class="px-3 py-1.5 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700">Abrir ticket completo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============== TOAST ============== -->
+<div id="toast" class="fixed bottom-6 right-6 z-50 hidden bg-slate-800 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs font-medium animate-fadeIn"></div>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+
+<script>
+/**
+ * Iframe 元素高亮注入脚本
+ * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
+ *
+ * 使用方法：
+ * 1. 将此脚本添加到目标网站的 HTML 中
+ * 2. 或通过浏览器扩展、用户脚本等方式注入
+ */
+
+(function () {
+  "use strict";
+
+  // 检查是否在 iframe 中
+  if (window.self === window.top) {
+    return; // 不在 iframe 中，不执行
+  }
+
+  // 检查是否已经初始化过
+  if (window.__iframeHighlightInitialized) {
+    return;
+  }
+  window.__iframeHighlightInitialized = true;
+  console.log("Iframe 高亮脚本已加载");
+
+  // 创建高亮覆盖层
+  var overlay = document.createElement("div");
+  overlay.id = "iframe-highlight-overlay";
+  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
+
+  // 创建悬停高亮框（虚线边框）
+  var highlightBox = document.createElement("div");
+  highlightBox.id = "iframe-highlight-box";
+  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
+
+  // 创建选中节点的常驻高亮框（实线边框）
+  var selectedBox = document.createElement("div");
+  selectedBox.id = "iframe-selected-box";
+  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
+
+  // 创建悬停标签显示
+  var tagLabel = document.createElement("div");
+  tagLabel.id = "iframe-tag-label";
+  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
+
+  // 创建选中节点标签
+  var selectedLabel = document.createElement("div");
+  selectedLabel.id = "iframe-selected-label";
+  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
+  overlay.appendChild(highlightBox);
+  overlay.appendChild(selectedBox);
+  overlay.appendChild(tagLabel);
+  overlay.appendChild(selectedLabel);
+  document.body.appendChild(overlay);
+
+  // 存储当前选中的元素
+  var selectedElement = null;
+  var highlightEnabled = false;
+
+  // 更新选中元素的高亮显示
+  function updateSelectedHighlight(element) {
+    console.log("updateSelectedHighlight called with:", element);
+    if (!element) {
+      selectedBox.style.display = "none";
+      selectedLabel.style.display = "none";
+      selectedElement = null;
+      console.log("Cleared selected highlight");
+      return;
+    }
+    selectedElement = element;
+    var rect = element.getBoundingClientRect();
+    console.log("Selected element rect:", rect);
+
+    // 更新选中高亮框位置
+    selectedBox.style.display = "block";
+    selectedBox.style.left = "".concat(rect.left - 2, "px");
+    selectedBox.style.top = "".concat(rect.top - 2, "px");
+    selectedBox.style.width = "".concat(rect.width + 4, "px");
+    selectedBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新选中标签位置和内容
+    selectedLabel.style.display = "block";
+    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 28;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 5) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
+    if (labelLeft + labelWidth > window.innerWidth - 10) {
+      labelLeft = window.innerWidth - labelWidth - 10;
+    }
+    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
+    selectedLabel.style.top = "".concat(labelTop, "px");
+    console.log("Selected highlight positioned at:", {
+      left: selectedBox.style.left,
+      top: selectedBox.style.top,
+      width: selectedBox.style.width,
+      height: selectedBox.style.height
+    });
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
+    var segments = [];
+    var current = element;
+    while (current !== document.documentElement) {
+      var selector = '';
+      // 优先检查唯一ID
+      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
+        segments.unshift("#".concat(current.id));
+        break; // ID唯一，无需继续向上
+      }
+
+      // 生成类名选择器（取第一个有效类名）
+      var classes = Array.from(current.classList).filter(function (c) {
+        return !c.startsWith('js-');
+      });
+      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
+
+      // 生成位置索引（nth-child）
+      var tag = current.tagName.toLowerCase();
+      if (!className) {
+        var siblings = Array.from(current.parentNode.children);
+        var index = siblings.findIndex(function (el) {
+          return el === current;
+        }) + 1;
+        selector = "".concat(tag, ":nth-child(").concat(index, ")");
+      } else {
+        selector = className;
+      }
+      segments.unshift(selector);
+      current = current.parentElement;
+    }
+
+    // 处理根元素
+    if (current === document.documentElement) {
+      segments.unshift('html');
+    }
+    return segments.join(' > ');
+  }
+
+  // 获取元素文本内容
+  function getElementText(element) {
+    var _element$textContent;
+    if (element.tagName === "INPUT") {
+      return element.value || element.placeholder || "";
+    }
+    if (element.tagName === "TEXTAREA") {
+      return element.value || element.placeholder || "";
+    }
+    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
+    return text.length > 50 ? text.substring(0, 50) + "..." : text;
+  }
+
+  // 获取元素属性信息
+  function getElementAttributes(element) {
+    var attrs = {};
+    for (var i = 0; i < element.attributes.length; i++) {
+      var attr = element.attributes[i];
+      attrs[attr.name] = attr.value;
+    }
+    return attrs;
+  }
+
+  // 鼠标悬停事件处理
+  function handleMouseOver(e) {
+    if (!highlightEnabled) return;
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免高亮 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 如果是已选中的元素，不显示悬停高亮
+    if (target === selectedElement) {
+      highlightBox.style.display = "none";
+      tagLabel.style.display = "none";
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+
+    // 更新悬停高亮框位置
+    highlightBox.style.display = "block";
+    highlightBox.style.left = "".concat(rect.left - 2, "px");
+    highlightBox.style.top = "".concat(rect.top - 2, "px");
+    highlightBox.style.width = "".concat(rect.width + 4, "px");
+    highlightBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新标签位置和内容
+    tagLabel.style.display = "block";
+    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 22;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 0) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
+      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
+    }
+    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
+    tagLabel.style.top = "".concat(labelTop, "px");
+
+    // 发送消息到父窗口
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 鼠标离开事件处理
+  function handleMouseOut(e) {
+    if (!highlightEnabled) return;
+    var relatedTarget = e.relatedTarget;
+
+    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
+    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
+      return;
+    }
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: null,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 点击事件处理
+  function handleClick(e) {
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免处理 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 检查是否是交互元素，这些元素需要保留默认行为
+    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
+
+    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
+    if (highlightEnabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+    console.log("Element clicked:", {
+      tagName: target.tagName,
+      selector: selector,
+      rect: rect
+    });
+
+    // 立即更新选中高亮
+    updateSelectedHighlight(target);
+
+    // 隐藏悬停高亮，因为现在是选中状态
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-click",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 监听来自父窗口的消息
+  function handleParentMessage(event) {
+    console.log("Received message from parent:", event.data);
+    if (event.data.type === "iframe-highlight-toggle") {
+      var enabled = event.data.enabled;
+      console.log("Highlight toggle:", enabled);
+      if (enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "enable-iframe-highlight") {
+      console.log("Enable iframe highlight");
+      enableHighlight();
+    } else if (event.data.type === "disable-iframe-highlight") {
+      console.log("Disable iframe highlight");
+      disableHighlight();
+    } else if (event.data.type === "toggle-iframe-highlight") {
+      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
+      console.log("Toggle iframe highlight to:", _enabled);
+      if (_enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "update-selected-element") {
+      var selector = event.data.selector;
+      console.log("Update selected element with selector:", selector);
+      if (selector) {
+        try {
+          var element = document.querySelector(selector);
+          console.log("Found element by selector:", element);
+          updateSelectedHighlight(element);
+        } catch (error) {
+          console.warn("Failed to select element:", error);
+          updateSelectedHighlight(null);
+        }
+      } else {
+        updateSelectedHighlight(null);
+      }
+    } else if (event.data.type === "clear-selected-element") {
+      console.log("Clear selected element");
+      updateSelectedHighlight(null);
+    }
+  }
+
+  // 启用高亮功能
+  function enableHighlight() {
+    console.log("Enabling highlight");
+    document.addEventListener("mouseover", handleMouseOver, true);
+    document.addEventListener("mouseout", handleMouseOut, true);
+    document.addEventListener("click", handleClick, true);
+    highlightEnabled = true;
+    overlay.style.display = "block";
+  }
+
+  // 禁用高亮功能
+  function disableHighlight() {
+    console.log("Disabling highlight");
+    highlightEnabled = false;
+    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
+    // 这样可以保留选中状态的显示
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
+  }
+
+  // 完全禁用高亮功能（移除所有监听器）
+  function fullyDisableHighlight() {
+    console.log("Fully disabling highlight");
+    highlightEnabled = false;
+    document.removeEventListener("mouseover", handleMouseOver, true);
+    document.removeEventListener("mouseout", handleMouseOut, true);
+    document.removeEventListener("click", handleClick, true);
+    overlay.style.display = "none";
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    selectedBox.style.display = "none";
+    selectedLabel.style.display = "none";
+  }
+
+  // 添加事件监听
+  enableHighlight();
+  window.addEventListener("message", handleParentMessage);
+
+  // 暴露全局函数供外部调用
+  window.__iframeHighlightControl = {
+    enable: enableHighlight,
+    disable: disableHighlight,
+    fullyDisable: fullyDisableHighlight,
+    isEnabled: function isEnabled() {
+      return highlightEnabled;
+    },
+    getSelectedElement: function getSelectedElement() {
+      return selectedElement;
+    },
+    updateSelected: updateSelectedHighlight,
+    // 通过消息发送开关控制
+    sendToggleMessage: function sendToggleMessage(enabled) {
+      window.parent.postMessage({
+        type: 'iframe-highlight-status',
+        enabled: enabled || highlightEnabled,
+        source: 'iframe-highlight-injector'
+      }, '*');
+    }
+  };
+
+  // 通知父窗口脚本已加载
+  try {
+    window.parent.postMessage({
+      type: "iframe-highlight-ready",
+      data: {
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now()
+      },
+      source: "iframe-highlight-injector"
+    }, "*");
+  } catch (error) {
+    console.warn("无法发送就绪消息到父窗口:", error);
+  }
+
+  // 清理函数
+  window.__iframeHighlightCleanup = function () {
+    fullyDisableHighlight();
+    window.removeEventListener("message", handleParentMessage);
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    delete window.__iframeHighlightInitialized;
+    delete window.__iframeHighlightCleanup;
+  };
+})();
+
+</script>
+</body>
+</html>
