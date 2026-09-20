@@ -15,6 +15,7 @@ genérico para tocar configuración del sistema).
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
@@ -34,6 +35,29 @@ from app.services.dependencia_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dependencias", tags=["dependencias"])
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+def _parse_msp_date(date_str: str) -> Optional[datetime]:
+    """Parsea fechas en formato MS Project (``YYYY-MM-DDTHH:MM:SS``)
+    devolviendo un ``datetime`` naive (UTC implícito). Si no se puede
+    parsear, devuelve ``None``.
+    """
+    if not date_str:
+        return None
+    s = date_str.strip()
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 # -----------------------------------------------------------------------------
@@ -186,6 +210,12 @@ class ImportarXMLRequest(BaseModel):
         description="Si True, crea tickets para las tareas del XML que NO "
                     "existan en Bitácora (match por codigo + HU).",
     )
+    actualizar_fechas: bool = Field(
+        True,
+        description="Si True, completa fecha_inicio y fecha_vencimiento_sla "
+                    "de los tickets existentes a partir de las fechas del "
+                    "XML. Esto es lo que hace que el Gantt muestre datos.",
+    )
 
 
 class ImportarXMLResponse(BaseModel):
@@ -193,6 +223,7 @@ class ImportarXMLResponse(BaseModel):
     tareas_xml: int
     tareas_conocidas: int
     tareas_a_crear: List[dict]
+    fechas_actualizadas: int = 0
     links_xml: int
     links_a_crear: List[dict]
     links_omitidos: List[dict]
@@ -208,14 +239,17 @@ def importar_xml(
     """Importa dependencias desde un XML de MS Project (.mpp exportado).
 
     Lógica:
-        1. Parsea el XML.
-        2. Para cada ``<Task>`` busca un ticket existente con el mismo
-           ``UID`` (lo intentamos mapear por el campo ``hu_o_caso_prueba``
-           que viene en los tickets GAR_, o por el código directo si
-           ya lo tenemos guardado).
-        3. Para cada ``<PredecessorLink>`` con predecesor y sucesor
+        1. Parsea el XML (acepta formato A moderno y formato B legacy).
+        2. Para cada ``<Task>`` busca un ticket existente matcheando por
+           ``hu_o_caso_prueba`` o por ``codigo`` (estrategia case-insensitive
+           en ambos sentidos).
+        3. Si ``actualizar_fechas=True`` (default) y el ticket matcheado
+           NO tiene ``fecha_inicio`` o ``fecha_vencimiento_sla``, los
+           completa con las del XML. Esto es CRÍTICO para que el Gantt
+           muestre datos.
+        4. Para cada ``<PredecessorLink>`` con predecesor y sucesor
            conocidos, crea la dependencia (con el tipo FS/SS/FF/SF).
-        4. Si ``dry_run=True``, NO persiste; sólo reporta lo que haría.
+        5. Si ``dry_run=True``, NO persiste; sólo reporta lo que haría.
     """
     _requiere_admin_o_agente_senior(usuario)
 
@@ -240,6 +274,8 @@ def importar_xml(
         """Encuentra el ticket que corresponde a una tarea del XML."""
         # Estrategia 1: por hu_o_caso_prueba exacto (case-insensitive)
         hu_busqueda = (tarea.get("wbs") or tarea.get("name", "")).strip()
+        if not hu_busqueda:
+            return None
         for t in tickets:
             if t.hu_o_caso_prueba and t.hu_o_caso_prueba.strip().lower() == hu_busqueda.lower():
                 return t
@@ -247,17 +283,34 @@ def importar_xml(
         for t in tickets:
             if t.codigo and hu_busqueda and hu_busqueda.lower() in t.codigo.lower():
                 return t
+        # Estrategia 3: por nombre del ticket que contenga el name del XML
+        name_busqueda = (tarea.get("name") or "").strip()
+        if name_busqueda:
+            for t in tickets:
+                if t.titulo and name_busqueda.lower()[:25] in t.titulo.lower():
+                    return t
         return None
 
-    # 3) Resolver tareas
+    # 3) Resolver tareas y, opcionalmente, completar fechas en tickets
     tareas_conocidas = 0
     mapa_uid_a_ticket = {}  # uid_xml → Ticket
     tareas_a_crear = []
+    fechas_actualizadas = 0
     for tarea in data["tareas"]:
         t = _match_ticket(tarea)
         if t:
             mapa_uid_a_ticket[tarea["uid"]] = t
             tareas_conocidas += 1
+            # Completar fechas si está habilitado y faltan en el ticket.
+            if payload.actualizar_fechas and not payload.dry_run:
+                inicio_dt = _parse_msp_date(tarea.get("start"))
+                fin_dt = _parse_msp_date(tarea.get("finish"))
+                if inicio_dt and not t.fecha_inicio:
+                    t.fecha_inicio = inicio_dt
+                    fechas_actualizadas += 1
+                if fin_dt and not t.fecha_vencimiento_sla:
+                    t.fecha_vencimiento_sla = fin_dt
+                    fechas_actualizadas += 1
         elif payload.crear_tickets_faltantes:
             tareas_a_crear.append({
                 "uid": tarea["uid"],
@@ -267,6 +320,14 @@ def importar_xml(
                 "finish": tarea["finish"],
                 "duration_hours": tarea["duration_hours"],
             })
+
+    # Persistir los cambios de fechas si corresponde.
+    if fechas_actualizadas and not payload.dry_run:
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            errores.append(f"Error al persistir fechas: {e}")
 
     # 4) Resolver links
     svc = TicketDependenciaService(db)
@@ -314,6 +375,7 @@ def importar_xml(
         tareas_xml=len(data["tareas"]),
         tareas_conocidas=tareas_conocidas,
         tareas_a_crear=tareas_a_crear,
+        fechas_actualizadas=fechas_actualizadas,
         links_xml=len(data["links"]),
         links_a_crear=links_a_crear,
         links_omitidos=links_omitidos,
@@ -326,6 +388,7 @@ async def importar_xml_file(
     file: UploadFile = File(...),
     dry_run: bool = True,
     crear_tickets_faltantes: bool = False,
+    actualizar_fechas: bool = True,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
@@ -339,5 +402,6 @@ async def importar_xml_file(
         xml_content=contenido.decode("utf-8", errors="replace"),
         dry_run=dry_run,
         crear_tickets_faltantes=crear_tickets_faltantes,
+        actualizar_fechas=actualizar_fechas,
     )
     return importar_xml(payload, db=db, usuario=usuario)

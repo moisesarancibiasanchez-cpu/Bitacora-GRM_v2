@@ -9,11 +9,10 @@
      - Este mes (próximos 30 días)
      - Sin fecha (gris)
 
-   Cada grupo se muestra como una lista vertical de tarjetas con:
-     - Código y prioridad
-     - Título
-     - Asignado y responsable
-     - Días restantes / vencidos
+   Cada grupo se muestra como una TABLA con cabecera fija que ocupa
+   todo el ancho disponible. El contenedor tiene scroll vertical
+   (max-h-[calc(100vh-220px)]) para mantener la toolbar y las stats
+   siempre visibles al hacer scroll en la lista de tickets.
 
    Carga inicial desde servidor (render Jinja); se actualiza vía HTMX
    al cambiar filtros sin recargar la página completa.
@@ -24,47 +23,145 @@
 
 {% block extra_css %}
 <style>
-  .planner-section { background: #fff; border-radius: 12px; padding: 1rem;
-                     box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 1rem; }
-  .planner-section.overdue  { border-left: 4px solid #ef4444; }
-  .planner-section.today    { border-left: 4px solid #f59e0b; }
-  .planner-section.tomorrow { border-left: 4px solid #3b82f6; }
-  .planner-section.week     { border-left: 4px solid #6366f1; }
-  .planner-section.month    { border-left: 4px solid #8b5cf6; }
-  .planner-section.no-date  { border-left: 4px solid #cbd5e1; }
-  .planner-section-header { display: flex; align-items: center; justify-content: space-between;
-                            margin-bottom: .75rem; }
-  .planner-section-title  { font-size: 1rem; font-weight: 700; color: #1e293b;
-                            display: flex; align-items: center; gap: .5rem; }
-  .planner-section-count  { font-size: .75rem; color: #64748b; background: #f1f5f9;
-                            padding: .125rem .5rem; border-radius: 999px; }
-  .planner-card { background: #f8fafc; border: 1px solid #e2e8f0;
-                  border-radius: 8px; padding: .5rem .75rem; margin-bottom: .5rem;
-                  display: flex; align-items: center; gap: .75rem;
-                  cursor: pointer; transition: all .15s ease; }
-  .planner-card:hover { border-color: #6366f1; background: #fff;
-                        transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,.05); }
-  .planner-card.overdue  { background: #fef2f2; border-color: #fecaca; }
-  .planner-card.today    { background: #fffbeb; border-color: #fde68a; }
-  .planner-priority-dot  { width: .75rem; height: .75rem; border-radius: 999px;
-                            flex-shrink: 0; }
-  .planner-card-code     { font-family: monospace; font-size: .75rem;
-                            color: #6366f1; font-weight: 600; }
-  .planner-card-title    { font-size: .875rem; color: #1e293b;
-                            flex: 1; overflow: hidden; text-overflow: ellipsis;
-                            white-space: nowrap; }
-  .planner-card-meta     { font-size: .75rem; color: #64748b;
-                            display: flex; gap: .75rem; align-items: center; }
-  .planner-due           { font-size: .75rem; padding: .125rem .5rem;
-                            border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; }
-  .planner-due.overdue   { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
-  .planner-due.today     { background: #fef3c7; color: #92400e; border-color: #fde68a; }
-  .planner-due.tomorrow  { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+  /* ===== Contenedor con scroll vertical ===== */
+  .planner-scroll {
+    max-height: calc(100vh - 240px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+    /* Scroll suave */
+    scroll-behavior: smooth;
+  }
+  .planner-scroll::-webkit-scrollbar { width: 8px; }
+  .planner-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+  .planner-scroll::-webkit-scrollbar-thumb {
+    background: #cbd5e1; border-radius: 4px;
+  }
+  .planner-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* ===== Tarjeta/sección ===== */
+  .planner-section {
+    background: #fff;
+    border-radius: 12px;
+    padding: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    margin-bottom: 1rem;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+  }
+  .planner-section.overdue  { border-top: 4px solid #ef4444; }
+  .planner-section.today    { border-top: 4px solid #f59e0b; }
+  .planner-section.tomorrow { border-top: 4px solid #3b82f6; }
+  .planner-section.week     { border-top: 4px solid #6366f1; }
+  .planner-section.month    { border-top: 4px solid #8b5cf6; }
+  .planner-section.no-date  { border-top: 4px solid #cbd5e1; }
+
+  /* ===== Cabecera de la sección (sticky dentro de la tabla) ===== */
+  .planner-section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .planner-section-title {
+    font-size: 0.95rem; font-weight: 700; color: #1e293b;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .planner-section-count {
+    font-size: .75rem; color: #475569; background: #fff;
+    padding: .25rem .625rem; border-radius: 999px;
+    border: 1px solid #e2e8f0; font-weight: 600;
+  }
+
+  /* ===== Tabla del Planner ===== */
+  .planner-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.875rem;
+  }
+  .planner-table thead th {
+    position: sticky; top: 0; z-index: 5;
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 600; font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .planner-table tbody tr {
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .planner-table tbody tr:hover { background: #eef2ff; }
+  .planner-table tbody tr.row-overdue { background: #fef2f2; }
+  .planner-table tbody tr.row-overdue:hover { background: #fee2e2; }
+  .planner-table tbody tr.row-today { background: #fffbeb; }
+  .planner-table tbody tr.row-today:hover { background: #fef3c7; }
+  .planner-table tbody tr.row-tomorrow { background: #eff6ff; }
+  .planner-table tbody tr.row-tomorrow:hover { background: #dbeafe; }
+
+  .planner-table tbody td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+  .planner-table tbody tr:last-child td { border-bottom: none; }
+
+  /* ===== Celdas específicas ===== */
+  .planner-cell-code {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.75rem; color: #6366f1; font-weight: 600;
+    white-space: nowrap;
+  }
+  .planner-cell-title {
+    color: #1e293b; font-weight: 500;
+    max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .planner-cell-meta {
+    color: #64748b; font-size: 0.75rem;
+    display: flex; gap: .5rem; align-items: center;
+  }
+  .planner-cell-due {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .planner-prio-dot {
+    width: 0.625rem; height: 0.625rem; border-radius: 999px;
+    display: inline-block; vertical-align: middle;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px #e2e8f0;
+  }
+  .planner-due-badge {
+    display: inline-block;
+    font-size: 0.7rem; font-weight: 600;
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    background: #f1f5f9; color: #334155;
+    border: 1px solid #e2e8f0;
+  }
+  .planner-due-badge.overdue {
+    background: #fee2e2; color: #991b1b; border-color: #fecaca;
+  }
+  .planner-due-badge.today {
+    background: #fef3c7; color: #92400e; border-color: #fde68a;
+  }
+  .planner-due-badge.tomorrow {
+    background: #dbeafe; color: #1e40af; border-color: #bfdbfe;
+  }
+  .planner-due-badge.week {
+    background: #e0e7ff; color: #3730a3; border-color: #c7d2fe;
+  }
+  .planner-due-badge.month {
+    background: #ede9fe; color: #5b21b6; border-color: #ddd6fe;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="px-4 py-3 max-w-[1200px] mx-auto">
+<div class="px-4 py-3 max-w-[1400px] mx-auto">
 
   {# ============ Toolbar ============ #}
   <header class="flex flex-wrap items-center gap-3 mb-4">
@@ -124,8 +221,8 @@
     </div>
   </div>
 
-  {# ============ Contenido (HTMX swap target) ============ #}
-  <div id="planner-content">
+  {# ============ Contenido (HTMX swap target) con SCROLL VERTICAL ============ #}
+  <div id="planner-content" class="planner-scroll">
     {% include "vistas/_planner_sections.html" %}
   </div>
 
@@ -138,7 +235,7 @@
 {% block extra_js %}
 <script>
 document.body.addEventListener('click', ev => {
-  const card = ev.target.closest('.planner-card');
+  const card = ev.target.closest('.planner-table tbody tr');
   if (!card) return;
   const id = card.dataset.ticketId;
   if (!id) return;

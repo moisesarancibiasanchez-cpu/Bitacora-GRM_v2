@@ -1,82 +1,80 @@
 {# Partial usado por /vistas/planner y por el endpoint HTMX GET mismo.
-   Contiene sólo las secciones; no extiende base.html (para que el swap HTMX funcione). #}
-{% macro render_card(t, due_class, due_label) %}
-<div class="planner-card {{ due_class }}" data-ticket-id="{{ t.id }}" data-ticket-codigo="{{ t.codigo }}">
-  <span class="planner-priority-dot" style="background:{{ t.prioridad_color|default('#94a3b8') }}"></span>
-  <div class="flex-1 min-w-0">
-    <div class="flex items-center gap-2">
-      <span class="planner-card-code">{{ t.codigo }}</span>
-      <span class="planner-card-title">{{ t.titulo[:80] }}</span>
-    </div>
-    <div class="planner-card-meta">
-      {% if t.estado_nombre %}<span>📌 {{ t.estado_nombre }}</span>{% endif %}
-      {% if t.asignado_nombre %}<span>👤 {{ t.asignado_nombre }}</span>{% endif %}
-      {% if t.modulo %}<span>📁 {{ t.modulo }}</span>{% endif %}
-    </div>
-  </div>
-  <span class="planner-due {{ due_class }}">{{ due_label }}</span>
-</div>
+   Contiene sólo las secciones; no extiende base.html (para que el swap HTMX funcione).
+
+   Estructura: cada grupo (vencidos/hoy/mañana/semana/mes/sin_fecha) es una
+   <section> con cabecera + tabla HTML semántica. Las filas se identifican
+   por data-ticket-id para que el handler click del padre abra el modal
+   de detalle. #}
+
+{% macro render_section(group_key, title, icon, tickets, row_class) %}
+<section class="planner-section {{ row_class }}">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">
+      <span aria-hidden="true">{{ icon }}</span>
+      <span>{{ title }}</span>
+    </h2>
+    <span class="planner-section-count">{{ tickets|length }} {{ 'ticket' if tickets|length == 1 else 'tickets' }}</span>
+  </header>
+  {% if tickets %}
+  <table class="planner-table">
+    <thead>
+      <tr>
+        <th style="width:8%">Código</th>
+        <th style="width:32%">Título</th>
+        <th style="width:14%">Estado</th>
+        <th style="width:14%">Asignado</th>
+        <th style="width:14%">Módulo</th>
+        <th style="width:6%" title="Prioridad">Pri.</th>
+        <th style="width:12%" class="planner-cell-due">Vence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tickets %}
+      <tr class="{{ row_class }}" data-ticket-id="{{ t.id }}" data-ticket-codigo="{{ t.codigo }}">
+        <td><span class="planner-cell-code">{{ t.codigo }}</span></td>
+        <td><div class="planner-cell-title" title="{{ t.titulo }}">{{ t.titulo[:80] }}</div></td>
+        <td>
+          {% if t.estado_nombre %}
+          <span class="planner-cell-meta">📌 {{ t.estado_nombre }}</span>
+          {% else %}
+          <span class="planner-cell-meta text-slate-400">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if t.asignado_nombre %}
+          <span class="planner-cell-meta">👤 {{ t.asignado_nombre }}</span>
+          {% else %}
+          <span class="planner-cell-meta text-slate-400">Sin asignar</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if t.modulo %}
+          <span class="planner-cell-meta">📁 {{ t.modulo }}</span>
+          {% else %}
+          <span class="planner-cell-meta text-slate-400">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="planner-prio-dot" style="background:{{ t.prioridad_color|default('#94a3b8') }}"
+                title="{{ (t.prioridad or 'media')|capitalize }}"></span>
+        </td>
+        <td class="planner-cell-due">
+          <span class="planner-due-badge {{ row_class }}">{{ t.due_label }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
 {% endmacro %}
 
-{% if grupos.vencidos %}
-<section class="planner-section overdue">
-  <header class="planner-section-header">
-    <h2 class="planner-section-title">🔴 Vencidos</h2>
-    <span class="planner-section-count">{{ grupos.vencidos|length }}</span>
-  </header>
-  {% for t in grupos.vencidos %}{{ render_card(t, 'overdue', t.due_label) }}{% endfor %}
-</section>
-{% endif %}
-
-{% if grupos.hoy %}
-<section class="planner-section today">
-  <header class="planner-section-header">
-    <h2 class="planner-section-title">⚠️ Vencen HOY</h2>
-    <span class="planner-section-count">{{ grupos.hoy|length }}</span>
-  </header>
-  {% for t in grupos.hoy %}{{ render_card(t, 'today', t.due_label) }}{% endfor %}
-</section>
-{% endif %}
-
-{% if grupos.manana %}
-<section class="planner-section tomorrow">
-  <header class="planner-section-header">
-    <h2 class="planner-section-title">📅 Mañana</h2>
-    <span class="planner-section-count">{{ grupos.manana|length }}</span>
-  </header>
-  {% for t in grupos.manana %}{{ render_card(t, 'tomorrow', t.due_label) }}{% endfor %}
-</section>
-{% endif %}
-
-{% if grupos.semana %}
-<section class="planner-section week">
-  <header class="planner-section-header">
-    <h2 class="planner-section-title">📆 Esta semana</h2>
-    <span class="planner-section-count">{{ grupos.semana|length }}</span>
-  </header>
-  {% for t in grupos.semana %}{{ render_card(t, '', t.due_label) }}{% endfor %}
-</section>
-{% endif %}
-
-{% if grupos.mes %}
-<section class="planner-section month">
-  <header class="planner-section-header">
-    <h2 class="planner-section-title">🗓️ Este mes</h2>
-    <span class="planner-section-count">{{ grupos.mes|length }}</span>
-  </header>
-  {% for t in grupos.mes %}{{ render_card(t, '', t.due_label) }}{% endfor %}
-</section>
-{% endif %}
-
-{% if grupos.sin_fecha %}
-<section class="planner-section no-date">
-  <header class="planner-section-header">
-    <h2 class="planner-section-title">❓ Sin fecha asignada</h2>
-    <span class="planner-section-count">{{ grupos.sin_fecha|length }}</span>
-  </header>
-  {% for t in grupos.sin_fecha %}{{ render_card(t, '', '—') }}{% endfor %}
-</section>
-{% endif %}
+{{ render_section('vencidos', 'Vencidos',          '🔴', grupos.vencidos|default([]), 'overdue') }}
+{{ render_section('hoy',     'Vencen HOY',        '⚠️', grupos.hoy|default([]),     'today') }}
+{{ render_section('manana',  'Mañana',            '📅', grupos.manana|default([]),  'tomorrow') }}
+{{ render_section('semana',  'Esta semana',       '📆', grupos.semana|default([]),  'week') }}
+{{ render_section('mes',     'Este mes',          '🗓️', grupos.mes|default([]),     'month') }}
+{{ render_section('sin_fecha','Sin fecha asignada','❓', grupos.sin_fecha|default([]), 'no-date') }}
 
 {% if total == 0 %}
 <div class="planner-section text-center text-slate-500 py-12">
