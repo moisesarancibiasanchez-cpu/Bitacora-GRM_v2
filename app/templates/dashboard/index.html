@@ -3,30 +3,32 @@
 {% block content %}
 <div class="h-full overflow-y-auto bg-slate-50">
   <div class="max-w-7xl mx-auto px-6 py-6">
-    <!-- Encabezado -->
-    <div class="flex items-center justify-between mb-6">
+
+    <!-- ========== HEADER ========== -->
+    <div class="flex items-center justify-between mb-5">
       <div>
         <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <svg class="w-7 h-7 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
           </svg>
-          Dashboard
+          Dashboard de Incidencias
         </h1>
-        <p class="text-sm text-slate-500 mt-1">Métricas y KPIs del módulo de incidencias</p>
+        <p class="text-sm text-slate-500 mt-1">Bitácora GRM v2 · Reporte operativo</p>
       </div>
       <div class="flex items-center gap-2">
-        <select id="periodo" onchange="cargarMetricas()" class="text-sm border border-slate-300 rounded-md px-3 py-1.5">
+        <select id="periodo" class="text-sm border border-slate-300 rounded-md px-3 py-1.5">
           <option value="7">Últimos 7 días</option>
           <option value="30" selected>Últimos 30 días</option>
           <option value="90">Últimos 90 días</option>
         </select>
-        <button onclick="cargarMetricas()" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+        <button id="btn-refresh" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+          <svg id="icon-refresh" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
           Actualizar
         </button>
       </div>
     </div>
 
-    <!-- Loading state -->
+    <!-- ========== LOADING STATE ========== -->
     <div id="dashboard-loading" class="text-center py-12 text-slate-400">
       <svg class="animate-spin h-8 w-8 mx-auto text-indigo-500 mb-2" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -35,644 +37,719 @@
       Cargando métricas...
     </div>
 
-    {# === Stats Bar compacta (mismo patrón visual que demo-static). ===
-       Se ubica al tope del dashboard para dar una vista rápida del estado
-       general sin esperar a que carguen los gráficos inferiores. NO modifica
-       el grid de KPIs principales que viene debajo. #}
-    <div id="dashboard-statsbar"
-         class="border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 mb-4 flex items-center justify-between text-xs flex-wrap gap-3">
-      <div class="flex items-center gap-5 flex-wrap">
-        <div class="flex items-center gap-2">
-          <span class="text-slate-500">Total:</span>
-          <span class="font-bold text-slate-800 text-sm" id="statbar-total">—</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-          <span class="text-slate-500">Abiertos:</span>
-          <span class="font-bold text-slate-800 text-sm" id="statbar-abiertos">—</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-red-500"></span>
-          <span class="text-slate-500">SLA vencido:</span>
-          <span class="font-bold text-red-600 text-sm" id="statbar-sla">—</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-          <span class="text-slate-500">Sin asignar:</span>
-          <span class="font-bold text-amber-600 text-sm" id="statbar-unassigned">—</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-          <span class="text-slate-500">Reglas activas:</span>
-          <span class="font-bold text-purple-600 text-sm" id="statbar-reglas">—</span>
-        </div>
-      </div>
-      <div class="text-slate-500 hidden md:block">
-        Resumen en tiempo real · Refresca con <span class="font-semibold">Actualizar</span>
-      </div>
-    </div>
-
-    <!-- Contenido del dashboard (se llena por JS) -->
+    <!-- ========== DASHBOARD CONTENT ========== -->
     <div id="dashboard-content" class="hidden">
-      <!-- Tarjetas de KPIs principales -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <div class="flex items-center justify-between">
+
+      <!-- ===== STATS BAR ===== -->
+      <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-3 mb-5">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Total</span>
+              <span id="stat-total" class="text-base font-bold text-slate-800">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Nuevas (7d)</span>
+              <span id="stat-nuevas" class="text-base font-bold text-indigo-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Abiertas</span>
+              <span id="stat-abiertas" class="text-base font-bold text-slate-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">% SLA</span>
+              <span id="stat-sla" class="text-base font-bold text-emerald-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Crít. sin asignar</span>
+              <span id="stat-crit" class="text-base font-bold text-red-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Backlog &gt;7d</span>
+              <span id="stat-backlog" class="text-base font-bold text-amber-700">—</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-slate-500">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>en vivo</span>
+            <span class="mx-1">·</span>
+            <span id="last-update">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== FILA 1 — 4 KPI CARDS CON SPARKLINES ===== -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+
+        <!-- KPI 1: Tickets totales -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between">
             <div>
               <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Tickets totales</p>
-              <p id="kpi-total" class="text-3xl font-bold text-slate-800 mt-1">—</p>
+              <p id="kpi-totales" class="text-3xl font-bold text-slate-800 mt-1.5">—</p>
             </div>
-            <div class="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-              </svg>
+            <div class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
             </div>
           </div>
-          <p class="text-[11px] text-slate-500 mt-2"><span id="kpi-activos">—</span> activos · <span id="kpi-archivados">—</span> archivados</p>
+          <svg id="spark-totales" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span><span id="kpi-totales-activos">—</span> activos · <span id="kpi-totales-archivados">—</span> archivados</span>
+            <span id="kpi-totales-delta" class="font-mono">—</span>
+          </p>
         </div>
 
-        <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <div class="flex items-center justify-between">
+        <!-- KPI 2: Incidencias levantadas (sólo tipo Incidencia) -->
+        <div class="bg-white border-2 border-red-200 ring-1 ring-red-100 rounded-xl p-4 hover:shadow-md transition-shadow relative">
+          <div class="flex items-start justify-between">
             <div>
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Cumplimiento SLA</p>
-              <p id="kpi-sla" class="text-3xl font-bold text-emerald-600 mt-1">—</p>
+              <div class="flex items-center gap-1.5">
+                <p class="text-xs font-semibold uppercase tracking-wide text-red-700">Incidencias levantadas</p>
+                <span title="Sólo Tipo = Incidencia" class="cursor-help inline-flex items-center text-slate-400 hover:text-slate-600">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                </span>
+              </div>
+              <p id="kpi-incidencias" class="text-3xl font-bold text-red-700 mt-1.5">—</p>
             </div>
-            <div class="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-              </svg>
+            <div class="w-9 h-9 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
             </div>
           </div>
-          <p class="text-[11px] text-slate-500 mt-2"><span id="kpi-sla-pendientes">—</span> pendientes de cierre</p>
+          <svg id="spark-incidencias" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span><span id="kpi-incidencias-nuevas">—</span> nuevas (7d)</span>
+            <span id="kpi-incidencias-delta" class="font-mono">—</span>
+          </p>
         </div>
 
-        <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <div class="flex items-center justify-between">
+        <!-- KPI 3: % SLA Cumplido -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between">
             <div>
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Críticos sin asignar</p>
-              <p id="kpi-criticos" class="text-3xl font-bold text-red-600 mt-1">—</p>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">% SLA Cumplido</p>
+              <p id="kpi-sla" class="text-3xl font-bold text-emerald-600 mt-1.5">—<span class="text-base font-medium text-slate-500">%</span></p>
             </div>
-            <div class="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-              </svg>
+            <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </div>
           </div>
-          <p class="text-[11px] text-slate-500 mt-2">Requieren atención inmediata</p>
+          <svg id="spark-sla" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span><span id="kpi-sla-pendientes">—</span> pendientes</span>
+            <span id="kpi-sla-delta" class="font-mono">—</span>
+          </p>
         </div>
 
-        <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <div class="flex items-center justify-between">
+        <!-- KPI 4: Backlog Incidencias -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between">
             <div>
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Tickets hoy</p>
-              <p id="kpi-hoy" class="text-3xl font-bold text-slate-800 mt-1">—</p>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Backlog Incidencias</p>
+              <p id="kpi-backlog" class="text-3xl font-bold text-amber-600 mt-1.5">—</p>
             </div>
-            <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-              </svg>
+            <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </div>
           </div>
-          <p class="text-[11px] text-slate-500 mt-2">Creados en las últimas 24h</p>
+          <svg id="spark-backlog" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Abiertas &gt;7d</span>
+            <span id="kpi-backlog-delta" class="font-mono">—</span>
+          </p>
         </div>
       </div>
 
-      <!-- Distribución por estado y prioridad -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <!-- ===== FILA 2 — FUNNEL + ACTIVIDAD DIARIA ===== -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Funnel de avance</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">click para detalle</span>
+          </div>
+          <div id="funnel-container" class="space-y-2"></div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Actividad diaria</h3>
+            <div class="flex items-center gap-3 text-[11px]">
+              <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-sm bg-indigo-500"></span>Levantadas</span>
+              <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-sm bg-emerald-500"></span>Cerradas</span>
+              <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-0.5 bg-amber-500"></span>Media 7d</span>
+            </div>
+          </div>
+          <div id="chart-activity-wrap" class="h-40">
+            <svg id="chart-activity" viewBox="0 0 600 180" preserveAspectRatio="none" class="w-full h-full"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== FILA 3 — DISTRIBUCIÓN + PRÓXIMOS A VENCER SLA ===== -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+
+        <!-- Distribución por estado -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Distribución por estado</h3>
-          <div id="chart-estados" class="space-y-2"></div>
+          <div id="dist-estado-container" class="space-y-2"></div>
         </div>
 
+        <!-- Distribución por prioridad -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Distribución por prioridad</h3>
-          <div id="chart-prioridades" class="space-y-2"></div>
-        </div>
-      </div>
-
-      {# === Tabla pivote "Cuenta de Resultado" (réplica del rango A64:H81
-         de la hoja REPORTE del Excel UAT). Se ubica inmediatamente ANTES
-         de los componentes "Actividad (últimos 30 días)" y "Top etiquetas",
-         según especificación de PROMPT 2. No modifica esos componentes. #}
-      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
-        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado</h3>
-          </div>
-          <div class="flex items-center gap-2">
-            <button id="cuenta-resultado-export"
-                    onclick="exportarCuentaResultado()"
-                    class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-              </svg>
-              Exportar CSV
-            </button>
-          </div>
-        </div>
-        <div id="cuenta-resultado-container" class="overflow-x-auto">
-          <div id="cuenta-resultado-loading" class="text-center py-6 text-slate-400 text-xs">
-            Cargando tabla pivote...
-          </div>
-          <table id="cuenta-resultado-table"
-                 class="hidden w-full text-xs border-collapse"
-                 aria-label="Tabla pivote Cuenta de Resultado">
-            <thead id="cuenta-resultado-thead"></thead>
-            <tbody id="cuenta-resultado-tbody"></tbody>
-            <tfoot id="cuenta-resultado-tfoot"></tfoot>
-          </table>
-        </div>
-        <p id="cuenta-resultado-footer"
-           class="hidden mt-2 text-[10px] text-slate-400 italic">
-          POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
-        </p>
-      </div>
-
-      <!-- Actividad reciente (sparkline simple) y top agentes/etiquetas -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        <div class="bg-white border border-slate-200 rounded-xl p-4 lg:col-span-2">
-          <h3 class="text-sm font-semibold text-slate-700 mb-3">Actividad (últimos <span id="periodo-texto">30</span> días)</h3>
-          <div id="chart-actividad" class="h-32 flex items-end gap-1"></div>
+          <div id="dist-prioridad-container" class="space-y-2"></div>
         </div>
 
+        <!-- Próximos a vencer SLA -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <h3 class="text-sm font-semibold text-slate-700 mb-3">Top etiquetas</h3>
-          <div id="list-etiquetas" class="space-y-1.5"></div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Próximos a vencer SLA</h3>
+            <select id="riesgo-horas" class="text-xs border border-slate-200 rounded px-2 py-1">
+              <option value="24">24 h</option>
+              <option value="48">48 h</option>
+              <option value="72" selected>72 h</option>
+            </select>
+          </div>
+          <div class="overflow-y-auto max-h-48">
+            <table class="w-full text-xs">
+              <thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200 sticky top-0 bg-white">
+                <tr>
+                  <th class="text-left py-1.5 font-semibold">Código</th>
+                  <th class="text-left py-1.5 font-semibold">Título</th>
+                  <th class="text-left py-1.5 font-semibold">Pri.</th>
+                  <th class="text-right py-1.5 font-semibold">Vence</th>
+                </tr>
+              </thead>
+              <tbody id="riesgo-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
+      <!-- ===== FILA 4 — CUENTA DE RESULTADO ===== -->
+      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado · Incidencias × QA</h3>
+          <div class="flex items-center gap-3 text-[11px]">
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#10b981"></span>OK</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#22c55e"></span>OK CON OBS.</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#ef4444"></span>NOK</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#eab308"></span>POSTERGADA</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#94a3b8"></span>N/A</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#a855f7"></span>DESESTIMADA</span>
+          </div>
+        </div>
+        <div id="cuenta-resultado-container" class="overflow-x-auto"></div>
+      </div>
+
+      <!-- ===== FILA 5 — TOP AGENTES + ACCIONES RÁPIDAS (NUEVA) ===== -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+
+        <!-- Top agentes (asignados) — versión mejorada -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <h3 class="text-sm font-semibold text-slate-700 mb-3">Top agentes (asignados)</h3>
-          <div id="list-agentes" class="space-y-1.5"></div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Top agentes (asignados)</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400" id="top-agentes-periodo">—</span>
+          </div>
+          <div id="list-agentes-v2" class="space-y-2"></div>
         </div>
+
+        <!-- Acciones rápidas — versión mejorada -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Acciones rápidas</h3>
           <div class="grid grid-cols-2 gap-2">
-            <a href="/kanban" class="block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40">
-              <div class="text-2xl">📋</div>
-              <p class="text-xs font-semibold text-slate-700 mt-1">Tablero Kanban</p>
+            <a href="/kanban" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1.5 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Tablero Kanban</p>
+              <p class="text-[10px] text-slate-500">Vista de tarjetas</p>
             </a>
-            <a href="/vistas/tabla" class="block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40">
-              <div class="text-2xl">📊</div>
-              <p class="text-xs font-semibold text-slate-700 mt-1">Vista Tabla</p>
+            <a href="/vistas/tabla" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center mb-1.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Vista Tabla</p>
+              <p class="text-[10px] text-slate-500">Listado detallado</p>
             </a>
-            <a href="/butler" class="block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40">
-              <div class="text-2xl">⚡</div>
-              <p class="text-xs font-semibold text-slate-700 mt-1">Butler</p>
+            <a href="/butler" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center mb-1.5 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Butler</p>
+              <p class="text-[10px] text-slate-500">Automatizaciones</p>
             </a>
-            <a href="/api/v1/tickets/exportar/csv" class="block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40">
-              <div class="text-2xl">📥</div>
-              <p class="text-xs font-semibold text-slate-700 mt-1">Exportar CSV</p>
+            <a href="/api/v1/tickets-ie/exportar/csv" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center mb-1.5 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Exportar CSV</p>
+              <p class="text-[10px] text-slate-500">Descargar listado</p>
             </a>
+          </div>
+          <!-- Quick links secundarios -->
+          <div class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5">
+            <a href="/tickets" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Mis tickets</a>
+            <a href="/notificaciones" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Notificaciones</a>
+            <a href="/vistas/calendario" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Calendario</a>
+            <a href="/vistas/timeline" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Timeline</a>
+            <a href="/espacios" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Espacios</a>
+            <a href="/roles-funciones" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Roles</a>
           </div>
         </div>
       </div>
-    </div>
+
+    </div><!-- /dashboard-content -->
+
   </div>
 </div>
 
-{# Contenedor para el modal de drill-down de Cuenta de Resultado.
-   HTMX inyecta aquí el HTML devuelto por /api/v1/metricas/cuenta-resultado/detalle
-   cuando el usuario hace clic en una celda numérica de la tabla pivote. #}
-<div id="modal-cuenta-resultado-root"></div>
-
 <script>
-async function cargarMetricas() {
-  const periodo = document.getElementById('periodo').value;
-  document.getElementById('periodo-texto').textContent = periodo;
-  document.getElementById('dashboard-loading').classList.remove('hidden');
-  document.getElementById('dashboard-content').classList.add('hidden');
-  try {
-    const r = await fetch(`/api/v1/metricas/resumen?dias=${periodo}`, { headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) } });
-    if (!r.ok) throw new Error('Error al cargar métricas');
-    const data = await r.json();
-    renderMetricas(data);
-    document.getElementById('dashboard-loading').classList.add('hidden');
-    document.getElementById('dashboard-content').classList.remove('hidden');
-  } catch (e) {
-    document.getElementById('dashboard-loading').innerHTML = `<div class="text-red-600">Error: ${e.message}</div>`;
+(function () {
+  'use strict';
+
+  // ============== UTILIDADES ==============
+  function fmt(n) {
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    return Number(n).toLocaleString('es-CL');
+  }
+  function safeId(id) { return document.getElementById(id); }
+  function setText(id, val) {
+    const el = safeId(id);
+    if (el) el.textContent = val;
   }
 
-  // Cargar tabla pivote "Cuenta de Resultado" en paralelo. La falla
-  // de este fetch NO debe afectar la carga del resto del dashboard.
-  cargarCuentaResultado().catch(err => {
-    const cont = document.getElementById('cuenta-resultado-container');
-    if (cont) cont.innerHTML = `<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ${err.message}</div>`;
-  });
-}
+  // ============== SPARKLINE ==============
+  function drawSpark(svgId, data, color) {
+    const svg = safeId(svgId);
+    if (!svg || !data || data.length === 0) return;
+    const w = 100, h = 30;
+    const min = Math.min.apply(null, data);
+    const max = Math.max.apply(null, data);
+    const range = (max - min) || 1;
+    const points = data.map((v, i) => {
+      const x = (i / (data.length - 1 || 1)) * w;
+      const y = h - ((v - min) / range) * (h - 4) - 2;
+      return (x).toFixed(2) + ',' + (y).toFixed(2);
+    }).join(' ');
+    const lastY = h - ((data[data.length - 1] - min) / range) * (h - 4) - 2;
+    const gid = 'grad-' + svgId;
+    svg.innerHTML =
+      '<defs><linearGradient id="' + gid + '" x1="0" x2="0" y1="0" y2="1">' +
+      '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.35"/>' +
+      '<stop offset="100%" stop-color="' + color + '" stop-opacity="0"/>' +
+      '</linearGradient></defs>' +
+      '<polygon points="0,' + h + ' ' + points + ' ' + w + ',' + h + '" fill="url(##' + gid + ')"/>'
+        .replace('url(##', 'url(#') +
+      '<polyline points="' + points + '" stroke="' + color + '" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="' + w + '" cy="' + lastY.toFixed(2) + '" r="2" fill="' + color + '"/>';
+  }
 
-// === Tabla pivote "Cuenta de Resultado" ===
-// Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
-// Los totales por columna y total general se calculan en el backend
-// (endpoint /api/v1/metricas/cuenta-resultado). Esta función solo
-// pinta la tabla con formato condicional por columna.
+  function deltaText(value, unit, direction) {
+    if (value === undefined || value === null || isNaN(value)) return '—';
+    const arrow = value >= 0 ? '▲' : '▼';
+    const good = direction === 'direct' ? value >= 0 : value <= 0;
+    const cls = good ? 'text-emerald-600' : 'text-red-600';
+    return '<span class="' + cls + '">' + arrow + ' ' + Math.abs(value).toFixed(1) + unit + '</span>';
+  }
 
-// Color del texto de los números en CADA CELDA de datos: debe coincidir con
-// el color del texto de la columna "Total general" (data cells con bg-slate-100
-// y texto slate-800 por herencia del <body>). Se usa #1f2937 (slate-800) en
-// TODAS las columnas para garantizar contraste legible sobre los fondos
-// tenues (`color.bg + '22'`). Los headers sí mantienen su color original
-// porque su fondo es sólido (no el tinte `+ '22'`).
-const CUENTA_RESULTADO_COLORES = {
-  "N/A":         { bg: '#94a3b8', text: '#ffffff', cellText: '#1f2937' },  // gray neutral
-  "NOK":         { bg: '#dc2626', text: '#ffffff', cellText: '#1f2937' },  // red
-  "OK":          { bg: '#16a34a', text: '#ffffff', cellText: '#1f2937' },  // green
-  "OK CON OBS.": { bg: '#eab308', text: '#1f2937', cellText: '#1f2937' },  // yellow
-  "POSTERGADA":  { bg: '#ea580c', text: '#ffffff', cellText: '#1f2937' },  // orange
-  "DESESTIMADA": { bg: '#7c3aed', text: '#ffffff', cellText: '#1f2937' },  // purple
-  "(en blanco)": { bg: '#cbd5e1', text: '#475569', cellText: '#1f2937' },  // light gray
-};
-
-// Última respuesta cacheada para export CSV.
-let _cuentaResultadoCache = null;
-
-async function cargarCuentaResultado() {
-  const cont = document.getElementById('cuenta-resultado-container');
-  const loading = document.getElementById('cuenta-resultado-loading');
-  const table = document.getElementById('cuenta-resultado-table');
-  const thead = document.getElementById('cuenta-resultado-thead');
-  const tbody = document.getElementById('cuenta-resultado-tbody');
-  const tfoot = document.getElementById('cuenta-resultado-tfoot');
-  const footer = document.getElementById('cuenta-resultado-footer');
-
-  const r = await fetch('/api/v1/metricas/cuenta-resultado', {
-    headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await r.json();
-  _cuentaResultadoCache = data;
-
-  const columnas = data.columnas;
-  const filas = data.filas;
-  const totales = data.totales_por_columna;
-  const totalGeneral = data.total_general;
-
-  // === Encabezado ===
-  thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
-    '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
-    columnas.map(c => {
-      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
-      return `<th class="px-3 py-2 font-semibold border border-slate-700 text-center"
-                   style="background:${color.bg}; color:${color.text};"
-                   title="Tickets con resultado_pruebas = '${c}'">${c}</th>`;
-    }).join('') +
-    '<th class="px-3 py-2 font-semibold border border-slate-700 text-center bg-slate-900">Total general</th>' +
-    '</tr>';
-
-  // === Filas ===
-  tbody.innerHTML = filas.map(f => {
-    const esBlanco = f.modulo === '(en blanco)';
-    const trClass = esBlanco
-      ? 'italic text-slate-400 bg-slate-50/50'
-      : 'text-slate-700';
-    const celdas = columnas.map(c => {
-      const v = f.valores[c] || 0;
-      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569', cellText: '#1f2937' };
-      // Valor 0 → guion; en blanco si es la fila (en blanco) entera.
-      const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
-      // Fondo muy tenue para celdas con valor, completamente blanco si es 0.
-      // Texto: SIEMPRE cellText (mismo color que la columna "Total general")
-      // para garantizar contraste legible sobre el fondo tenue `color.bg + '22'`.
-      const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
-      // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
-      // Celdas con valor 0 o de la fila "(en blanco)" NO son clickeables
-      // para no abrir modals vacíos que confundan al usuario.
-      //
-      // NOTA: NO se usa `onclick` inline porque entra en conflicto con el
-      // event listener delegado de HTMX y el htmx-fallback.js, dejando el
-      // modal atascado en "Cargando detalle…". El feedback visual se hace
-      // vía el evento `htmx:beforeRequest` (ver installDrillDownListeners).
-      const clickable = !esBlanco && v > 0;
-      if (clickable) {
-        const url = `/api/v1/metricas/cuenta-resultado/detalle?modulo=${encodeURIComponent(f.modulo)}&resultado=${encodeURIComponent(c)}&ambiente=${encodeURIComponent(data.ambiente || 'QA')}`;
-        return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono p-0"
-                     style="background:${bg}; color:${color.cellText};">
-                  <button type="button"
-                          data-drill-cr="1"
-                          hx-get="${url}"
-                          hx-target="#modal-cuenta-resultado-root"
-                          hx-swap="innerHTML"
-                          title="Ver detalle: ${f.modulo} / ${c}"
-                          class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">
-                    ${contenido}
-                  </button>
-                </td>`;
+  // ============== CARGAR MÉTRICAS ==============
+  async function cargarMetricas() {
+    const periodo = (safeId('periodo') || { value: '30' }).value;
+    const loading = safeId('dashboard-loading');
+    const content = safeId('dashboard-content');
+    loading.classList.remove('hidden');
+    content.classList.add('hidden');
+    try {
+      // Endpoint extendido (Sprint 2)
+      let resp = await fetch('/api/v1/metricas/dashboard-completo?dias=' + encodeURIComponent(periodo), {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) }
+      });
+      let data;
+      if (resp.ok) {
+        data = await resp.json();
+      } else {
+        // Fallback al endpoint original
+        resp = await fetch('/api/v1/metricas/resumen?dias=' + encodeURIComponent(periodo), {
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) }
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        data = await resp.json();
+        // Adaptar al shape esperado por el dashboard nuevo
+        data = adaptResumen(data);
       }
-      return `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono"
-                   style="background:${bg}; color:${color.cellText};">
-                ${contenido}
-              </td>`;
+      render(data);
+      loading.classList.add('hidden');
+      content.classList.remove('hidden');
+      const ahora = new Date();
+      setText('last-update', ahora.toLocaleTimeString('es-CL'));
+    } catch (e) {
+      console.error('Error cargando métricas:', e);
+      loading.innerHTML = '<div class="text-red-600 text-sm">Error cargando métricas: ' + (e.message || e) + '</div>';
+    }
+  }
+
+  // Adapta el endpoint /resumen (legacy) al shape nuevo si fuera necesario
+  function adaptResumen(r) {
+    const tot = r.totales || {};
+    const sla = r.sla || {};
+    const inc = r.incidencias || {};
+    return {
+      periodo_dias: r.periodo_dias || 30,
+      timestamp: new Date().toISOString(),
+      totales: tot,
+      incidencias: inc,
+      nuevas_7d: r.nuevas_7d || 0,
+      sla: sla,
+      distribucion_estado: r.distribucion_estado || [],
+      distribucion_prioridad: r.distribucion_prioridad || [],
+      actividad_por_dia: r.actividad_por_dia || [],
+      funnel: [],                          // legacy: sin funnel
+      riesgo_sla: [],                      // legacy: sin riesgo
+      cuenta_resultado: [],                // legacy: sin cuenta de resultado
+      top_agentes: r.top_agentes || [],    // legacy: solo nombre+total
+      top_etiquetas: r.top_etiquetas || [],
+      sparklines: { levantadas: [], incidencias: [], sla: [], backlog: [] },
+    };
+  }
+
+  // ============== RENDER ==============
+  function render(d) {
+    // === Stats Bar ===
+    setText('stat-total', fmt(d.totales.total));
+    setText('stat-nuevas', fmt(d.nuevas_7d));
+    setText('stat-abiertas', fmt(d.incidencias.activas || (d.totales.activos || 0)));
+    setText('stat-sla', (d.sla.porcentaje_cumplimiento || 0).toFixed(1) + '%');
+    setText('stat-crit', fmt(d.totales.criticos_sin_asignar));
+    setText('stat-backlog', fmt(d.incidencias.backlog_7d || 0));
+
+    // === Fila 1: KPI cards ===
+    setText('kpi-totales', fmt(d.totales.total));
+    setText('kpi-totales-activos', fmt(d.totales.activos));
+    setText('kpi-totales-archivados', fmt(d.totales.archivados));
+    const totDelta = safeId('kpi-totales-delta');
+    if (totDelta) totDelta.innerHTML = '<span class="text-slate-400">vs periodo ant.</span>';
+
+    // KPI 2: Incidencias
+    setText('kpi-incidencias', fmt(d.incidencias.total));
+    setText('kpi-incidencias-nuevas', fmt(d.incidencias.nuevas_7d));
+    const incDelta = safeId('kpi-incidencias-delta');
+    if (incDelta) incDelta.innerHTML = '<span class="text-slate-400">filtrado</span>';
+
+    // KPI 3: SLA
+    const slaEl = safeId('kpi-sla');
+    if (slaEl) {
+      slaEl.innerHTML = (d.sla.porcentaje_cumplimiento || 0).toFixed(1)
+        + '<span class="text-base font-medium text-slate-500">%</span>';
+    }
+    setText('kpi-sla-pendientes', fmt(d.sla.pendientes));
+    const slaDelta = safeId('kpi-sla-delta');
+    if (slaDelta) slaDelta.innerHTML = deltaText(d.sla.porcentaje_cumplimiento - 95, ' pp', 'direct');
+
+    // KPI 4: Backlog
+    setText('kpi-backlog', fmt(d.incidencias.backlog_7d || 0));
+    const blDelta = safeId('kpi-backlog-delta');
+    if (blDelta) blDelta.innerHTML = '<span class="text-slate-400">vs periodo ant.</span>';
+
+    // === Sparklines ===
+    drawSpark('spark-totales', d.sparklines.levantadas || d.actividad_por_dia.map(s => s.levantadas), '#4f46e5');
+    drawSpark('spark-incidencias', d.sparklines.incidencias || d.actividad_por_dia.map(s => s.levantadas), '#dc2626');
+    drawSpark('spark-sla', d.sparklines.sla || d.actividad_por_dia.map(() => d.sla.porcentaje_cumplimiento || 0), '#10b981');
+    drawSpark('spark-backlog', d.sparklines.backlog || d.actividad_por_dia.map(() => d.incidencias.backlog_7d || 0), '#f59e0b');
+
+    // === Fila 2: Funnel ===
+    const fc = safeId('funnel-container');
+    if (fc) {
+      if (!d.funnel || d.funnel.length === 0) {
+        fc.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Sin datos para el funnel</p>';
+      } else {
+        const max = Math.max.apply(null, d.funnel.map(f => f.total)) || 1;
+        fc.innerHTML = d.funnel.map(f => {
+          const pct = (f.total / max) * 100;
+          return '<div class="funnel-item cursor-pointer" data-estado="' + (f.estado || '') + '">'
+            + '<div class="flex items-center justify-between text-xs mb-1">'
+            + '<span class="font-medium" style="color:' + f.color + '">' + f.estado + '</span>'
+            + '<span class="font-bold text-slate-800">' + fmt(f.total) + '</span>'
+            + '</div>'
+            + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
+            + '<div class="h-full" style="width:' + pct.toFixed(1) + '%; background:' + f.color + '"></div>'
+            + '</div>'
+            + '</div>';
+        }).join('');
+      }
+    }
+
+    // === Fila 2: Chart actividad ===
+    drawActivityChart(d.actividad_por_dia || []);
+
+    // === Fila 3: Distribución por estado ===
+    const ec = safeId('dist-estado-container');
+    if (ec) {
+      if (!d.distribucion_estado || d.distribucion_estado.length === 0) {
+        ec.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Sin datos</p>';
+      } else {
+        const total = d.distribucion_estado.reduce((a, b) => a + (b.total || 0), 0) || 1;
+        ec.innerHTML = d.distribucion_estado.map(e =>
+          '<div>'
+          + '<div class="flex items-center justify-between text-xs mb-1">'
+          + '<span class="flex items-center gap-1.5 text-slate-700">'
+          + '<span class="inline-block w-2 h-2 rounded-sm" style="background:' + (e.color || '#94a3b8') + '"></span>'
+          + (e.nombre || '')
+          + '</span>'
+          + '<span class="font-bold text-slate-800">' + fmt(e.total) + '</span>'
+          + '</div>'
+          + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
+          + '<div class="h-full" style="width:' + ((e.total / total) * 100).toFixed(1) + '%; background:' + (e.color || '#94a3b8') + '"></div>'
+          + '</div>'
+          + '</div>'
+        ).join('');
+      }
+    }
+
+    // === Fila 3: Distribución por prioridad ===
+    const pc = safeId('dist-prioridad-container');
+    if (pc) {
+      const prioColors = { critica: '#dc2626', alta: '#ea580c', media: '#eab308', baja: '#64748b' };
+      if (!d.distribucion_prioridad || d.distribucion_prioridad.length === 0) {
+        pc.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Sin datos</p>';
+      } else {
+        const totalP = d.distribucion_prioridad.reduce((a, b) => a + (b.total || 0), 0) || 1;
+        pc.innerHTML = d.distribucion_prioridad.map(p => {
+          const key = (p.prioridad || '').toLowerCase();
+          const color = prioColors[key] || '#94a3b8';
+          const pct = (p.total / totalP) * 100;
+          return '<div>'
+            + '<div class="flex items-center justify-between text-xs mb-1">'
+            + '<span class="flex items-center gap-1.5 text-slate-700 capitalize">'
+            + '<span class="inline-block w-2 h-2 rounded-full" style="background:' + color + '"></span>'
+            + (p.prioridad || '')
+            + '</span>'
+            + '<span class="font-bold text-slate-800">' + fmt(p.total)
+            + ' <span class="text-slate-400 font-normal">(' + pct.toFixed(0) + '%)</span></span>'
+            + '</div>'
+            + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
+            + '<div class="h-full" style="width:' + pct.toFixed(1) + '%; background:' + color + '"></div>'
+            + '</div>'
+            + '</div>';
+        }).join('');
+      }
+    }
+
+    // === Fila 3: Próximos a vencer SLA ===
+    renderRiesgo(d.riesgo_sla || []);
+
+    // === Fila 4: Cuenta de Resultado ===
+    renderCuentaResultado(d.cuenta_resultado || []);
+
+    // === Fila 5: Top agentes ===
+    renderTopAgentes(d.top_agentes || []);
+    const periodoLabel = safeId('top-agentes-periodo');
+    if (periodoLabel) periodoLabel.textContent = (d.periodo_dias || 30) + 'd';
+  }
+
+  // ============== CHART ACTIVIDAD ==============
+  function drawActivityChart(serie) {
+    const svg = safeId('chart-activity');
+    if (!svg) return;
+    if (!serie || serie.length === 0) {
+      svg.parentElement.innerHTML = '<div class="text-slate-400 text-sm h-full flex items-center justify-center">Sin actividad en el periodo</div>';
+      return;
+    }
+    const W = 600, H = 180, padding = { t: 16, r: 16, b: 24, l: 32 };
+    const max = Math.max.apply(null, serie.map(s => Math.max(s.levantadas || 0, s.cerradas || 0))) || 1;
+    const innerW = W - padding.l - padding.r;
+    const innerH = H - padding.t - padding.b;
+    const slot = innerW / serie.length;
+    const barW = Math.max(2, slot * 0.35);
+
+    // grid Y
+    let grid = '';
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.t + (innerH) * (i / 4);
+      const val = Math.round(max * (1 - i / 4));
+      grid += '<line x1="' + padding.l + '" x2="' + (W - padding.r) + '" y1="' + y + '" y2="' + y + '" stroke="#e2e8f0" stroke-width="1"' + (i === 0 ? '' : ' stroke-dasharray="3 3"') + '/>';
+      grid += '<text x="' + (padding.l - 5) + '" y="' + (y + 3) + '" text-anchor="end" font-size="10" fill="#94a3b8">' + val + '</text>';
+    }
+
+    // barras
+    let bars = '';
+    let xLabels = '';
+    let media7 = [];
+    for (let i = 0; i < serie.length; i++) {
+      const ini = Math.max(0, i - 6);
+      const slice = serie.slice(ini, i + 1).map(s => s.cerradas || 0);
+      media7.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+    }
+    serie.forEach((s, i) => {
+      const x = padding.l + slot * i + slot / 2;
+      const hL = ((s.levantadas || 0) / max) * innerH;
+      const hC = ((s.cerradas || 0) / max) * innerH;
+      bars += '<rect x="' + (x - barW) + '" y="' + (padding.t + innerH - hL) + '" width="' + barW + '" height="' + hL + '" fill="#4f46e5" rx="1"><title>' + s.fecha + ': ' + s.levantadas + ' levantadas</title></rect>';
+      bars += '<rect x="' + x + '" y="' + (padding.t + innerH - hC) + '" width="' + barW + '" height="' + hC + '" fill="#10b981" rx="1"><title>' + s.fecha + ': ' + s.cerradas + ' cerradas</title></rect>';
+      // Etiquetas en 1°, mitad y último
+      if (i === 0 || i === Math.floor(serie.length / 2) || i === serie.length - 1) {
+        xLabels += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9" fill="#94a3b8">' + (s.fecha || '').slice(5) + '</text>';
+      }
+    });
+
+    // línea media móvil 7d
+    const pointsM = media7.map((v, i) => {
+      const x = padding.l + slot * i + slot / 2;
+      const y = padding.t + innerH - (v / max) * innerH;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    const mediaLine = '<polyline points="' + pointsM + '" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="4 2" opacity="0.85"/>';
+
+    svg.innerHTML = grid + bars + mediaLine + xLabels;
+  }
+
+  // ============== RIESGO ==============
+  function renderRiesgo(lista) {
+    const tbody = safeId('riesgo-tbody');
+    if (!tbody) return;
+    if (!lista || lista.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-slate-400 text-xs">Sin incidencias próximas a vencer SLA · :)</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.slice(0, 12).map(t => {
+      const hrs = t.horas_restantes;
+      const cls = hrs < 0 ? 'text-red-600 font-bold' : hrs < 12 ? 'text-orange-600 font-semibold' : hrs < 48 ? 'text-amber-600' : 'text-slate-600';
+      const txt = hrs < 0 ? ('-' + Math.abs(hrs).toFixed(0) + 'h') : ('+' + hrs.toFixed(0) + 'h');
+      return '<tr class="hover:bg-slate-50">'
+        + '<td class="py-1.5 pr-2 font-mono text-slate-600">' + (t.codigo || '') + '</td>'
+        + '<td class="py-1.5 pr-2 truncate max-w-[160px]" title="' + (t.titulo || '') + '">' + (t.titulo || '') + '</td>'
+        + '<td class="py-1.5 pr-2"><span class="prio-' + (t.prioridad || '') + ' px-1 py-0.5 rounded text-[10px] font-semibold">' + (t.prioridad || '').toUpperCase() + '</span></td>'
+        + '<td class="py-1.5 text-right ' + cls + '">' + txt + '</td>'
+        + '</tr>';
     }).join('');
-    const totalCell = esBlanco
-      ? `<td class="px-3 py-1.5 border border-slate-200 text-center font-mono text-slate-400">—</td>`
-      : `<td class="px-3 py-1.5 border border-slate-300 text-center font-mono font-semibold bg-slate-100">${f.total}</td>`;
-    return `<tr class="${trClass} hover:bg-slate-50">
-              <td class="px-3 py-1.5 border border-slate-200 text-left">${f.modulo}</td>
-              ${celdas}
-              ${totalCell}
-            </tr>`;
-  }).join('');
-
-  // === Pie: Total general ===
-  tfoot.innerHTML = '<tr class="bg-slate-200 font-bold text-slate-800">' +
-    '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
-    columnas.map(c => {
-      const v = totales[c] || 0;
-      const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff', cellText: '#ffffff' };
-      const contenido = v === 0 ? '—' : v;
-      // En el tfoot los fondos son sólidos (no el tinte `+ '22'`), así que
-      // aquí sí usamos el `text` blanco original (legible sobre fondo saturado).
-      return `<td class="px-3 py-2 border border-slate-400 text-center font-mono"
-                   style="background:${color.bg}; color:${color.text};">
-                ${contenido}
-              </td>`;
-    }).join('') +
-    `<td class="px-3 py-2 border border-slate-400 text-center font-mono bg-slate-300">${totalGeneral}</td>` +
-    '</tr>';
-
-  loading.classList.add('hidden');
-  table.classList.remove('hidden');
-  footer.classList.remove('hidden');
-
-  // === Procesar los nuevos botones con HTMX ===
-  // HTMX 1.x NO escanea automáticamente los nodos agregados al DOM
-  // mediante `innerHTML = ...`. Sin este `htmx.process(tbody)`, los
-  // botones drill-down generados dinámicamente NO registran listeners
-  // de HTMX, así que hacer clic en ellos no dispara la petición y el
-  // modal nunca se abre. Llamamos a htmx.process() sobre el tbody para
-  // que HTMX escanee sus descendientes y registre los handlers de los
-  // atributos `hx-get`/`hx-target`/`hx-swap`/`data-drill-cr`.
-  if (typeof htmx !== 'undefined' && htmx.process) {
-    try { htmx.process(tbody); } catch (e) { /* noop */ }
   }
-}
 
-function exportarCuentaResultado() {
-  if (!_cuentaResultadoCache) return;
-  const data = _cuentaResultadoCache;
-  const cols = ['Etiqueta de fila', ...data.columnas, 'Total general'];
-  const filas = data.filas.map(f => [
-    f.modulo,
-    ...data.columnas.map(c => f.valores[c] || 0),
-    f.total,
-  ]);
-  const totales = ['Total general', ...data.columnas.map(c => data.totales_por_columna[c] || 0), data.total_general];
-  const csvRows = [cols, ...filas, totales]
-    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-  const csv = '\uFEFF' + csvRows.join('\n'); // BOM para Excel
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `cuenta_resultado_${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-// === Drill-down modal: Cuenta de Resultado ===
-// HTMX inyecta el contenido del modal en #modal-cuenta-resultado-root
-// cuando el usuario hace clic en una celda con valor > 0 del pivot.
-//
-// Implementación robusta basada en eventos nativos de HTMX (NO en onclick
-// inline), para evitar el conflicto con el event listener delegado de HTMX
-// y con htmx-fallback.js que dejaba el modal atascado en "Cargando…":
-//
-//   1. Antes de la petición (htmx:beforeRequest): si el botón tiene
-//      `data-drill-cr="1"`, mostramos un overlay con spinner.
-//   2. HTMX hace la petición GET y, al recibir respuesta, hace swap
-//      innerHTML → el contenido del modal reemplaza al spinner.
-//   3. Si algo falla (htmx:responseError), limpiamos el contenedor.
-//
-// cerrarModalCuentaResultado() sigue disponible globalmente porque el
-// HTML del modal (devuelto por el endpoint) la invoca desde el botón "X"
-// y desde el backdrop. Esc también cierra el modal.
-
-function cerrarModalCuentaResultado() {
-  const root = document.getElementById('modal-cuenta-resultado-root');
-  if (!root) return;
-  root.innerHTML = '';
-}
-
-function _mostrarSpinnerDrillCr() {
-  const root = document.getElementById('modal-cuenta-resultado-root');
-  if (!root) return;
-  // Sólo pintamos el spinner si el contenedor está vacío; si ya hay un
-  // modal abierto, no lo sobrescribimos (defensa ante doble clic rápido).
-  if (root.innerHTML.trim()) return;
-  root.innerHTML = `
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">
-        <svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-        </svg>
-        Cargando detalle de tickets...
-      </div>
-    </div>`;
-}
-
-// Spinner: se muestra cuando el usuario hace clic en una celda drill-cr.
-// Usamos el evento nativo `htmx:beforeRequest` con check del trigger,
-// para no interferir con el swap de HTMX.
-function installDrillDownListeners() {
-  if (typeof document === 'undefined') return;
-  document.body.addEventListener('htmx:beforeRequest', function (evt) {
-    try {
-      const trigger = evt.detail && evt.detail.trigger;
-      if (trigger && trigger.getAttribute && trigger.getAttribute('data-drill-cr') === '1') {
-        _mostrarSpinnerDrillCr();
-      }
-    } catch (e) { /* noop */ }
-  });
-
-  // Si la petición falla, limpiamos el spinner para que no quede colgado.
-  // El listener global `htmx:responseError` de base.html ya muestra el
-  // toast con el detalle del error, pero adicionalmente vaciamos el root
-  // aquí para que el siguiente clic funcione.
-  document.body.addEventListener('htmx:responseError', function (evt) {
-    try {
-      const targetPath = (evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
-      if (targetPath.indexOf('/cuenta-resultado/detalle') >= 0) {
-        cerrarModalCuentaResultado();
-      }
-    } catch (e) { /* noop */ }
-  });
-
-  // Listener único a nivel document para que la tecla Esc cierre el modal.
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    const root = document.getElementById('modal-cuenta-resultado-root');
-    if (!root || !root.innerHTML.trim()) return;
-    cerrarModalCuentaResultado();
-  });
-
-  // =====================================================================
-  // CIERRE DEL MODAL DE DETALLE DE TICKET (inyectado por HTMX dentro de
-  // #modal-cuenta-resultado-root):
-  //   1. Botones [data-close-modal]  →  cierran el modal
-  //   2. Click en el overlay .modal-backdrop (solo si el target ES el
-  //      backdrop, no sus hijos)  →  también cierra el modal
-  //
-  // Se usa delegación de eventos sobre `document.body` para que los
-  // handlers funcionen incluso después de que HTMX reemplace el
-  // innerHTML de #modal-cuenta-resultado-root (los listeners NO se
-  // pierden porque viven en `document.body`).
-  //
-  // El modal de detalle del ticket (renderizado por
-  // app/templates/tickets/detalle_modal.py) define `data-close-modal`
-  // en sus dos botones de cierre (la "X" del header y el botón "Cerrar"
-  // del footer) y la clase `modal-backdrop` en el overlay. Sin este
-  // handler, esos botones y el click sobre el fondo oscuro no hacen
-  // nada y el modal queda atrapado en pantalla.
-  // =====================================================================
-  document.body.addEventListener('click', function (e) {
-    const root = document.getElementById('modal-cuenta-resultado-root');
-    if (!root || !root.innerHTML.trim()) return;
-
-    // Caso 1: click sobre cualquier [data-close-modal] dentro del modal
-    const closeBtn = e.target.closest('[data-close-modal]');
-    if (closeBtn && root.contains(closeBtn)) {
-      e.preventDefault();
-      e.stopPropagation();
-      cerrarModalCuentaResultado();
+  // ============== CUENTA DE RESULTADO ==============
+  function renderCuentaResultado(cuenta) {
+    const cont = safeId('cuenta-resultado-container');
+    if (!cont) return;
+    if (!cuenta || cuenta.length === 0) {
+      cont.innerHTML = '<p class="text-xs text-slate-400 text-center py-6">Sin incidencias cerradas con resultado de pruebas en el periodo</p>';
       return;
     }
+    const RESULTADOS = ['OK', 'OK CON OBS.', 'NOK', 'POSTERGADA', 'DESESTIMADA', 'N/A'];
+    const RESULTADO_COLORS = { 'OK': '#10b981', 'OK CON OBS.': '#22c55e', 'NOK': '#ef4444', 'POSTERGADA': '#eab308', 'DESESTIMADA': '#a855f7', 'N/A': '#94a3b8' };
+    const maxFila = Math.max.apply(null, cuenta.map(f => f.total)) || 1;
 
-    // Caso 2: click sobre el overlay .modal-backdrop (solo si el target
-    // es el backdrop mismo, para no cerrar cuando se interactúa con el
-    // contenido del modal como formularios, botones de tabs, etc.)
-    const backdrop = e.target.closest('.modal-backdrop');
-    if (backdrop && root.contains(backdrop) && backdrop === e.target) {
-      cerrarModalCuentaResultado();
+    // Filtrar solo columnas con datos
+    const cols = RESULTADOS.filter(r => cuenta.some(f => (f[r] || 0) > 0));
+
+    let html = '<table class="w-full text-xs">';
+    html += '<thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200">';
+    html += '<tr><th class="text-left py-2 px-3 font-semibold">Módulo</th>';
+    cols.forEach(c => {
+      html += '<th class="text-right py-2 px-2 font-semibold">' + c + '</th>';
+    });
+    html += '<th class="text-right py-2 px-3 font-semibold border-l border-slate-200">Total</th>';
+    html += '<th class="text-left py-2 px-3 font-semibold w-1/3">Distribución</th>';
+    html += '</tr></thead>';
+
+    html += '<tbody class="divide-y divide-slate-100">';
+    cuenta.forEach(f => {
+      const widthPct = (f.total / maxFila) * 100;
+      const segmentos = cols.map(r => {
+        const v = f[r] || 0;
+        const segPct = f.total ? (v / f.total) * 100 : 0;
+        return '<div title="' + r + ': ' + v + '" style="width:' + segPct.toFixed(1) + '%; background:' + RESULTADO_COLORS[r] + '"></div>';
+      }).join('');
+      html += '<tr class="hover:bg-slate-50">';
+      html += '<td class="py-2 px-3 font-medium text-slate-800">' + (f.modulo || '—') + '</td>';
+      cols.forEach(c => { html += '<td class="py-1.5 px-2 text-right text-slate-700 font-mono">' + (f[c] || 0) + '</td>'; });
+      html += '<td class="py-2 px-3 text-right font-bold text-slate-800 border-l border-slate-100">' + f.total + '</td>';
+      html += '<td class="py-1.5 px-3"><div class="flex h-3 rounded overflow-hidden bg-slate-100" style="width:' + widthPct.toFixed(1) + '%; min-width:60px">' + segmentos + '</div></td>';
+      html += '</tr>';
+    });
+    html += '</tbody>';
+
+    // Footer TOTAL
+    const totales = { total: 0 };
+    cols.forEach(c => totales[c] = 0);
+    cuenta.forEach(f => {
+      totales.total += f.total;
+      cols.forEach(c => totales[c] += (f[c] || 0));
+    });
+    html += '<tfoot class="border-t-2 border-slate-200 bg-slate-50/50">';
+    html += '<tr class="font-bold text-slate-800">';
+    html += '<td class="py-2 px-3">TOTAL</td>';
+    cols.forEach(c => { html += '<td class="py-2 px-2 text-right">' + totales[c] + '</td>'; });
+    html += '<td class="py-2 px-3 text-right border-l border-slate-200">' + totales.total + '</td>';
+    const aprobados = (totales['OK'] || 0) + (totales['OK CON OBS.'] || 0);
+    const okPct = totales.total ? ((aprobados / totales.total) * 100).toFixed(1) : '0';
+    html += '<td class="py-2 px-3 text-[10px] text-slate-500 font-normal">' + okPct + '% aprob.</td>';
+    html += '</tr></tfoot>';
+
+    html += '</table>';
+    cont.innerHTML = html;
+  }
+
+  // ============== TOP AGENTES ==============
+  function renderTopAgentes(agentes) {
+    const cont = safeId('list-agentes-v2');
+    if (!cont) return;
+    if (!agentes || agentes.length === 0) {
+      cont.innerHTML = '<div class="text-xs text-slate-400 py-4 text-center">Sin asignaciones</div>';
       return;
     }
-  });
-}
+    const max = Math.max.apply(null, agentes.map(a => a.total || 0)) || 1;
+    cont.innerHTML = agentes.map(a => {
+      const ini = (a.nombre || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+      const colorSeed = a.id ? (a.id * 137) % 360 : 200;
+      const colorBg = 'hsl(' + colorSeed + ',70%,94%)';
+      const colorFg = 'hsl(' + colorSeed + ',60%,35%)';
+      const barPct = ((a.total || 0) / max) * 100;
+      const abiertas = a.abiertas || 0;
+      const cerradas = a.cerradas || 0;
+      return '<div class="flex items-center gap-3 py-1.5">'
+        + '<span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold shrink-0" style="background:' + colorBg + '; color:' + colorFg + '">' + ini + '</span>'
+        + '<div class="flex-1 min-w-0">'
+        + '<div class="flex items-center justify-between text-xs">'
+        + '<span class="font-medium text-slate-800 truncate">' + (a.nombre || '') + '</span>'
+        + '<span class="font-bold text-slate-800 ml-2">' + fmt(a.total) + '</span>'
+        + '</div>'
+        + '<div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">'
+        + '<div class="h-full bg-indigo-500" style="width:' + barPct.toFixed(1) + '%"></div>'
+        + '</div>'
+        + '<div class="flex items-center gap-3 mt-1 text-[10px] text-slate-500">'
+        + '<span><span class="font-semibold text-slate-700">' + abiertas + '</span> abiertas</span>'
+        + '<span><span class="font-semibold text-emerald-700">' + cerradas + '</span> cerradas</span>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
 
-// Se instala una sola vez al cargar la página (los botones se regeneran
-// en cada `cargarCuentaResultado()`, pero los listeners delegados en
-// `document.body` persisten entre swaps).
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', installDrillDownListeners);
-} else {
-  installDrillDownListeners();
-}
+  // ============== EVENTOS ==============
+  function bind() {
+    const sel = safeId('periodo');
+    if (sel) sel.addEventListener('change', cargarMetricas);
+    const btn = safeId('btn-refresh');
+    if (btn) btn.addEventListener('click', function () {
+      const icon = safeId('icon-refresh');
+      if (icon) icon.classList.add('animate-spin');
+      cargarMetricas().then(() => setTimeout(() => icon && icon.classList.remove('animate-spin'), 400));
+    });
+    const riesgoH = safeId('riesgo-horas');
+    if (riesgoH) riesgoH.addEventListener('change', function () {
+      cargarMetricas();
+    });
+  }
 
-function colorPrioridad(p) {
-  return { critica: '#dc2626', alta: '#ea580c', media: '#eab308', baja: '#64748b' }[p] || '#94a3b8';
-}
-
-function renderMetricas(data) {
-  // === Stats Bar compacta (5 KPIs al estilo demo-static) ===
-  // Se llena ANTES que el resto para que el usuario vea números cuanto antes.
-  // Usa `totales.abiertos` (no `activos`) porque "Abiertos" semánticamente
-  // excluye los tickets ya cerrados (es_final=True), no solo los archivados.
-  const statBar = {
-    'statbar-total':       data.totales.total,
-    'statbar-abiertos':    data.totales.abiertos,
-    'statbar-sla':         data.sla.incumplidos,
-    'statbar-unassigned':  data.totales.sin_asignar,
-    'statbar-reglas':      data.totales.reglas_activas,
-  };
-  Object.entries(statBar).forEach(([id, val]) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = (val === undefined || val === null) ? '—' : val;
-  });
-
-  // KPIs principales (grid existente — sin cambios)
-  document.getElementById('kpi-total').textContent = data.totales.total;
-  document.getElementById('kpi-activos').textContent = data.totales.activos;
-  document.getElementById('kpi-archivados').textContent = data.totales.archivados;
-  document.getElementById('kpi-criticos').textContent = data.totales.criticos_sin_asignar;
-  const sla = data.sla;
-  document.getElementById('kpi-sla').textContent = sla.porcentaje_cumplimiento + '%';
-  document.getElementById('kpi-sla-pendientes').textContent = sla.pendientes;
-  // Tickets hoy
-  const hoy = new Date().toISOString().slice(0, 10);
-  const hoyData = data.actividad_por_dia.find(d => d.fecha === hoy);
-  document.getElementById('kpi-hoy').textContent = hoyData ? hoyData.total : 0;
-
-  // Chart de estados
-  const total = data.distribucion_estado.reduce((a, b) => a + b.total, 0) || 1;
-  const chartEst = document.getElementById('chart-estados');
-  chartEst.innerHTML = data.distribucion_estado.map(e => `
-    <div>
-      <div class="flex items-center justify-between text-xs mb-1">
-        <span class="flex items-center gap-1.5">
-          <span class="inline-block w-2 h-2 rounded-full" style="background:${e.color}"></span>
-          <span class="text-slate-700">${e.nombre}</span>
-        </span>
-        <span class="text-slate-500 font-mono">${e.total}</span>
-      </div>
-      <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
-        <div class="h-full" style="width:${(e.total / total * 100).toFixed(1)}%; background:${e.color}"></div>
-      </div>
-    </div>
-  `).join('');
-
-  // Chart de prioridades
-  const totalP = data.distribucion_prioridad.reduce((a, b) => a + b.total, 0) || 1;
-  const chartP = document.getElementById('chart-prioridades');
-  chartP.innerHTML = data.distribucion_prioridad.map(p => `
-    <div>
-      <div class="flex items-center justify-between text-xs mb-1">
-        <span class="flex items-center gap-1.5">
-          <span class="inline-block w-2 h-2 rounded-full" style="background:${colorPrioridad(p.prioridad)}"></span>
-          <span class="text-slate-700 capitalize">${p.prioridad}</span>
-        </span>
-        <span class="text-slate-500 font-mono">${p.total}</span>
-      </div>
-      <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
-        <div class="h-full" style="width:${(p.total / totalP * 100).toFixed(1)}%; background:${colorPrioridad(p.prioridad)}"></div>
-      </div>
-    </div>
-  `).join('');
-
-  // Actividad por día (sparkline de barras)
-  const serie = data.actividad_por_dia;
-  const max = Math.max(...serie.map(d => d.total), 1);
-  const chartA = document.getElementById('chart-actividad');
-  if (serie.length === 0) {
-    chartA.innerHTML = '<div class="text-slate-400 text-sm">Sin actividad en el período</div>';
+  // Init
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { bind(); cargarMetricas(); });
   } else {
-    chartA.innerHTML = serie.map(d => `
-      <div class="flex-1 bg-indigo-400 hover:bg-indigo-600 rounded-t transition-all" title="${d.fecha}: ${d.total} tickets"
-           style="height:${Math.max(d.total / max * 100, 2)}%"></div>
-    `).join('');
+    bind();
+    cargarMetricas();
   }
-
-  // Top etiquetas
-  document.getElementById('list-etiquetas').innerHTML = (data.top_etiquetas.length === 0
-    ? '<div class="text-xs text-slate-400">Sin etiquetas</div>'
-    : data.top_etiquetas.map(e => `
-      <div class="flex items-center justify-between text-xs">
-        <span class="flex items-center gap-1.5">
-          <span class="inline-block w-2 h-2 rounded-full" style="background:${e.color}"></span>
-          <span class="text-slate-700">${e.nombre}</span>
-        </span>
-        <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono">${e.total}</span>
-      </div>
-    `).join(''));
-
-  // Top agentes
-  document.getElementById('list-agentes').innerHTML = (data.top_agentes.length === 0
-    ? '<div class="text-xs text-slate-400">Sin asignaciones</div>'
-    : data.top_agentes.map(a => {
-        const ini = a.nombre.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
-        return `
-      <div class="flex items-center justify-between text-xs">
-        <span class="flex items-center gap-2">
-          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold">${ini}</span>
-          <span class="text-slate-700">${a.nombre}</span>
-        </span>
-        <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono">${a.total}</span>
-      </div>`;
-      }).join(''));
-}
-
-document.addEventListener('DOMContentLoaded', cargarMetricas);
+})();
 </script>
 {% endblock %}
