@@ -16,6 +16,16 @@ const ESTADOS = [
 
 const PRIORIDADES = ['CRITICA', 'ALTA', 'MEDIA', 'BAJA'];
 const PRIO_DIST = [0.10, 0.25, 0.45, 0.20];
+const PRIO_COLORS = { CRITICA: '#dc2626', ALTA: '#f97316', MEDIA: '#eab308', BAJA: '#3b82f6' };
+
+// Tipos de ticket — el dashboard de Incidencias se enfoca sólo en "Incidencias"
+const TIPOS = ['Incidencia', 'Requerimiento', 'Cambio'];
+const TIPO_DIST = [0.70, 0.20, 0.10];
+
+// Resultados de cuenta (módulo x resultado de QA)
+const RESULTADOS = ['Aprobado', 'Rechazado', 'Pendiente', 'En revisión'];
+const RESULTADO_COLORS = { 'Aprobado': '#10b981', 'Rechazado': '#ef4444', 'Pendiente': '#eab308', 'En revisión': '#3b82f6' };
+const RESULTADO_DIST = [0.55, 0.18, 0.15, 0.12];
 
 const AGENTES = [
   'Juan Pérez', 'María López', 'Carlos Ruiz', 'Ana Soto', 'Roberto Díaz',
@@ -83,6 +93,11 @@ function generarDataset(dias = 30, seed = Date.now()) {
     const canal = pickW(rng, CANALES.map(c => c.nombre), CANAL_DIST);
     const modulo = pick(rng, MODULOS);
     const verbo = pick(rng, VERBOS);
+    const tipo = pickW(rng, TIPOS, TIPO_DIST);
+    // Sólo las Incidencias tienen cuenta de resultado (QA)
+    const resultadoPruebas = tipo === 'Incidencia' && cerrado
+      ? pickW(rng, RESULTADOS, RESULTADO_DIST)
+      : null;
 
     // 60% cerrados, 40% abiertos
     const cerrado = rng() < 0.62;
@@ -141,9 +156,11 @@ function generarDataset(dias = 30, seed = Date.now()) {
 
     tickets.push({
       id: i + 1,
-      codigo: `INC-${String(1000 + i).padStart(4, '0')}`,
+      codigo: tipo === 'Incidencia' ? `INC-${String(1000 + i).padStart(4, '0')}` :
+              tipo === 'Requerimiento' ? `REQ-${String(1000 + i).padStart(4, '0')}` :
+              `CAM-${String(1000 + i).padStart(4, '0')}`,
       titulo: `${verbo} ${modulo}`,
-      descripcion: `Incidencia detectada en el módulo de ${modulo.toLowerCase()} durante pruebas funcionales. Se requiere investigación y resolución según SLA de prioridad ${prioridad}.`,
+      descripcion: `Ticket tipo ${tipo} detectado en el módulo de ${modulo.toLowerCase()} durante pruebas funcionales. Se requiere investigación y resolución según SLA de prioridad ${prioridad}.`,
       estado,
       prioridad,
       asignado,
@@ -156,6 +173,8 @@ function generarDataset(dias = 30, seed = Date.now()) {
       tme,
       slaCumplido,
       modulo,
+      tipo,
+      resultadoPruebas,
     });
   }
   return tickets;
@@ -188,9 +207,11 @@ function agregar(tickets, dias) {
     d.setHours(0, 0, 0, 0);
     const dFin = new Date(d);
     dFin.setHours(23, 59, 59, 999);
-    const levantadas = tickets.filter(t => t.creado >= d && t.creado <= dFin).length;
+    const delDia = tickets.filter(t => t.creado >= d && t.creado <= dFin);
+    const levantadas = delDia.length;
+    const incidencias = delDia.filter(t => t.tipo === 'Incidencia').length;
     const cerradas = tickets.filter(t => t.cerrado && t.cerrado >= d && t.cerrado <= dFin).length;
-    serie.push({ fecha: d.toISOString().slice(0, 10), levantadas, cerradas });
+    serie.push({ fecha: d.toISOString().slice(0, 10), levantadas, incidencias, cerradas });
   }
 
   // Funnel
@@ -204,7 +225,7 @@ function agregar(tickets, dias) {
              cerradas.filter(t => t.estado === estado.nombre).length,
     }));
 
-  // Aging del backlog
+  // Aging del backlog (lo conservamos para uso opcional en detalle)
   const ahora = new Date();
   const aging = [
     { rango: '0-2 días', count: 0, color: '#10b981' },
@@ -222,67 +243,58 @@ function agregar(tickets, dias) {
     else aging[4].count++;
   });
 
-  // Próximos a vencer SLA (en las próximas N horas, abiertas)
+  // ====================== Distribución por estado (todos los tickets del periodo) ======================
+  const distEstado = ESTADOS.map(e => ({
+    nombre: e.nombre,
+    color: e.color,
+    total: tickets.filter(t => t.estado === e.nombre).length,
+  })).filter(d => d.total > 0).sort((a, b) => b.total - a.total);
+
+  // ====================== Distribución por prioridad ======================
+  const distPrioridad = PRIORIDADES.map(p => ({
+    nombre: p,
+    color: PRIO_COLORS[p],
+    total: tickets.filter(t => t.prioridad === p).length,
+  }));
+
+  // ====================== Cuenta de Resultado (módulo × resultado) ======================
+  // Sólo cuenta tickets tipo Incidencia que pasaron QA (cerrados)
+  const incidenciasCerradas = cerradas.filter(t => t.tipo === 'Incidencia');
+  const cuentaResultado = MODULOS.map(mod => {
+    const modTickets = incidenciasCerradas.filter(t => t.modulo === mod);
+    const fila = { modulo: mod, total: modTickets.length };
+    RESULTADOS.forEach(r => {
+      fila[r] = modTickets.filter(t => t.resultadoPruebas === r).length;
+    });
+    return fila;
+  }).filter(f => f.total > 0);
+
+  // Próximos a vencer SLA (en las próximas N horas, abiertas, sólo Incidencias)
   function proximasVencer(horas = 72) {
     return abiertas
+      .filter(t => t.tipo === 'Incidencia')
       .filter(t => {
         const horasVence = (t.vence - ahora) / (1000 * 60 * 60);
-        return horasVence >= -12 && horasVence <= horas; // incluye vencidos recientes
+        return horasVence >= -12 && horasVence <= horas;
       })
       .sort((a, b) => a.vence - b.vence)
       .slice(0, 20);
   }
 
-  // Carga por agente (abiertas + cerradas del periodo)
-  const cargaMap = {};
-  AGENTES.forEach(a => { cargaMap[a] = 0; });
-  tickets.forEach(t => {
-    if (t.asignado) cargaMap[t.asignado] = (cargaMap[t.asignado] || 0) + 1;
-  });
-  const carga = Object.entries(cargaMap)
-    .filter(([_, v]) => v > 0)
-    .map(([nombre, total]) => ({ nombre, total }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 8);
-
-  // Por origen
-  const origenMap = {};
-  CANALES.forEach(c => { origenMap[c.nombre] = 0; });
-  tickets.forEach(t => {
-    if (origenMap[t.canal] !== undefined) origenMap[t.canal] = (origenMap[t.canal] || 0) + 1;
-  });
-  const origen = Object.entries(origenMap).map(([nombre, total]) => {
-    const c = CANALES.find(x => x.nombre === nombre);
-    return { nombre, total, color: c.color };
-  });
-
-  // Cierre (distribución final)
-  const cierreMap = {};
-  ESTADOS.filter(e => e.es_final).forEach(e => { cierreMap[e.nombre] = 0; });
-  cerradas.forEach(t => {
-    if (cierreMap[t.estado] !== undefined) cierreMap[t.estado] = (cierreMap[t.estado] || 0) + 1;
-  });
-  const cierre = Object.entries(cierreMap)
-    .filter(([_, v]) => v > 0)
-    .map(([nombre, total]) => {
-      const e = ESTADOS.find(x => x.nombre === nombre);
-      return { nombre, total, color: e ? e.color : '#94a3b8' };
-    });
-
-  // Series para sparklines (30 puntos)
+  // Series para sparklines (N puntos según periodo)
   function sparkline(field) {
     const pts = [];
     for (let i = dias - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
+      const idx = serie.length - 1 - i;
       if (field === 'levantadas') {
-        pts.push(serie[serie.length - 1 - i].levantadas);
+        pts.push(serie[idx].levantadas);
       } else if (field === 'cerradas') {
-        pts.push(serie[serie.length - 1 - i].cerradas);
-      } else if (field === 'tme') {
-        const dFin = new Date(d); dFin.setHours(23, 59, 59);
-        const cs = cerradas.filter(t => t.cerrado <= dFin);
-        pts.push(cs.length ? cs.reduce((acc, t) => acc + t.tme, 0) / cs.length : 0);
+        pts.push(serie[idx].cerradas);
+      } else if (field === 'incidencias') {
+        // Sólo tickets tipo Incidencia creados ese día
+        pts.push(serie[idx].incidencias);
       } else if (field === 'sla') {
         const dFin = new Date(d); dFin.setHours(23, 59, 59);
         const hasta = tickets.filter(t => t.creado <= dFin && (t.slaCumplido === 0 || t.slaCumplido === 1));
@@ -290,21 +302,32 @@ function agregar(tickets, dias) {
         pts.push(hasta.length ? (cum / hasta.length) * 100 : 0);
       } else if (field === 'backlog') {
         const dFin = new Date(d); dFin.setHours(23, 59, 59);
-        pts.push(tickets.filter(t => t.creado <= dFin && !t.cerrado).length);
+        pts.push(tickets.filter(t => t.creado <= dFin && !t.cerrado && t.tipo === 'Incidencia').length);
       }
     }
     return pts;
   }
 
   const nuevas7dPrev = Math.max(1, Math.floor(nuevas7d * (0.7 + Math.random() * 0.5)));
-  const tmePrev = Math.max(1, tmePromedio * (0.85 + Math.random() * 0.3));
   const slaPrev = Math.max(0, Math.min(100, slaPct + (Math.random() - 0.5) * 8));
   const backlogPrev = Math.max(1, backlog * (0.85 + Math.random() * 0.3));
+
+  // === KPIs ===
+  const ticketsIncidencias = tickets.filter(t => t.tipo === 'Incidencia');
+  const incidenciasLevantadas = ticketsIncidencias.length;
+  const incidenciasNuevas7d = ticketsIncidencias.filter(t => {
+    const diff = (new Date() - t.creado) / (1000 * 60 * 60 * 24);
+    return diff <= 7;
+  }).length;
+  const incidenciasAbiertas = ticketsIncidencias.filter(t => !t.cerrado).length;
 
   return {
     tickets,
     kpis: {
       total: tickets.length,
+      incidenciasLevantadas,
+      incidenciasNuevas7d,
+      incidenciasAbiertas,
       nuevas7d,
       abiertas: abiertas.length,
       criticosSinAsignar,
@@ -317,21 +340,21 @@ function agregar(tickets, dias) {
     },
     deltas: {
       nuevas: ((nuevas7d - nuevas7dPrev) / nuevas7dPrev * 100),
-      tme: ((tme - tmePrev) / tmePrev * 100),
       sla: slaPct - slaPrev,
       backlog: ((backlog - backlogPrev) / backlogPrev * 100),
       levantadas: ((tickets.length - Math.floor(tickets.length * 0.85)) / (tickets.length * 0.85) * 100),
+      incidencias: ((incidenciasLevantadas - Math.floor(incidenciasLevantadas * 0.85)) / (incidenciasLevantadas * 0.85) * 100),
     },
     serie,
     funnel,
     aging,
-    carga,
-    origen,
-    cierre,
+    distEstado,
+    distPrioridad,
+    cuentaResultado,
     riesgos: proximasVencer(72),
     series: {
       levantadas: sparkline('levantadas'),
-      tme: sparkline('tme'),
+      incidencias: sparkline('levantadas'),
       sla: sparkline('sla'),
       backlog: sparkline('backlog'),
       cerradas: sparkline('cerradas'),

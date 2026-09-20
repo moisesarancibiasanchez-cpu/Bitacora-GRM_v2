@@ -8,7 +8,6 @@ let estado = { dias: 30, dataset: null, autoTimer: null, theme: 'light' };
 window.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   cargar();
-  renderKanbanDemo();
 });
 
 // ============== EVENTOS ==============
@@ -58,20 +57,20 @@ function bindEvents() {
       // re-render charts to pick up new colors
       renderCharts(estado.dataset);
       renderFunnel(estado.dataset.funnel);
-      renderAging(estado.dataset.aging);
-      renderCarga(estado.dataset.carga);
+      renderDistEstado(estado.dataset.distEstado);
+      renderDistPrioridad(estado.dataset.distPrioridad);
+      renderCuentaResultado(estado.dataset.cuentaResultado);
       renderTickets();
-      renderKanbanDemo();
     }
   });
 
   // Export CSV
   document.getElementById('btn-export').addEventListener('click', () => {
     if (!estado.dataset) return;
-    const rows = [['codigo', 'titulo', 'estado', 'prioridad', 'asignado', 'solicitante', 'canal', 'sla_cumplido', 'creado', 'cerrado']];
+    const rows = [['codigo', 'tipo', 'titulo', 'estado', 'prioridad', 'asignado', 'solicitante', 'canal', 'sla_cumplido', 'creado', 'cerrado']];
     estado.dataset.tickets.forEach(t => {
       rows.push([
-        t.codigo, `"${t.titulo.replace(/"/g, '""')}"`, t.estado, t.prioridad,
+        t.codigo, t.tipo, `"${t.titulo.replace(/"/g, '""')}"`, t.estado, t.prioridad,
         t.asignado || '', t.solicitante, t.canal, t.slaCumplido,
         t.creado.toISOString(), t.cerrado ? t.cerrado.toISOString() : '',
       ]);
@@ -81,7 +80,7 @@ function bindEvents() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `incidencias_${estado.dias}d_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `incidencias_${estado.dias}d_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast(`Exportadas ${rows.length - 1} filas a CSV`);
@@ -124,11 +123,10 @@ function cargar() {
   renderKPIs(ds.kpis, ds.deltas, ds.series);
   renderCharts(ds);
   renderFunnel(ds.funnel);
-  renderAging(ds.aging);
+  renderDistEstado(ds.distEstado);
+  renderDistPrioridad(ds.distPrioridad);
   renderRiesgo(ds.tickets.filter(t => !t.cerrado), 72);
-  renderCarga(ds.carga);
-  renderOrigen(ds.origen);
-  renderCierre(ds.cierre);
+  renderCuentaResultado(ds.cuentaResultado);
   renderTickets();
   document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-CL');
 }
@@ -136,8 +134,8 @@ function cargar() {
 // ============== STATS BAR ==============
 function renderStatsBar(k, deltas) {
   document.getElementById('stat-total').textContent = k.total.toLocaleString('es-CL');
-  document.getElementById('stat-nuevas').textContent = k.nuevas7d.toLocaleString('es-CL');
-  document.getElementById('stat-abiertas').textContent = k.abiertas.toLocaleString('es-CL');
+  document.getElementById('stat-nuevas').textContent = k.incidenciasNuevas7d.toLocaleString('es-CL');
+  document.getElementById('stat-abiertas').textContent = k.incidenciasAbiertas.toLocaleString('es-CL');
   document.getElementById('stat-sla').textContent = k.slaPct.toFixed(1) + '%';
   document.getElementById('stat-crit').textContent = k.criticosSinAsignar;
   document.getElementById('stat-backlog').textContent = k.backlog7d;
@@ -145,37 +143,50 @@ function renderStatsBar(k, deltas) {
 
 // ============== KPIs + SPARKLINES ==============
 function renderKPIs(k, d, series) {
-  document.getElementById('kpi-levantadas').innerHTML = k.levantadas.toLocaleString('es-CL');
-  document.getElementById('kpi-tme').innerHTML = k.tme.toFixed(1) + '<span class="text-base font-medium text-slate-500">h</span>';
+  // KPI 1: Tickets totales
+  document.getElementById('kpi-totales').textContent = k.total.toLocaleString('es-CL');
+  const d1 = document.getElementById('kpi-totales-delta');
+  d1.innerHTML = deltaHtml(d.levantadas, '%', 'inverse');
+
+  // KPI 2: Incidencias (filtradas por tipo)
+  document.getElementById('kpi-incidencias').textContent = k.incidenciasLevantadas.toLocaleString('es-CL');
+  document.getElementById('kpi-incidencias-nuevas').textContent = k.incidenciasNuevas7d;
+  const d2 = document.getElementById('kpi-incidencias-delta');
+  d2.innerHTML = deltaHtml(d.incidencias, '%', 'inverse');
+
+  // KPI 3: % SLA
   document.getElementById('kpi-sla').innerHTML = k.slaPct.toFixed(1) + '<span class="text-base font-medium text-slate-500">%</span>';
-  document.getElementById('kpi-backlog').textContent = k.backlog.toLocaleString('es-CL');
-
-  const fmtDelta = (v, unit) => {
-    const s = v >= 0 ? '+' : '';
-    return s + v.toFixed(1) + unit;
-  };
-  const arrow = (v) => v >= 0 ? '▲' : '▼';
-
-  const d1 = document.getElementById('kpi-levantadas-delta');
-  d1.innerHTML = `<span class="${d.levantadas >= 0 ? 'text-emerald-600' : 'text-red-600'}">${arrow(d.levantadas)} ${Math.abs(d.levantadas).toFixed(1)}%</span>`;
-  const d2 = document.getElementById('kpi-tme-delta');
-  d2.innerHTML = `<span class="${d.tme <= 0 ? 'text-emerald-600' : 'text-red-600'}">${arrow(d.tme)} ${Math.abs(d.tme).toFixed(1)}%</span>`;
   const d3 = document.getElementById('kpi-sla-delta');
-  d3.innerHTML = `<span class="${d.sla >= 0 ? 'text-emerald-600' : 'text-red-600'}">${arrow(d.sla)} ${Math.abs(d.sla).toFixed(1)} pp</span>`;
-  const d4 = document.getElementById('kpi-backlog-delta');
-  d4.innerHTML = `<span class="${d.backlog <= 0 ? 'text-emerald-600' : 'text-red-600'}">${arrow(d.backlog)} ${Math.abs(d.backlog).toFixed(1)}%</span>`;
+  d3.innerHTML = deltaHtml(d.sla, ' pp', 'direct');
 
-  // Sparklines
-  drawSpark('spark-levantadas', series.levantadas, '#4f46e5');
-  drawSpark('spark-tme', series.tme, '#f59e0b');
+  // KPI 4: Backlog Incidencias
+  document.getElementById('kpi-backlog').textContent = k.incidenciasAbiertas.toLocaleString('es-CL');
+  const d4 = document.getElementById('kpi-backlog-delta');
+  d4.innerHTML = deltaHtml(d.backlog, '%', 'inverse');
+
+  // Sparklines (4)
+  drawSpark('spark-totales', series.levantadas, '#4f46e5');
+  drawSpark('spark-incidencias', series.incidencias, '#dc2626');
   drawSpark('spark-sla', series.sla, '#10b981');
   drawSpark('spark-backlog', series.backlog, '#ef4444');
+}
+
+// deltaHtml(value, unit, direction):
+//   direction = 'direct'  → valor positivo es verde (ej. SLA subiendo)
+//   direction = 'inverse' → valor positivo es rojo (ej. más tickets/incidencias/backlog)
+function deltaHtml(value, unit, direction) {
+  if (value === undefined || isNaN(value)) return '—';
+  const arrow = value >= 0 ? '▲' : '▼';
+  const good = direction === 'direct' ? value >= 0 : value <= 0;
+  const cls = good ? 'text-emerald-600' : 'text-red-600';
+  return `<span class="${cls}">${arrow} ${Math.abs(value).toFixed(1)}${unit}</span>`;
 }
 
 function drawSpark(id, data, color) {
   const svg = document.getElementById(id);
   if (!svg) return;
   const w = 100, h = 30;
+  if (!data || data.length === 0) return;
   const min = Math.min(...data), max = Math.max(...data);
   const range = max - min || 1;
   const points = data.map((v, i) => {
@@ -252,6 +263,7 @@ function renderCharts(ds) {
 // ============== FUNNEL ==============
 function renderFunnel(funnel) {
   const cont = document.getElementById('funnel-container');
+  if (!cont) return;
   const max = Math.max(...funnel.map(f => f.total), 1);
   cont.innerHTML = funnel.map(f => {
     const pct = (f.total / max) * 100;
@@ -273,34 +285,64 @@ function renderFunnel(funnel) {
   });
 }
 
-// ============== AGING ==============
-function renderAging(aging) {
-  const cont = document.getElementById('aging-container');
-  const max = Math.max(...aging.map(a => a.count), 1);
-  cont.innerHTML = aging.map(a => {
-    const pct = (a.count / max) * 100;
+// ============== DISTRIBUCIÓN POR ESTADO ==============
+function renderDistEstado(distEstado) {
+  const cont = document.getElementById('dist-estado-container');
+  if (!cont) return;
+  if (!distEstado || distEstado.length === 0) {
+    cont.innerHTML = '<p class="text-xs text-slate-400 py-4 text-center">Sin datos</p>';
+    return;
+  }
+  const max = Math.max(...distEstado.map(d => d.total), 1);
+  cont.innerHTML = distEstado.map(d => {
+    const pct = (d.total / max) * 100;
     return `
       <div>
         <div class="flex items-center justify-between text-xs mb-1">
-          <span class="text-slate-600">${a.rango}</span>
-          <span class="font-bold text-slate-800">${a.count}</span>
+          <span class="text-slate-700 font-medium inline-flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-sm shrink-0" style="background:${d.color}"></span>
+            ${d.nombre}
+          </span>
+          <span class="font-bold text-slate-800">${d.total}</span>
         </div>
         <div class="bar-track">
-          <div class="bar-fill" style="width:${pct}%; background:${a.color}"></div>
+          <div class="bar-fill" style="width:${pct}%; background:${d.color}"></div>
         </div>
       </div>`;
   }).join('');
 }
 
-// ============== RIESGO ==============
+// ============== DISTRIBUCIÓN POR PRIORIDAD ==============
+function renderDistPrioridad(distPrioridad) {
+  const cont = document.getElementById('dist-prioridad-container');
+  if (!cont) return;
+  const total = distPrioridad.reduce((acc, p) => acc + p.total, 0) || 1;
+  cont.innerHTML = distPrioridad.map(p => {
+    const pct = (p.total / total) * 100;
+    return `
+      <div>
+        <div class="flex items-center justify-between text-xs mb-1">
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold prio-${p.nombre}">${p.nombre}</span>
+          <span class="font-bold text-slate-800">${p.total} <span class="text-slate-400 font-normal">(${pct.toFixed(0)}%)</span></span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${pct}%; background:${p.color}"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ============== RIESGO (próximos a vencer SLA) ==============
 function renderRiesgo(abiertas, horasLimite) {
   const ahora = new Date();
   const lista = abiertas
+    .filter(t => t.tipo === 'Incidencia')
     .map(t => ({ ...t, horasVence: (t.vence - ahora) / (1000 * 60 * 60) }))
     .filter(t => t.horasVence <= horasLimite && t.horasVence >= -48)
     .sort((a, b) => a.horasVence - b.horasVence);
 
   const tbody = document.getElementById('riesgo-tbody');
+  if (!tbody) return;
   if (!lista.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-slate-400">Sin tickets próximos a vencer SLA · :)</td></tr>';
     return;
@@ -328,74 +370,71 @@ function renderRiesgo(abiertas, horasLimite) {
   });
 }
 
-// ============== CARGA POR AGENTE ==============
-function renderCarga(carga) {
-  const cont = document.getElementById('carga-container');
-  const max = Math.max(...carga.map(c => c.total), 1);
-  cont.innerHTML = carga.map(c => {
-    const pct = (c.total / max) * 100;
-    const color = pct > 75 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#4f46e5';
-    return `
-      <div>
-        <div class="flex items-center justify-between text-xs mb-1">
-          <span class="text-slate-700 font-medium">${c.nombre}</span>
-          <span class="font-bold text-slate-800">${c.total}</span>
-        </div>
-        <div class="bar-track">
-          <div class="bar-fill" style="width:${pct}%; background:${color}"></div>
-        </div>
-      </div>`;
-  }).join('');
-}
-
-// ============== DONUT ORIGEN ==============
-function renderOrigen(origen) {
-  const total = origen.reduce((acc, o) => acc + o.total, 0);
-  const svg = document.getElementById('donut-origen');
-  const legend = document.getElementById('origen-legend');
-  if (!total) {
-    svg.innerHTML = '<text x="60" y="65" text-anchor="middle" fill="#94a3b8" font-size="11">Sin datos</text>';
-    legend.innerHTML = '';
+// ============== CUENTA DE RESULTADO (pivot Incidencias × QA) ==============
+function renderCuentaResultado(cuentaResultado) {
+  const cont = document.getElementById('cuenta-resultado-container');
+  if (!cont) return;
+  if (!cuentaResultado || cuentaResultado.length === 0) {
+    cont.innerHTML = '<p class="text-xs text-slate-400 py-6 text-center">Sin incidencias cerradas con resultado de QA en el periodo</p>';
     return;
   }
-  let acc = 0;
-  const r = 45, cx = 60, cy = 60;
-  let slices = '';
-  origen.forEach(o => {
-    if (!o.total) return;
-    const start = acc / total;
-    acc += o.total;
-    const end = acc / total;
-    const a1 = start * Math.PI * 2 - Math.PI / 2;
-    const a2 = end * Math.PI * 2 - Math.PI / 2;
-    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
-    const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
-    const big = (end - start) > 0.5 ? 1 : 0;
-    slices += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${big} 1 ${x2},${y2} Z" fill="${o.color}" class="donut-slice"><title>${o.nombre}: ${o.total}</title></path>`;
-  });
-  // Hueco central
-  slices += `<circle cx="${cx}" cy="${cy}" r="28" fill="white" class="dark:fill-slate-800"/>`;
-  slices += `<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="11" fill="#64748b" font-weight="600">Total</text>`;
-  slices += `<text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="14" fill="#1e293b" font-weight="700">${total}</text>`;
-  svg.innerHTML = slices;
 
-  legend.innerHTML = origen.map(o => `
-    <div class="flex items-center justify-between gap-2">
-      <div class="flex items-center gap-1.5 min-w-0">
-        <span class="w-2 h-2 rounded-sm shrink-0" style="background:${o.color}"></span>
-        <span class="text-slate-700 truncate">${o.nombre}</span>
-      </div>
-      <span class="font-semibold text-slate-800">${o.total} <span class="text-slate-400 font-normal">(${(o.total / total * 100).toFixed(0)}%)</span></span>
-    </div>
-  `).join('');
-}
+  const RESULTADOS_ORDER = ['Aprobado', 'Rechazado', 'Pendiente', 'En revisión'];
+  const RESULTADO_COLORS = { 'Aprobado': '#10b981', 'Rechazado': '#ef4444', 'Pendiente': '#eab308', 'En revisión': '#3b82f6' };
+  const maxFila = Math.max(...cuentaResultado.map(f => f.total), 1);
 
-// ============== DONUT CIERRE ==============
-function renderCierre(cierre) {
-  // Re-utiliza renderOrigen pero con paleta
-  renderOrigen(cierre);
-  // Personalizar el título
-  document.querySelector('section:has(#donut-cierre) h3, .lg\\:col-span-2 ~ div h3')?.remove?.();
+  cont.innerHTML = `
+    <table class="w-full text-xs">
+      <thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200">
+        <tr>
+          <th class="text-left py-2 px-3 font-semibold">Módulo</th>
+          ${RESULTADOS_ORDER.map(r => `<th class="text-right py-2 px-2 font-semibold">${r}</th>`).join('')}
+          <th class="text-right py-2 px-3 font-semibold border-l border-slate-200">Total</th>
+          <th class="text-left py-2 px-3 font-semibold w-1/3">Distribución</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        ${cuentaResultado.map(f => {
+          const widthPct = (f.total / maxFila) * 100;
+          const segmentos = RESULTADOS_ORDER.map(r => {
+            const val = f[r] || 0;
+            const segPct = f.total ? (val / f.total) * 100 : 0;
+            return `<div title="${r}: ${val}" style="width:${segPct}%; background:${RESULTADO_COLORS[r]}"></div>`;
+          }).join('');
+          return `
+            <tr class="hover:bg-slate-50">
+              <td class="py-2 px-3 font-medium text-slate-800">${f.modulo}</td>
+              ${RESULTADOS_ORDER.map(r => `<td class="py-1.5 px-2 text-right text-slate-700 font-mono">${f[r] || 0}</td>`).join('')}
+              <td class="py-2 px-3 text-right font-bold text-slate-800 border-l border-slate-100">${f.total}</td>
+              <td class="py-1.5 px-3">
+                <div class="flex w-full h-3 rounded overflow-hidden bg-slate-100" style="width:${widthPct}%; min-width:60px">
+                  ${segmentos}
+                </div>
+              </td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+      <tfoot class="border-t-2 border-slate-200 bg-slate-50/50">
+        ${(() => {
+          const totales = { total: 0 };
+          RESULTADOS_ORDER.forEach(r => totales[r] = 0);
+          cuentaResultado.forEach(f => {
+            totales.total += f.total;
+            RESULTADOS_ORDER.forEach(r => totales[r] += (f[r] || 0));
+          });
+          return `
+            <tr class="font-bold text-slate-800">
+              <td class="py-2 px-3">TOTAL</td>
+              ${RESULTADOS_ORDER.map(r => `<td class="py-2 px-2 text-right">${totales[r]}</td>`).join('')}
+              <td class="py-2 px-3 text-right border-l border-slate-200">${totales.total}</td>
+              <td class="py-2 px-3 text-[10px] text-slate-500 font-normal">
+                ${totales.total ? ((totales['Aprobado'] / totales.total) * 100).toFixed(1) + '% aprobado' : '—'}
+              </td>
+            </tr>`;
+        })()}
+      </tfoot>
+    </table>
+  `;
 }
 
 // ============== TABLA DE TICKETS ==============
@@ -462,64 +501,4 @@ function formatHorasRestantes(vence) {
   const diff = (vence - new Date()) / (1000 * 60 * 60);
   if (diff < 0) return `vencido hace ${Math.abs(diff).toFixed(1)}h`;
   return `en ${diff.toFixed(1)}h`;
-}
-
-// ============== MINI KANBAN DEMO ==============
-function renderKanbanDemo() {
-  if (!estado.dataset) return;
-  // 6 tickets ficticios para la demo
-  const demo = estado.dataset.tickets.slice(0, 9);
-  const cols = document.querySelectorAll('.kanban-col');
-  cols.forEach(col => {
-    col.querySelector('.kanban-list').innerHTML = '';
-  });
-  demo.forEach((t, i) => {
-    const targetEstado = i < 3 ? 'BackLog' : i < 6 ? 'En desarrollo' : 'QA';
-    const col = Array.from(cols).find(c => c.dataset.estado === targetEstado);
-    if (col) {
-      const card = document.createElement('div');
-      card.className = 'kanban-card';
-      card.draggable = true;
-      card.dataset.id = t.id;
-      card.dataset.fromEstado = t.estado;
-      card.innerHTML = `
-        <div class="font-mono text-[10px] text-slate-400">${t.codigo}</div>
-        <div class="truncate">${t.titulo}</div>
-        <div class="flex items-center justify-between mt-1">
-          <span class="px-1 py-0 rounded text-[9px] prio-${t.prioridad}" style="font-weight:600">${t.prioridad[0]}</span>
-          <span class="text-[9px] text-slate-400">${(t.asignado || 'SA').split(' ').map(s => s[0]).join('')}</span>
-        </div>`;
-      attachDrag(card);
-      col.querySelector('.kanban-list').appendChild(card);
-    }
-  });
-
-  // Dragover styling
-  cols.forEach(col => {
-    col.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      col.classList.add('drag-over');
-    });
-    col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
-    col.addEventListener('drop', (e) => {
-      e.preventDefault();
-      col.classList.remove('drag-over');
-      const dragging = document.querySelector('.kanban-card.dragging');
-      if (dragging) {
-        col.querySelector('.kanban-list').appendChild(dragging);
-        toast(`Ticket ${dragging.querySelector('.font-mono').textContent} → ${col.dataset.estado} (simulado)`);
-        // Animación
-        dragging.style.transform = 'scale(1.02)';
-        setTimeout(() => dragging.style.transform = '', 200);
-      }
-    });
-  });
-}
-
-function attachDrag(card) {
-  card.addEventListener('dragstart', (e) => {
-    card.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-  });
-  card.addEventListener('dragend', () => card.classList.remove('dragging'));
 }
