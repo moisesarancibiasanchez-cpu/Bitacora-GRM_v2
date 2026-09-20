@@ -223,16 +223,27 @@ class ImportarXMLResponse(BaseModel):
     tareas_xml: int
     tareas_conocidas: int
     tareas_a_crear: List[dict]
+    tickets_creados: int = 0
     fechas_actualizadas: int = 0
     links_xml: int
     links_a_crear: List[dict]
-    links_omitidos: List[dict]
+    # === (C) Resumen ejecutivo de omitidos/errores ===
+    # Por defecto NO devolvemos el listado completo de links_omitidos
+    # (puede tener cientos de items y enmascara la señal). En su lugar,
+    # devolvemos un conteo y una muestra de los primeros N para diagnóstico.
+    # Si el cliente quiere el detalle completo, pasa ``?detallar_omitidos=true``.
+    links_omitidos_count: int = 0
+    links_omitidos_muestra: List[dict] = []
     errores: List[str]
+    # Backwards compat: campo legacy (deprecado). Mantener en None
+    # para no romper consumidores que ya lo lean.
+    links_omitidos: Optional[List[dict]] = None
 
 
 @router.post("/importar-xml", response_model=ImportarXMLResponse)
 def importar_xml(
     payload: ImportarXMLRequest,
+    detallar_omitidos: bool = False,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
@@ -247,9 +258,20 @@ def importar_xml(
            NO tiene ``fecha_inicio`` o ``fecha_vencimiento_sla``, los
            completa con las del XML. Esto es CRÍTICO para que el Gantt
            muestre datos.
-        4. Para cada ``<PredecessorLink>`` con predecesor y sucesor
+        4. (B) Si ``crear_tickets_faltantes=True``, crea tickets para
+           todas las tareas del XML que no matcheen con uno existente.
+           Se asigna un código ``MP_<UID>`` y se copian las fechas del
+           XML. Sólo se ejecuta si ``dry_run=False``.
+        5. Para cada ``<PredecessorLink>`` con predecesor y sucesor
            conocidos, crea la dependencia (con el tipo FS/SS/FF/SF).
-        5. Si ``dry_run=True``, NO persiste; sólo reporta lo que haría.
+           (A) Defensa en profundidad: rechaza auto-dependencias
+           (pred.id == suc.id) por si dos XML UIDs matchearon al mismo
+           ticket.
+        6. Si ``dry_run=True``, NO persiste; sólo reporta lo que haría.
+        7. (C) Por defecto NO devuelve el array completo ``links_omitidos``
+           (puede tener 100+ items). Devuelve ``links_omitidos_count`` y
+           ``links_omitidos_muestra`` (primeros 10). Pasar
+           ``?detallar_omitidos=true`` para el listado completo (debug).
     """
     _requiere_admin_o_agente_senior(usuario)
 
@@ -261,9 +283,6 @@ def importar_xml(
         raise HTTPException(status_code=400, detail={"codigo": e.codigo, "mensaje": e.mensaje})
 
     # 2) Indexar tickets existentes por UID-derivado:
-    #    Si el ticket tiene un hu_o_caso_prueba que matchea el WBS del XML,
-    #    o si su codigo empieza con GAR_<wbs>, lo asociamos.
-    #    Para GAR_ los HU son del estilo "SC_5.4" o "MD_22".
     tickets = (
         db.query(Ticket)
         .filter(Ticket.archivado == False)  # noqa: E712
@@ -291,11 +310,43 @@ def importar_xml(
                     return t
         return None
 
-    # 3) Resolver tareas y, opcionalmente, completar fechas en tickets
+    # Estado por defecto del nuevo ticket (intentamos un estado abierto
+    # razonable; si la tabla de estados está vacía lo creamos al vuelo
+    # para no romper el import en bases de datos recién inicializadas).
+    def _ensure_default_estado(db: Session):
+        from app.models.estado import Estado
+        est = db.query(Estado).order_by(Estado.orden.asc()).first()
+        if est:
+            return est.id
+        # Si no hay estados, creamos uno por defecto (no es ideal, pero
+        # garantiza que el import no rompa por FK en bases vacías).
+        from datetime import datetime as _dt
+        est = Estado(nombre="Importado XML", orden=999, color="#6366f1")
+        db.add(est)
+        db.flush()
+        return est.id
+
+    # 3) Resolver tareas, completar fechas y (B) opcionalmente crear
+    #    tickets nuevos para las tareas del XML que no matcheen.
     tareas_conocidas = 0
     mapa_uid_a_ticket = {}  # uid_xml → Ticket
-    tareas_a_crear = []
+    tareas_a_crear = []     # preview (cuando dry_run=True)
+    tickets_creados = 0     # ejecuciones reales (cuando dry_run=False)
     fechas_actualizadas = 0
+    errores: List[str] = []  # acumulado de errores a nivel de tareas / persistencia
+
+    crear_nuevos = bool(payload.crear_tickets_faltantes and not payload.dry_run)
+
+    # (B) Si vamos a crear tickets, pre-asignamos IDs del estado por
+    # defecto para evitar N round-trips al motor.
+    default_estado_id = None
+    if crear_nuevos:
+        try:
+            default_estado_id = _ensure_default_estado(db)
+        except Exception as e:
+            errores.append(f"No se pudo obtener estado por defecto: {e}")
+            crear_nuevos = False
+
     for tarea in data["tareas"]:
         t = _match_ticket(tarea)
         if t:
@@ -311,7 +362,12 @@ def importar_xml(
                 if fin_dt and not t.fecha_vencimiento_sla:
                     t.fecha_vencimiento_sla = fin_dt
                     fechas_actualizadas += 1
-        elif payload.crear_tickets_faltantes:
+            continue
+
+        # No matcheó: previsualizar o crear.
+        if not crear_nuevos:
+            # En modo preview, dejamos que `links_omitidos` reporte el
+            # problema a nivel de links.
             tareas_a_crear.append({
                 "uid": tarea["uid"],
                 "name": tarea["name"],
@@ -320,29 +376,87 @@ def importar_xml(
                 "finish": tarea["finish"],
                 "duration_hours": tarea["duration_hours"],
             })
+            continue
 
-    # Persistir los cambios de fechas si corresponde.
-    if fechas_actualizadas and not payload.dry_run:
+        # (B) Crear ticket nuevo.
+        wbs = (tarea.get("wbs") or "").strip()
+        name = (tarea.get("name") or "Tarea importada").strip()
+        uid = tarea["uid"]
+        codigo = f"MP_{uid}"
+        # Salvaguardas: si ya existe un ticket con ese código (poco probable
+        # porque ya falló el match), lo saltamos y dejamos que se reporte
+        # como omitido en links.
+        existing = db.query(Ticket).filter(Ticket.codigo == codigo).first()
+        if existing:
+            mapa_uid_a_ticket[uid] = existing
+            continue
+        nuevo = Ticket(
+            codigo=codigo,
+            titulo=name[:200],
+            descripcion=(
+                f"Ticket creado automáticamente al importar XML MS Project.\n"
+                f"UID: {uid}\nWBS: {wbs}\nDuración (h): "
+                f"{tarea.get('duration_hours')}"
+            ),
+            estado_id=default_estado_id,
+            creador_id=usuario.id,
+            hu_o_caso_prueba=wbs or None,
+            archivado=False,
+            fecha_inicio=_parse_msp_date(tarea.get("start")),
+            fecha_vencimiento_sla=_parse_msp_date(tarea.get("finish")),
+        )
+        db.add(nuevo)
+        try:
+            db.flush()  # para obtener el ID
+        except Exception as e:
+            db.rollback()
+            errores.append(f"No se pudo crear ticket para UID={uid}: {e}")
+            continue
+        # Lo añadimos al índice para que el match de los links funcione.
+        tickets.append(nuevo)
+        mapa_uid_a_ticket[uid] = nuevo
+        tickets_creados += 1
+
+    # Persistir los cambios de fechas y tickets nuevos (un solo commit).
+    if (fechas_actualizadas or tickets_creados) and not payload.dry_run:
         try:
             db.commit()
         except Exception as e:
             db.rollback()
-            errores.append(f"Error al persistir fechas: {e}")
+            errores.append(f"Error al persistir cambios: {e}")
 
     # 4) Resolver links
     svc = TicketDependenciaService(db)
     links_a_crear = []
-    links_omitidos = []
-    errores = []
+    links_omitidos = []     # completo (sólo si detallar_omitidos=True)
+    links_omitidos_muestra = []  # primeros 10
+    errores_links = []
     for link in data["links"]:
         pred = mapa_uid_a_ticket.get(link["predecesor_uid"])
         suc = mapa_uid_a_ticket.get(link["sucesor_uid"])
+        # (A) Auto-dependencia: defensa en profundidad. Si dos UIDs del
+        # XML matchearon al MISMO ticket (matching laxo), no creamos un
+        # loop A→A. Lo registramos como omitido con motivo claro.
+        if pred is not None and suc is not None and pred.id == suc.id:
+            entrada = {
+                "predecesor_uid": link["predecesor_uid"],
+                "sucesor_uid": link["sucesor_uid"],
+                "predecesor_codigo": pred.codigo,
+                "motivo": "auto_dependencia",
+            }
+            links_omitidos.append(entrada)
+            if len(links_omitidos_muestra) < 10:
+                links_omitidos_muestra.append(entrada)
+            continue
         if not pred or not suc:
-            links_omitidos.append({
+            entrada = {
                 "predecesor_uid": link["predecesor_uid"],
                 "sucesor_uid": link["sucesor_uid"],
                 "motivo": "ticket_no_encontrado",
-            })
+            }
+            links_omitidos.append(entrada)
+            if len(links_omitidos_muestra) < 10:
+                links_omitidos_muestra.append(entrada)
             continue
         if payload.dry_run:
             links_a_crear.append({
@@ -368,18 +482,25 @@ def importar_xml(
                     "dep_id": dep.id,
                 })
             except DependenciaError as e:
-                errores.append(f"{pred.codigo}→{suc.codigo}: {e.mensaje}")
+                errores_links.append(f"{pred.codigo}→{suc.codigo}: {e.mensaje}")
 
+    # Si no queremos detallar, NO emitimos el array completo para no
+    # contaminar el payload. Devolvemos None en el campo legacy y los
+    # campos-resumen.
+    todos_los_errores = errores + errores_links
     return ImportarXMLResponse(
         preview=payload.dry_run,
         tareas_xml=len(data["tareas"]),
         tareas_conocidas=tareas_conocidas,
         tareas_a_crear=tareas_a_crear,
+        tickets_creados=tickets_creados,
         fechas_actualizadas=fechas_actualizadas,
         links_xml=len(data["links"]),
         links_a_crear=links_a_crear,
-        links_omitidos=links_omitidos,
-        errores=errores,
+        links_omitidos_count=len(links_omitidos),
+        links_omitidos_muestra=links_omitidos_muestra,
+        errores=todos_los_errores,
+        links_omitidos=(links_omitidos if detallar_omitidos else None),
     )
 
 
@@ -389,6 +510,7 @@ async def importar_xml_file(
     dry_run: bool = True,
     crear_tickets_faltantes: bool = False,
     actualizar_fechas: bool = True,
+    detallar_omitidos: bool = False,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
@@ -397,11 +519,15 @@ async def importar_xml_file(
     contenido = await file.read()
     if not contenido:
         raise HTTPException(status_code=400, detail="Archivo vacío.")
-    # Reusamos el endpoint interno simulando la request:
     payload = ImportarXMLRequest(
         xml_content=contenido.decode("utf-8", errors="replace"),
         dry_run=dry_run,
         crear_tickets_faltantes=crear_tickets_faltantes,
         actualizar_fechas=actualizar_fechas,
     )
-    return importar_xml(payload, db=db, usuario=usuario)
+    return importar_xml(
+        payload,
+        detallar_omitidos=detallar_omitidos,
+        db=db,
+        usuario=usuario,
+    )
