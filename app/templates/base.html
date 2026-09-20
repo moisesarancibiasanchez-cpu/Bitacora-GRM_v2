@@ -78,6 +78,16 @@
               <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
               Vista Panel (Trello)
             </a>
+            <a href="/vistas/planner" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+               title="Planner (Deadline view): agrupa tickets por fecha de vencimiento">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Planner (Deadline)
+            </a>
+            <a href="/vistas/gantt" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+               title="Gantt con dependencias FF/SS/SF/FS (FEATURE 3)">
+              <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2H9"/></svg>
+              Gantt (Dependencias)
+            </a>
           </div>
         </div>
         {# === Dropdown "Más" agrupa Butler + Roles y Funciones + Admin === #}
@@ -111,6 +121,11 @@
                title="Importar / Exportar datos">
               <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
               Importar / Exportar
+            </a>
+            <a href="/admin/deadline" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+               title="FEATURE 2: Disparadores manuales de deadline (today/missed/approaching/overdue)">
+              <svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Triggers de Deadline
             </a>
             {% endif %}
             {% if dev_inbox_enabled() and usuario and usuario.rol.value == 'administrador' %}

@@ -5,15 +5,20 @@
   <div class="max-w-full mx-auto px-6 py-6">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
-        <a href="/tableros{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="p-2 rounded-md hover:bg-slate-200 text-slate-600">
+        <a href="/tableros{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="p-2 rounded-md hover:bg-slate-200 text-slate-600"
+           aria-label="Volver a tableros">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </a>
         <h1 class="text-2xl font-bold text-slate-800">📅 Vista Calendario</h1>
+        <span class="text-xs text-slate-500" id="cal-total-mes">
+          ({{ tickets_cal|length }} tickets en el mes actual)
+        </span>
       </div>
       <div class="flex items-center gap-2">
         <a href="/vistas/tabla{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Tabla</a>
         <a href="?{% if espacio_id %}espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-100 text-indigo-700">Calendario</a>
         <a href="/vistas/timeline{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Timeline</a>
+        <a href="/vistas/planner{% if espacio_id %}?espacio={{ espacio_id }}{% endif %}" class="px-3 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-200">Planner</a>
       </div>
     </div>
 
@@ -87,15 +92,31 @@
     <!-- Controles -->
     <div class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <button onclick="cambiarMes(-1)" class="p-1.5 rounded-md hover:bg-slate-100">
+        <button id="cal-prev" type="button"
+                class="p-1.5 rounded-md hover:bg-slate-100"
+                aria-label="Mes anterior">
           <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </button>
-        <h2 id="cal-titulo" class="text-lg font-semibold text-slate-800 min-w-[180px] text-center capitalize"></h2>
-        <button onclick="cambiarMes(1)" class="p-1.5 rounded-md hover:bg-slate-100">
+        <h2 id="cal-titulo"
+            class="text-lg font-semibold text-slate-800 min-w-[180px] text-center capitalize"
+            aria-live="polite">
+        </h2>
+        <button id="cal-next" type="button"
+                class="p-1.5 rounded-md hover:bg-slate-100"
+                aria-label="Mes siguiente">
           <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         </button>
       </div>
-      <button onclick="irHoy()" class="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-50">Hoy</button>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-slate-500 hidden md:inline">
+          ← / → para navegar
+        </span>
+        <button id="cal-hoy" type="button"
+                class="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-50"
+                aria-label="Ir al mes actual">
+          Hoy
+        </button>
+      </div>
     </div>
 
     <!-- Calendario -->
@@ -115,6 +136,9 @@
       <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500"></span>Media</span>
       <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-slate-400"></span>Baja</span>
     </div>
+
+    {# ============ Modal genérico de detalle ============ #}
+    <dialog id="modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
   </div>
 </div>
 
@@ -214,6 +238,11 @@ function renderCalendario(){
       tk.setAttribute('hx-get', detalleUrl);
       tk.setAttribute('hx-target','#modal-root');
       tk.setAttribute('hx-swap','innerHTML');
+      // Tooltip nativo con info completa (mejora accesibilidad)
+      tk.title = (t.codigo || '') + ' — ' + (t.titulo || '') +
+                 '\nPrioridad: ' + (t.prioridad || '—') +
+                 '\nClick para ver detalle';
+      tk.setAttribute('aria-label', tk.title);
       // Si HTMX no intercepta el click, evitamos la navegación completa
       tk.addEventListener('click', function(ev){
           if (typeof htmx === 'undefined' || !htmx.ajax) {
@@ -221,7 +250,10 @@ function renderCalendario(){
               ev.preventDefault();
               const root = document.getElementById('modal-root');
               if (!root) return;
-              root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30"><div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3"><div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><span class="text-sm text-slate-600">Cargando detalle...</span></div></div>';
+              if (typeof root.showModal === 'function') {
+                try { root.showModal(); } catch(_) {}
+              }
+              root.innerHTML = '<div class="p-8 text-center text-slate-500">Cargando detalle…</div>';
               fetch(detalleUrl, {
                   headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1), 'Accept': 'text/html' },
                   credentials: 'same-origin'
@@ -284,6 +316,29 @@ function irHoy(){
   mesActual = h.getMonth(); anioActual = h.getFullYear();
   renderCalendario();
 }
+
+// === Navegación con teclado: ← / → cambian de mes, T = hoy ===
+(function initKeyboardNav(){
+  document.addEventListener('keydown', function(ev){
+    // No interferir si el foco está en un input/select/textarea
+    const tag = (ev.target && ev.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    if (ev.key === 'ArrowLeft')  { ev.preventDefault(); cambiarMes(-1); }
+    else if (ev.key === 'ArrowRight') { ev.preventDefault(); cambiarMes(1); }
+    else if (ev.key === 't' || ev.key === 'T') { irHoy(); }
+  });
+})();
+
+// === Wireado de los botones de navegación (CSP-friendly) ===
+(function initNavButtons(){
+  const prev = document.getElementById('cal-prev');
+  const next = document.getElementById('cal-next');
+  const hoy  = document.getElementById('cal-hoy');
+  if (prev) prev.addEventListener('click', () => cambiarMes(-1));
+  if (next) next.addEventListener('click', () => cambiarMes(1));
+  if (hoy)  hoy.addEventListener('click',  irHoy);
+})();
 
 function aplicarFiltrosDesdeForm(){
   const form = document.getElementById('filtros-calendario');

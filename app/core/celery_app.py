@@ -19,6 +19,8 @@ def make_celery() -> Celery:
         include=[
             "app.tasks.sla_tasks",
             "app.tasks.notification_tasks",
+            # === FEATURE 2 — Triggers deadline ===
+            "app.tasks.deadline_tasks",
         ],
     )
 
@@ -52,6 +54,17 @@ def make_celery() -> Celery:
         "limpiar-tickets-inactivos": {
             "task": "app.tasks.notification_tasks.limpiar_notificaciones_antiguas",
             "schedule": crontab(hour=2, minute=0),
+        },
+        # === FEATURE 2 — Triggers deadline estilo Bitrix24 ===
+        # Cada hora: revisar "approaching" (4h antes de vencer)
+        "deadline-approaching-horario": {
+            "task": "app.tasks.deadline_tasks.revisar_deadlines_horario",
+            "schedule": crontab(minute=0),
+        },
+        # Diario 8 AM: revisar los 4 triggers (today/missed/approaching/overdue)
+        "deadline-triggers-diario": {
+            "task": "app.tasks.deadline_tasks.revisar_deadlines_diario",
+            "schedule": crontab(hour=8, minute=0),
         },
     }
 

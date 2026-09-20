@@ -1,0 +1,151 @@
+{# =====================================================================
+   FEATURE 4 — Planner (Deadline view) estilo Bitrix24.
+
+   Agrupa los tickets con ``fecha_vencimiento_sla`` por tramos:
+     - Vencidos (ayer o antes, en rojo)
+     - Vencen HOY (ámbar, destacado)
+     - Mañana
+     - Esta semana (próximos 7 días)
+     - Este mes (próximos 30 días)
+     - Sin fecha (gris)
+
+   Cada grupo se muestra como una lista vertical de tarjetas con:
+     - Código y prioridad
+     - Título
+     - Asignado y responsable
+     - Días restantes / vencidos
+
+   Carga inicial desde servidor (render Jinja); se actualiza vía HTMX
+   al cambiar filtros sin recargar la página completa.
+   ===================================================================== #}
+{% extends "base.html" %}
+
+{% block title %}Planner · Bitácora GRM{% endblock %}
+
+{% block extra_css %}
+<style>
+  .planner-section { background: #fff; border-radius: 12px; padding: 1rem;
+                     box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 1rem; }
+  .planner-section.overdue  { border-left: 4px solid #ef4444; }
+  .planner-section.today    { border-left: 4px solid #f59e0b; }
+  .planner-section.tomorrow { border-left: 4px solid #3b82f6; }
+  .planner-section.week     { border-left: 4px solid #6366f1; }
+  .planner-section.month    { border-left: 4px solid #8b5cf6; }
+  .planner-section.no-date  { border-left: 4px solid #cbd5e1; }
+  .planner-section-header { display: flex; align-items: center; justify-content: space-between;
+                            margin-bottom: .75rem; }
+  .planner-section-title  { font-size: 1rem; font-weight: 700; color: #1e293b;
+                            display: flex; align-items: center; gap: .5rem; }
+  .planner-section-count  { font-size: .75rem; color: #64748b; background: #f1f5f9;
+                            padding: .125rem .5rem; border-radius: 999px; }
+  .planner-card { background: #f8fafc; border: 1px solid #e2e8f0;
+                  border-radius: 8px; padding: .5rem .75rem; margin-bottom: .5rem;
+                  display: flex; align-items: center; gap: .75rem;
+                  cursor: pointer; transition: all .15s ease; }
+  .planner-card:hover { border-color: #6366f1; background: #fff;
+                        transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,.05); }
+  .planner-card.overdue  { background: #fef2f2; border-color: #fecaca; }
+  .planner-card.today    { background: #fffbeb; border-color: #fde68a; }
+  .planner-priority-dot  { width: .75rem; height: .75rem; border-radius: 999px;
+                            flex-shrink: 0; }
+  .planner-card-code     { font-family: monospace; font-size: .75rem;
+                            color: #6366f1; font-weight: 600; }
+  .planner-card-title    { font-size: .875rem; color: #1e293b;
+                            flex: 1; overflow: hidden; text-overflow: ellipsis;
+                            white-space: nowrap; }
+  .planner-card-meta     { font-size: .75rem; color: #64748b;
+                            display: flex; gap: .75rem; align-items: center; }
+  .planner-due           { font-size: .75rem; padding: .125rem .5rem;
+                            border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; }
+  .planner-due.overdue   { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+  .planner-due.today     { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+  .planner-due.tomorrow  { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-4 py-3 max-w-[1200px] mx-auto">
+
+  {# ============ Toolbar ============ #}
+  <header class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <h1 class="text-xl font-bold text-slate-800">🗓️ Planner (Deadline view)</h1>
+      <span class="text-xs text-slate-500">({{ total }} tickets con deadline)</span>
+    </div>
+
+    {# Filtros HTMX (no recarga la página) #}
+    <form hx-get="/vistas/planner"
+          hx-target="#planner-content"
+          hx-swap="innerHTML"
+          hx-trigger="change, keyup delay:300ms from:input[name=q]"
+          class="flex gap-2 items-center flex-1 min-w-0">
+      <input type="search" name="q" value="{{ q|default('') }}"
+             placeholder="Buscar por código, título o asignado…"
+             class="flex-1 min-w-0 px-3 py-1.5 border border-slate-200 rounded text-sm">
+      <select name="asignado_id" class="px-3 py-1.5 border border-slate-200 rounded text-sm bg-white">
+        <option value="">Todos los asignados</option>
+        <option value="-1" {% if asignado_id == '-1' %}selected{% endif %}>— Sin asignar —</option>
+        {% for u in usuarios %}
+        <option value="{{ u.id }}" {% if asignado_id == u.id|string %}selected{% endif %}>{{ u.nombre_completo }}</option>
+        {% endfor %}
+      </select>
+      <select name="prioridad" class="px-3 py-1.5 border border-slate-200 rounded text-sm bg-white">
+        <option value="">Todas las prioridades</option>
+        <option value="critica" {% if prioridad == 'critica' %}selected{% endif %}>🔴 Crítica</option>
+        <option value="alta"    {% if prioridad == 'alta'    %}selected{% endif %}>🟠 Alta</option>
+        <option value="media"   {% if prioridad == 'media'   %}selected{% endif %}>🟡 Media</option>
+        <option value="baja"    {% if prioridad == 'baja'    %}selected{% endif %}>⚪ Baja</option>
+      </select>
+      <label class="inline-flex items-center gap-1 text-sm">
+        <input type="checkbox" name="solo_mios" value="true"
+               {% if solo_mios %}checked{% endif %} class="rounded border-slate-300">
+        Solo míos
+      </label>
+    </form>
+  </header>
+
+  {# ============ Stats rápidas ============ #}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">
+    <div class="bg-white rounded-lg p-3 shadow-sm">
+      <div class="text-2xl font-bold text-red-600">{{ stats.vencidos }}</div>
+      <div class="text-slate-500">Vencidos</div>
+    </div>
+    <div class="bg-white rounded-lg p-3 shadow-sm">
+      <div class="text-2xl font-bold text-amber-600">{{ stats.hoy }}</div>
+      <div class="text-slate-500">Vencen hoy</div>
+    </div>
+    <div class="bg-white rounded-lg p-3 shadow-sm">
+      <div class="text-2xl font-bold text-indigo-600">{{ stats.semana }}</div>
+      <div class="text-slate-500">Esta semana</div>
+    </div>
+    <div class="bg-white rounded-lg p-3 shadow-sm">
+      <div class="text-2xl font-bold text-slate-600">{{ stats.mes }}</div>
+      <div class="text-slate-500">Este mes</div>
+    </div>
+  </div>
+
+  {# ============ Contenido (HTMX swap target) ============ #}
+  <div id="planner-content">
+    {% include "vistas/_planner_sections.html" %}
+  </div>
+
+  {# ============ Modal genérico de detalle ============ #}
+  <dialog id="modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.body.addEventListener('click', ev => {
+  const card = ev.target.closest('.planner-card');
+  if (!card) return;
+  const id = card.dataset.ticketId;
+  if (!id) return;
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = '<div class="p-8 text-center text-slate-500">Cargando…</div>';
+  modal.showModal();
+  htmx.ajax('GET', `/api/v1/tickets/${id}/detalle-html`, { target: '#modal-root', swap: 'innerHTML' });
+});
+</script>
+{% endblock %}

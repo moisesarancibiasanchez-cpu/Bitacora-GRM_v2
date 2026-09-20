@@ -100,6 +100,16 @@ INDEXES: List[Tuple[str, str]] = [
     ("ix_tickets_posicion",    "CREATE INDEX IF NOT EXISTS ix_tickets_posicion   ON tickets(posicion)"),
     ("ix_tickets_fecha_inicio","CREATE INDEX IF NOT EXISTS ix_tickets_fecha_inicio ON tickets(fecha_inicio)"),
     ("ix_tickets_fecha_completado", "CREATE INDEX IF NOT EXISTS ix_tickets_fecha_completado ON tickets(fecha_completado)"),
+    # FEATURE 3 — Gantt: dependencias entre tickets
+    ("ix_dep_pred",            "CREATE INDEX IF NOT EXISTS ix_dep_pred ON ticket_dependencias(predecesor_id)"),
+    ("ix_dep_suc",             "CREATE INDEX IF NOT EXISTS ix_dep_suc  ON ticket_dependencias(sucesor_id)"),
+]
+
+# Tablas que deben existir (si el modelo está presente, ``create_all``
+# las crea automáticamente al ejecutar ``apply_migrations``). Este set
+# sirve para verificar manualmente o para tooling externo.
+TABLES_REQUIRED: List[str] = [
+    "ticket_dependencias",
 ]
 
 
