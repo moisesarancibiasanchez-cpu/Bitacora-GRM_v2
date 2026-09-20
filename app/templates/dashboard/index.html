@@ -230,20 +230,43 @@
         </div>
       </div>
 
-      <!-- ===== FILA 4 — CUENTA DE RESULTADO ===== -->
-      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado · Incidencias × QA</h3>
-          <div class="flex items-center gap-3 text-[11px]">
-            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#10b981"></span>OK</span>
-            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#22c55e"></span>OK CON OBS.</span>
-            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#ef4444"></span>NOK</span>
-            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#eab308"></span>POSTERGADA</span>
-            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#94a3b8"></span>N/A</span>
-            <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#a855f7"></span>DESESTIMADA</span>
+      <!-- ===== FILA 4 — CUENTA DE RESULTADO (restaurada) ===== -->
+      {# Tabla pivote "Cuenta de Resultado" (réplica del rango A64:H81
+         de la hoja REPORTE del Excel UAT). Pivot módulo (filas) ×
+         resultado_pruebas (columnas) con drill-down HTMX por celda,
+         exportación CSV y filtro por ambiente (QA). #}
+      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="cuenta-resultado-export"
+                    onclick="exportarCuentaResultado()"
+                    class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Exportar CSV
+            </button>
           </div>
         </div>
-        <div id="cuenta-resultado-container" class="overflow-x-auto"></div>
+        <div id="cuenta-resultado-container" class="overflow-x-auto">
+          <div id="cuenta-resultado-loading" class="text-center py-6 text-slate-400 text-xs">
+            Cargando tabla pivote...
+          </div>
+          <table id="cuenta-resultado-table"
+                 class="hidden w-full text-xs border-collapse"
+                 aria-label="Tabla pivote Cuenta de Resultado">
+            <thead id="cuenta-resultado-thead"></thead>
+            <tbody id="cuenta-resultado-tbody"></tbody>
+            <tfoot id="cuenta-resultado-tfoot"></tfoot>
+          </table>
+        </div>
+        <p id="cuenta-resultado-footer"
+           class="hidden mt-2 text-[10px] text-slate-400 italic">
+          POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
+        </p>
       </div>
 
       <!-- ===== FILA 5 — TOP AGENTES + ACCIONES RÁPIDAS (NUEVA) ===== -->
@@ -307,6 +330,11 @@
 
   </div>
 </div>
+
+{# Contenedor para el modal de drill-down de Cuenta de Resultado.
+   HTMX inyecta aquí el HTML devuelto por /api/v1/metricas/cuenta-resultado/detalle
+   cuando el usuario hace clic en una celda numérica de la tabla pivote. #}
+<div id="modal-cuenta-resultado-root"></div>
 
 <script>
 (function () {
@@ -387,6 +415,12 @@
       content.classList.remove('hidden');
       const ahora = new Date();
       setText('last-update', ahora.toLocaleTimeString('es-CL'));
+      // Cargar tabla pivote "Cuenta de Resultado" en paralelo. La falla
+      // de este fetch NO debe afectar la carga del resto del dashboard.
+      cargarCuentaResultado().catch(err => {
+        const cont = safeId('cuenta-resultado-container');
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + (err.message || err) + '</div>';
+      });
     } catch (e) {
       console.error('Error cargando métricas:', e);
       loading.innerHTML = '<div class="text-red-600 text-sm">Error cargando métricas: ' + (e.message || e) + '</div>';
@@ -745,10 +779,238 @@
 
   // Init
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { bind(); cargarMetricas(); });
+    document.addEventListener('DOMContentLoaded', function () { bind(); cargarMetricas(); installDrillDownListeners(); });
   } else {
     bind();
     cargarMetricas();
+    installDrillDownListeners();
+  }
+
+  // ===================================================================
+  // CUENTA DE RESULTADO — Tabla pivote (restaurada desde Sprint 1)
+  // Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+  //
+  //   - Endpoint: GET /api/v1/metricas/cuenta-resultado
+  //   - Drill-down por celda: GET /api/v1/metricas/cuenta-resultado/detalle
+  //   - Modal inyectado vía HTMX en #modal-cuenta-resultado-root
+  //   - Exportación a CSV desde la respuesta cacheada (_cuentaResultadoCache)
+  //
+  // El backend devuelve TODAS las variantes del LOV (incluye mayúsculas
+  // mixtas, con/sin punto final, plurales y nombres legacy de la migración
+  // UAT) para no perder tickets por nomenclatura heredada. La columna
+  // "(en blanco)" agrupa NULL/vacíos.
+  // ===================================================================
+
+  // Color del texto de los números en CADA CELDA de datos: debe coincidir con
+  // el color del texto de la columna "Total general". Se usa #1f2937 (slate-800)
+  // en TODAS las columnas para garantizar contraste legible sobre los fondos
+  // tenues (`color.bg + '22'`). Los headers sí mantienen su color original
+  // porque su fondo es sólido (no el tinte `+ '22'`).
+  const CUENTA_RESULTADO_COLORES = {
+    "N/A":         { bg: '#94a3b8', text: '#ffffff', cellText: '#1f2937' },
+    "NOK":         { bg: '#dc2626', text: '#ffffff', cellText: '#1f2937' },
+    "OK":          { bg: '#16a34a', text: '#ffffff', cellText: '#1f2937' },
+    "OK CON OBS.": { bg: '#eab308', text: '#1f2937', cellText: '#1f2937' },
+    "POSTERGADA":  { bg: '#ea580c', text: '#ffffff', cellText: '#1f2937' },
+    "DESESTIMADA": { bg: '#7c3aed', text: '#ffffff', cellText: '#1f2937' },
+    "(en blanco)": { bg: '#cbd5e1', text: '#475569', cellText: '#1f2937' },
+  };
+
+  // Última respuesta cacheada para export CSV.
+  let _cuentaResultadoCache = null;
+
+  async function cargarCuentaResultado() {
+    const cont = safeId('cuenta-resultado-container');
+    const loading = safeId('cuenta-resultado-loading');
+    const table = safeId('cuenta-resultado-table');
+    const thead = safeId('cuenta-resultado-thead');
+    const tbody = safeId('cuenta-resultado-tbody');
+    const tfoot = safeId('cuenta-resultado-tfoot');
+    const footer = safeId('cuenta-resultado-footer');
+    if (!cont || !table || !thead || !tbody || !tfoot) return;
+
+    const r = await fetch('/api/v1/metricas/cuenta-resultado', {
+      headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _cuentaResultadoCache = data;
+
+    const columnas = data.columnas;
+    const filas = data.filas;
+    const totales = data.totales_por_columna;
+    const totalGeneral = data.total_general;
+
+    // === Encabezado ===
+    thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
+      '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
+      columnas.map(c => {
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        return '<th class="px-3 py-2 font-semibold border border-slate-700 text-center"'
+             + ' style="background:' + color.bg + '; color:' + color.text + ';"'
+             + ' title="Tickets con resultado_pruebas = \'' + c + '\'">' + c + '</th>';
+      }).join('') +
+      '<th class="px-3 py-2 font-semibold border border-slate-700 text-center bg-slate-900">Total general</th>' +
+      '</tr>';
+
+    // === Filas ===
+    tbody.innerHTML = filas.map(f => {
+      const esBlanco = f.modulo === '(en blanco)';
+      const trClass = esBlanco ? 'italic text-slate-400 bg-slate-50/50' : 'text-slate-700';
+      const celdas = columnas.map(c => {
+        const v = f.valores[c] || 0;
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569', cellText: '#1f2937' };
+        const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
+        const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
+        // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
+        const clickable = !esBlanco && v > 0;
+        if (clickable) {
+          const url = '/api/v1/metricas/cuenta-resultado/detalle?modulo=' + encodeURIComponent(f.modulo)
+            + '&resultado=' + encodeURIComponent(c)
+            + '&ambiente=' + encodeURIComponent(data.ambiente || 'QA');
+          return '<td class="px-3 py-1.5 border border-slate-200 text-center font-mono p-0"'
+               + ' style="background:' + bg + '; color:' + color.cellText + ';">'
+               +   '<button type="button"'
+               +     ' data-drill-cr="1"'
+               +     ' hx-get="' + url + '"'
+               +     ' hx-target="#modal-cuenta-resultado-root"'
+               +     ' hx-swap="innerHTML"'
+               +     ' title="Ver detalle: ' + f.modulo + ' / ' + c + '"'
+               +     ' class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">'
+               +     contenido
+               +   '</button>'
+               + '</td>';
+        }
+        return '<td class="px-3 py-1.5 border border-slate-200 text-center font-mono"'
+             + ' style="background:' + bg + '; color:' + color.cellText + ';">'
+             + contenido
+             + '</td>';
+      }).join('');
+      const totalCell = esBlanco
+        ? '<td class="px-3 py-1.5 border border-slate-200 text-center font-mono text-slate-400">—</td>'
+        : '<td class="px-3 py-1.5 border border-slate-300 text-center font-mono font-semibold bg-slate-100">' + f.total + '</td>';
+      return '<tr class="' + trClass + ' hover:bg-slate-50">'
+           +   '<td class="px-3 py-1.5 border border-slate-200 text-left">' + f.modulo + '</td>'
+           +   celdas
+           +   totalCell
+           + '</tr>';
+    }).join('');
+
+    // === Pie: Total general ===
+    tfoot.innerHTML = '<tr class="bg-slate-200 font-bold text-slate-800">' +
+      '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
+      columnas.map(c => {
+        const v = totales[c] || 0;
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        const contenido = v === 0 ? '—' : v;
+        return '<td class="px-3 py-2 border border-slate-400 text-center font-mono"'
+             + ' style="background:' + color.bg + '; color:' + color.text + ';">'
+             + contenido
+             + '</td>';
+      }).join('') +
+      '<td class="px-3 py-2 border border-slate-400 text-center font-mono bg-slate-300">' + totalGeneral + '</td>' +
+      '</tr>';
+
+    if (loading) loading.classList.add('hidden');
+    table.classList.remove('hidden');
+    if (footer) footer.classList.remove('hidden');
+
+    // HTMX 1.x NO escanea automáticamente los nodos agregados al DOM
+    // mediante innerHTML. Llamamos a htmx.process() sobre el tbody para
+    // que HTMX escanee sus descendientes y registre los handlers.
+    if (typeof htmx !== 'undefined' && htmx.process) {
+      try { htmx.process(tbody); } catch (e) { /* noop */ }
+    }
+  }
+
+  function exportarCuentaResultado() {
+    if (!_cuentaResultadoCache) return;
+    const data = _cuentaResultadoCache;
+    const cols = ['Etiqueta de fila', ...data.columnas, 'Total general'];
+    const filas = data.filas.map(f => [
+      f.modulo,
+      ...data.columnas.map(c => f.valores[c] || 0),
+      f.total,
+    ]);
+    const totales = ['Total general', ...data.columnas.map(c => data.totales_por_columna[c] || 0), data.total_general];
+    const csvRows = [cols, ...filas, totales]
+      .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+    const csv = '\uFEFF' + csvRows.join('\n'); // BOM para Excel
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cuenta_resultado_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // === Drill-down modal: Cuenta de Resultado ===
+  function cerrarModalCuentaResultado() {
+    const root = document.getElementById('modal-cuenta-resultado-root');
+    if (!root) return;
+    root.innerHTML = '';
+  }
+
+  function _mostrarSpinnerDrillCr() {
+    const root = document.getElementById('modal-cuenta-resultado-root');
+    if (!root) return;
+    if (root.innerHTML.trim()) return;
+    root.innerHTML =
+      '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">'
+      + '<div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">'
+      +   '<svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">'
+      +     '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>'
+      +     '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>'
+      +   '</svg>'
+      +   'Cargando detalle de tickets...'
+      + '</div>'
+      + '</div>';
+  }
+
+  function installDrillDownListeners() {
+    if (typeof document === 'undefined') return;
+    document.body.addEventListener('htmx:beforeRequest', function (evt) {
+      try {
+        const trigger = evt.detail && evt.detail.trigger;
+        if (trigger && trigger.getAttribute && trigger.getAttribute('data-drill-cr') === '1') {
+          _mostrarSpinnerDrillCr();
+        }
+      } catch (e) { /* noop */ }
+    });
+    document.body.addEventListener('htmx:responseError', function (evt) {
+      try {
+        const targetPath = (evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+        if (targetPath.indexOf('/cuenta-resultado/detalle') >= 0) {
+          cerrarModalCuentaResultado();
+        }
+      } catch (e) { /* noop */ }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      const root = document.getElementById('modal-cuenta-resultado-root');
+      if (!root || !root.innerHTML.trim()) return;
+      cerrarModalCuentaResultado();
+    });
+    // Cierre del modal de detalle de ticket (botones data-close-modal y backdrop)
+    document.body.addEventListener('click', function (e) {
+      const root = document.getElementById('modal-cuenta-resultado-root');
+      if (!root || !root.innerHTML.trim()) return;
+      const closeBtn = e.target.closest('[data-close-modal]');
+      if (closeBtn && root.contains(closeBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        cerrarModalCuentaResultado();
+        return;
+      }
+      const backdrop = e.target.closest('.modal-backdrop');
+      if (backdrop && root.contains(backdrop) && backdrop === e.target) {
+        cerrarModalCuentaResultado();
+        return;
+      }
+    });
   }
 })();
 </script>
