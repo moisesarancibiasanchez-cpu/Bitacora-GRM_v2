@@ -1,0 +1,451 @@
+{# =====================================================================
+   FEATURE 3 — Vista Gantt con dependencias FF/SS/SF/FS (Bitrix24 style).
+
+   Muestra los tickets como barras horizontales en una escala de tiempo,
+   con flechas entre tickets que indican dependencias. Soporta:
+     - Zoom (día / semana / mes)        : atributo data-zoom
+     - Drag para re-programar fechas    : hx-patch /api/v1/tickets/{id}
+                                          con campo fecha_inicio /
+                                          fecha_vencimiento_sla
+     - Crear / eliminar dependencias    : hx-post /api/v1/dependencias
+     - Importar XML .mpp                : <input type=file> +
+                                          hx-post /api/v1/dependencias/
+                                          importar-xml-file
+
+   Estructura del SVG:
+     - <svg width=100%> con 2 columnas virtuales:
+         - Panel izquierdo (sticky) con el nombre del ticket.
+         - Panel derecho (scroll horizontal) con la grilla temporal
+           (semanas/días) y las barras.
+     - Cada barra es un <rect> clickable que abre el modal de detalle.
+     - Las flechas son <path> con marker-end en la cabeza.
+   ===================================================================== #}
+{% extends "base.html" %}
+
+{% block title %}Gantt · Bitácora GRM{% endblock %}
+
+{% block extra_css %}
+<style>
+  .gantt-wrap { overflow-x: auto; overflow-y: visible; background: #fff;
+                border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .gantt-grid line.day-minor { stroke: #f1f5f9; stroke-width: 1; }
+  .gantt-grid line.week      { stroke: #e2e8f0; stroke-width: 1; }
+  .gantt-grid line.month     { stroke: #cbd5e1; stroke-width: 1.5; }
+  .gantt-grid line.today     { stroke: #ef4444; stroke-width: 2; stroke-dasharray: 4 2; }
+  .gantt-grid text.weekday   { fill: #94a3b8; font-size: 10px; font-family: monospace; }
+  .gantt-grid text.month     { fill: #475569; font-size: 11px; font-weight: 600; }
+  .gantt-grid text.day-num   { fill: #cbd5e1; font-size: 9px; font-family: monospace; }
+  .gantt-bar { fill: #6366f1; fill-opacity: .9; cursor: pointer;
+               transition: fill-opacity .15s ease; }
+  .gantt-bar:hover { fill-opacity: 1; stroke: #4338ca; stroke-width: 2; }
+  .gantt-bar.is-overdue { fill: #ef4444; }
+  .gantt-bar.is-done    { fill: #10b981; }
+  .gantt-bar.is-summary { fill: #475569; fill-opacity: .4; }
+  .gantt-bar-label { fill: white; font-size: 11px; font-weight: 600;
+                     pointer-events: none; }
+  .gantt-link path { fill: none; stroke: #475569; stroke-width: 1.5;
+                     marker-end: url(#arrow-head); opacity: .85; }
+  .gantt-link path.fs { stroke: #6366f1; }
+  .gantt-link path.ss { stroke: #f59e0b; }
+  .gantt-link path.ff { stroke: #10b981; }
+  .gantt-link path.sf { stroke: #ec4899; }
+  .gantt-row-bg:nth-child(even) { fill: #f8fafc; }
+  .gantt-row-bg:hover { fill: #eef2ff; }
+  .gantt-section-header { fill: #1e293b; font-size: 12px; font-weight: 700;
+                          text-transform: uppercase; letter-spacing: .04em; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-4 py-3 max-w-[1600px] mx-auto">
+
+  {# ============ Toolbar ============ #}
+  <header class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <h1 class="text-xl font-bold text-slate-800">📊 Gantt</h1>
+      <span class="text-xs text-slate-500">({{ total_tickets }} tickets · {{ total_links }} dependencias)</span>
+    </div>
+
+    {# Selector de zoom #}
+    <div class="inline-flex rounded-md shadow-sm" role="group">
+      <button data-zoom="day"   class="zoom-btn px-3 py-1.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-l-md hover:bg-slate-200">Día</button>
+      <button data-zoom="week"  class="zoom-btn px-3 py-1.5 text-xs font-medium bg-white border-l border-slate-200 text-slate-700 hover:bg-slate-50">Semana</button>
+      <button data-zoom="month" class="zoom-btn px-3 py-1.5 text-xs font-medium bg-white border-l border-slate-200 text-slate-700 rounded-r-md hover:bg-slate-50">Mes</button>
+    </div>
+
+    {# Filtros #}
+    <form method="get" action="/vistas/gantt" class="flex gap-2 items-center flex-1 min-w-0">
+      <input type="search" name="q" value="{{ q|default('') }}"
+             placeholder="Buscar por código, título o HU..."
+             class="flex-1 min-w-0 px-3 py-1.5 border border-slate-200 rounded text-sm">
+      <select name="modulo" class="px-3 py-1.5 border border-slate-200 rounded text-sm bg-white">
+        <option value="">Todos los módulos</option>
+        {% for m in modulos %}
+        <option value="{{ m }}" {% if modulo == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="px-3 py-1.5 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">Filtrar</button>
+    </form>
+
+    {# Acciones admin #}
+    {% if usuario and usuario.rol.value == 'administrador' %}
+    <button onclick="document.getElementById('import-mpp-modal').showModal()"
+            class="px-3 py-1.5 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700 inline-flex items-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12"/></svg>
+      Importar .mpp
+    </button>
+    <button onclick="document.getElementById('add-dep-modal').showModal()"
+            class="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 inline-flex items-center gap-1">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 015.656 0l1.415 1.415a4 4 0 010 5.656l-3 3a4 4 0 01-5.656 0M10.172 13.828a4 4 0 01-5.656 0l-1.415-1.415a4 4 0 010-5.656l3-3a4 4 0 015.656 0"/></svg>
+      Nueva dependencia
+    </button>
+    {% endif %}
+  </header>
+
+  {# ============ Leyenda ============ #}
+  <div class="bg-white rounded-lg px-3 py-2 mb-2 shadow-sm flex flex-wrap items-center gap-3 text-xs">
+    <span class="font-semibold text-slate-700">Tipos de dependencia:</span>
+    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-indigo-500"></span> FS (Fin → Inicio)</span>
+    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-amber-500"></span> SS (Inicio → Inicio)</span>
+    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-emerald-500"></span> FF (Fin → Fin)</span>
+    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-pink-500"></span> SF (Inicio → Fin)</span>
+    <span class="ml-auto text-slate-500">Click en una barra → abre el detalle · Click derecho → opciones</span>
+  </div>
+
+  {# ============ SVG Gantt ============ #}
+  <div class="gantt-wrap" id="gantt-container">
+    {% if total_tickets == 0 %}
+    <div class="p-12 text-center text-slate-500">
+      <p class="mb-2 text-lg">📭 No hay tickets con fecha de inicio y/o SLA</p>
+      <p class="text-xs">Asigna <code>fecha_inicio</code> y <code>fecha_vencimiento_sla</code> a los tickets desde su detalle para que aparezcan aquí.</p>
+    </div>
+    {% else %}
+    <svg id="gantt-svg" width="100%" height="540" data-zoom="{{ zoom|default('week') }}">
+      <defs>
+        <marker id="arrow-head" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#475569"/>
+        </marker>
+      </defs>
+
+      {# Header del Gantt: mes/semana actual, día de hoy #}
+      <g class="gantt-grid" id="gantt-grid"></g>
+
+      {# Filas (background) #}
+      <g class="gantt-rows" id="gantt-rows"></g>
+
+      {# Barras de tickets #}
+      <g class="gantt-bars" id="gantt-bars"></g>
+
+      {# Flechas de dependencias #}
+      <g class="gantt-link" id="gantt-links"></g>
+    </svg>
+    {% endif %}
+  </div>
+
+  {# ============ Modal: Importar .mpp ============ #}
+  <dialog id="import-mpp-modal" class="rounded-xl p-0 backdrop:bg-black/40 w-[520px]">
+    <form hx-post="/api/v1/dependencias/importar-xml-file"
+          hx-encoding="multipart/form-data"
+          hx-target="#import-result"
+          hx-swap="innerHTML"
+          class="p-6 space-y-4">
+      <header class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-slate-800">📥 Importar dependencias desde .mpp/.xml</h2>
+        <button type="button" onclick="document.getElementById('import-mpp-modal').close()"
+                class="text-slate-400 hover:text-slate-700">✕</button>
+      </header>
+
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Archivo XML exportado de MS Project</label>
+        <input type="file" name="file" accept=".xml,.mpp"
+               required class="block w-full text-sm border border-slate-200 rounded p-2">
+        <p class="text-xs text-slate-500 mt-1">
+          En MS Project: Archivo → Guardar como → "XML Format (*.xml)"
+        </p>
+      </div>
+
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="dry_run" value="true" checked
+                 class="rounded border-slate-300">
+          Solo preview (no guardar cambios)
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="crear_tickets_faltantes" value="true"
+                 class="rounded border-slate-300">
+          Crear tickets faltantes para tareas del XML no reconocidas
+        </label>
+      </div>
+
+      <div id="import-result" class="text-sm"></div>
+
+      <footer class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" onclick="document.getElementById('import-mpp-modal').close()"
+                class="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
+        <button type="submit"
+                class="px-3 py-1.5 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">
+          Importar
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  {# ============ Modal: Nueva dependencia ============ #}
+  <dialog id="add-dep-modal" class="rounded-xl p-0 backdrop:bg-black/40 w-[480px]">
+    <form hx-post="/api/v1/dependencias"
+          hx-target="#add-dep-result"
+          hx-swap="innerHTML"
+          hx-on::after-request="if(event.detail.successful) { htmx.trigger('#gantt-svg','reload-gantt'); document.getElementById('add-dep-modal').close(); }"
+          class="p-6 space-y-4">
+      <header class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-slate-800">🔗 Nueva dependencia</h2>
+        <button type="button" onclick="document.getElementById('add-dep-modal').close()"
+                class="text-slate-400 hover:text-slate-700">✕</button>
+      </header>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Predecesor</label>
+          <select name="predecesor_id" required class="w-full px-2 py-1.5 border border-slate-200 rounded text-sm">
+            <option value="">Seleccionar…</option>
+            {% for t in tickets %}
+            <option value="{{ t.id }}">{{ t.codigo }} · {{ t.titulo[:40] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Sucesor</label>
+          <select name="sucesor_id" required class="w-full px-2 py-1.5 border border-slate-200 rounded text-sm">
+            <option value="">Seleccionar…</option>
+            {% for t in tickets %}
+            <option value="{{ t.id }}">{{ t.codigo }} · {{ t.titulo[:40] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+          <select name="tipo" class="w-full px-2 py-1.5 border border-slate-200 rounded text-sm">
+            <option value="fs" selected>FS · Fin → Inicio</option>
+            <option value="ss">SS · Inicio → Inicio</option>
+            <option value="ff">FF · Fin → Fin</option>
+            <option value="sf">SF · Inicio → Fin</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Lag (días)</label>
+          <input type="number" name="lag_dias" value="0" min="-365" max="365"
+                 class="w-full px-2 py-1.5 border border-slate-200 rounded text-sm">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Nota (opcional)</label>
+        <input type="text" name="nota" maxlength="200"
+               class="w-full px-2 py-1.5 border border-slate-200 rounded text-sm">
+      </div>
+
+      <div id="add-dep-result" class="text-sm"></div>
+
+      <footer class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" onclick="document.getElementById('add-dep-modal').close()"
+                class="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
+        <button type="submit"
+                class="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">
+          Crear dependencia
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  {# ============ Modal genérico: Detalle de Ticket ============ #}
+  <dialog id="modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ============================================================
+// Datos serializados desde el backend (inyectados como JSON)
+// ============================================================
+const TICKETS = {{ tickets_data|tojson }};
+const LINKS = {{ links_data|tojson }};
+const ZOOM_DEFAULT = document.getElementById('gantt-svg')?.dataset.zoom || 'week';
+
+const CELL_WIDTH = { day: 32, week: 12, month: 4 };  // px por día
+const ROW_HEIGHT = 36;
+const BAR_HEIGHT = 22;
+const LEFT_PANEL = 220;
+
+let currentZoom = ZOOM_DEFAULT;
+let viewportStart = null;
+let viewportEnd = null;
+
+// ============================================================
+// Calcular rango visible según el zoom
+// ============================================================
+function computeRange() {
+  const allDates = [];
+  TICKETS.forEach(t => {
+    if (t.inicio) allDates.push(new Date(t.inicio));
+    if (t.fin)    allDates.push(new Date(t.fin));
+  });
+  if (allDates.length === 0) {
+    const today = new Date();
+    return { start: addDays(today, -7), end: addDays(today, 30) };
+  }
+  const minD = new Date(Math.min(...allDates));
+  const maxD = new Date(Math.max(...allDates));
+  return { start: addDays(minD, -3), end: addDays(maxD, 7) };
+}
+
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function daysBetween(a, b) {
+  return Math.round((b - a) / 86400000);
+}
+
+function fmtISODate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+// ============================================================
+// Render principal
+// ============================================================
+function render() {
+  const svg = document.getElementById('gantt-svg');
+  if (!svg) return;
+  const cellW = CELL_WIDTH[currentZoom];
+  const range = computeRange();
+  const totalDays = daysBetween(range.start, range.end);
+  const totalW = LEFT_PANEL + totalDays * cellW;
+  svg.setAttribute('width', totalW);
+
+  // ---- Grid (líneas verticales y etiquetas de tiempo) ----
+  const grid = document.getElementById('gantt-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i <= totalDays; i++) {
+    const d = addDays(range.start, i);
+    const x = LEFT_PANEL + i * cellW;
+    const isToday = fmtISODate(d) === fmtISODate(new Date());
+    const isMonth = d.getDate() === 1;
+    const isWeek = d.getDay() === 1;
+    let cls = 'day-minor';
+    if (isToday) cls = 'today';
+    else if (isMonth) cls = 'month';
+    else if (isWeek) cls = 'week';
+    grid.innerHTML += `<line class="${cls}" x1="${x}" y1="0" x2="${x}" y2="540"/>`;
+    if (isMonth) {
+      const mes = d.toLocaleDateString('es', { month: 'short', year: '2-digit' });
+      grid.innerHTML += `<text class="month" x="${x + 4}" y="14">${mes}</text>`;
+    } else if (currentZoom === 'day' || (currentZoom === 'week' && isWeek)) {
+      const dn = d.getDate();
+      grid.innerHTML += `<text class="day-num" x="${x + 2}" y="26">${dn}</text>`;
+    }
+  }
+
+  // ---- Filas: una por ticket, con background y label ----
+  const rows = document.getElementById('gantt-rows');
+  rows.innerHTML = '';
+  const totalRows = TICKETS.length;
+  TICKETS.forEach((t, idx) => {
+    const y = idx * ROW_HEIGHT + 30;
+    rows.innerHTML += `<rect class="gantt-row-bg" x="0" y="${y}" width="${totalW}" height="${ROW_HEIGHT}"/>`;
+    rows.innerHTML += `<text x="8" y="${y + 22}" font-size="11" fill="#1e293b" font-weight="500">${t.codigo}</text>`;
+    rows.innerHTML += `<text x="80" y="${y + 22}" font-size="10" fill="#64748b">${escapeHtml(t.titulo.slice(0, 28))}</text>`;
+  });
+
+  // ---- Barras de tickets ----
+  const bars = document.getElementById('gantt-bars');
+  bars.innerHTML = '';
+  TICKETS.forEach((t, idx) => {
+    if (!t.inicio || !t.fin) return;
+    const dIni = new Date(t.inicio);
+    const dFin = new Date(t.fin);
+    const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
+    const w = Math.max(8, daysBetween(dIni, dFin) * cellW);
+    const y = idx * ROW_HEIGHT + 30 + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+    let cls = 'gantt-bar';
+    if (t.sla_cumplido === 0) cls += ' is-overdue';
+    else if (t.archivado)     cls += ' is-done';
+    bars.innerHTML += `<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${BAR_HEIGHT}" rx="3"
+                       data-ticket-id="${t.id}"
+                       data-ticket-codigo="${t.codigo}"
+                       onclick="abrirDetalle(${t.id})"/>`;
+    if (w > 60) {
+      bars.innerHTML += `<text class="gantt-bar-label" x="${x + 6}" y="${y + 15}">${t.codigo}</text>`;
+    }
+  });
+
+  // ---- Flechas de dependencias ----
+  const linksG = document.getElementById('gantt-links');
+  linksG.innerHTML = '';
+  LINKS.forEach(l => {
+    const tP = TICKETS.find(t => t.id === l.predecesor_id);
+    const tS = TICKETS.find(t => t.id === l.sucesor_id);
+    if (!tP || !tS || !tP.inicio || !tP.fin || !tS.inicio || !tS.fin) return;
+    const idxP = TICKETS.indexOf(tP);
+    const idxS = TICKETS.indexOf(tS);
+    const yP = idxP * ROW_HEIGHT + 30 + ROW_HEIGHT / 2;
+    const yS = idxS * ROW_HEIGHT + 30 + ROW_HEIGHT / 2;
+    let x1, x2;
+    if (l.tipo === 'fs') { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.fin)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.inicio)) * cellW; }
+    else if (l.tipo === 'ss') { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.inicio)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.inicio)) * cellW; }
+    else if (l.tipo === 'ff') { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.fin)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.fin)) * cellW; }
+    else { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.inicio)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.fin)) * cellW; }
+    const path = `M ${x1} ${yP} L ${x1 + 8} ${yP} L ${x1 + 8} ${yS} L ${x2 - 2} ${yS}`;
+    linksG.innerHTML += `<path class="${l.tipo}" d="${path}" data-link-id="${l.id}"/>`;
+  });
+}
+
+// ============================================================
+// Modal de detalle (reusa el endpoint existente)
+// ============================================================
+function abrirDetalle(ticketId) {
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = '<div class="p-8 text-center text-slate-500">Cargando…</div>';
+  modal.showModal();
+  htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, { target: '#modal-root', swap: 'innerHTML' });
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// ============================================================
+// Zoom buttons
+// ============================================================
+document.querySelectorAll('.zoom-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentZoom = btn.dataset.zoom;
+    document.querySelectorAll('.zoom-btn').forEach(b => {
+      b.classList.remove('bg-slate-100');
+      b.classList.add('bg-white');
+    });
+    btn.classList.remove('bg-white');
+    btn.classList.add('bg-slate-100');
+    document.getElementById('gantt-svg').dataset.zoom = currentZoom;
+    render();
+  });
+});
+
+// Recargar Gantt tras crear dependencia
+document.body.addEventListener('reload-gantt', () => location.reload());
+
+// Inicial
+if (document.getElementById('gantt-svg')) {
+  render();
+}
+</script>
+{% endblock %}

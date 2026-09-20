@@ -1649,6 +1649,460 @@ async def vista_panel_page(request: Request):
         db.close()
 
 
+# =====================================================================
+# FEATURE 4 — Planner (Deadline view) estilo Bitrix24
+# =====================================================================
+@app.get("/vistas/planner", response_class=HTMLResponse)
+async def vista_planner_page(
+    request: Request,
+    q: str = "",
+    asignado_id: str = "",
+    prioridad: str = "",
+    solo_mios: str = "",
+):
+    """Vista multidimensional: Planner (Deadline view).
+
+    Agrupa los tickets con ``fecha_vencimiento_sla`` por tramos:
+    Vencidos · Vencen HOY · Mañana · Esta semana · Este mes · Sin fecha.
+
+    Soporta los mismos filtros que el resto de las vistas (más "Solo míos")
+    y refresca via HTMX sin recargar la página completa.
+    """
+    from datetime import datetime, timedelta, date as _date
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket, Prioridad
+    from app.models.usuario import Usuario
+    from sqlalchemy import or_
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    espacio_id = request.query_params.get("espacio")
+    es_solo_mios = solo_mios.lower() in ("1", "true", "yes")
+
+    db = SessionLocal()
+    try:
+        qset = db.query(Ticket).filter(
+            Ticket.archivado == False,  # noqa: E712
+        )
+        if espacio_id:
+            try:
+                from app.models.espacio import Tablero
+                tableros_esp = db.query(Tablero.id).filter(
+                    Tablero.espacio_id == int(espacio_id)
+                ).all()
+                ids = [t[0] for t in tableros_esp]
+                if ids:
+                    qset = qset.filter(Ticket.tablero_id.in_(ids))
+            except (ValueError, TypeError):
+                pass
+        if es_solo_mios:
+            qset = qset.filter(Ticket.asignado_id == usuario.id)
+        if q:
+            patron = f"%{q}%"
+            qset = qset.filter(or_(
+                Ticket.codigo.ilike(patron),
+                Ticket.titulo.ilike(patron),
+                Ticket.descripcion.ilike(patron),
+            ))
+        if asignado_id:
+            if asignado_id == "-1":
+                qset = qset.filter(Ticket.asignado_id.is_(None))
+            else:
+                try:
+                    qset = qset.filter(Ticket.asignado_id == int(asignado_id))
+                except (ValueError, TypeError):
+                    pass
+        if prioridad:
+            try:
+                qset = qset.filter(Ticket.prioridad == Prioridad(prioridad))
+            except ValueError:
+                pass
+
+        # Estados NO terminales: excluimos los que ya están cerrados/resueltos.
+        # Para mantener compatibilidad, simplemente dejamos todos los tickets
+        # con fecha_vencimiento_sla no nula y los agrupamos.
+        tickets = qset.filter(
+            Ticket.fecha_vencimiento_sla.isnot(None)
+        ).order_by(Ticket.fecha_vencimiento_sla.asc()).limit(500).all()
+
+        # Catálogo de usuarios para el select
+        usuarios = (
+            db.query(Usuario)
+            .filter(Usuario.is_active == True)  # noqa: E712
+            .order_by(Usuario.nombre_completo.asc())
+            .all()
+        )
+
+        # === Agrupar por tramos ===
+        hoy = datetime.utcnow().date()
+        manana = hoy + timedelta(days=1)
+        limite_semana = hoy + timedelta(days=7)
+        limite_mes = hoy + timedelta(days=30)
+
+        PRIORIDAD_COLOR = {
+            "critica": "#ef4444",
+            "alta":    "#f97316",
+            "media":   "#f59e0b",
+            "baja":    "#94a3b8",
+        }
+
+        grupos = {"vencidos": [], "hoy": [], "manana": [], "semana": [], "mes": [], "sin_fecha": []}
+        stats = {"vencidos": 0, "hoy": 0, "semana": 0, "mes": 0}
+        sin_fecha_qset = qset.filter(Ticket.fecha_vencimiento_sla.is_(None))
+        # Para no duplicar consultas, lo hacemos fuera
+
+        for t in tickets:
+            fv = t.fecha_vencimiento_sla.date() if t.fecha_vencimiento_sla else None
+            dias_diff = (fv - hoy).days if fv else None
+            due_label = "—"
+            due_class = ""
+            destino = None
+            if fv is None:
+                destino = "sin_fecha"
+                due_label = "—"
+            elif fv < hoy:
+                destino = "vencidos"
+                dias = (hoy - fv).days
+                due_label = f"hace {dias}d"
+                due_class = "overdue"
+                stats["vencidos"] += 1
+            elif fv == hoy:
+                destino = "hoy"
+                due_label = "HOY"
+                due_class = "today"
+                stats["hoy"] += 1
+            elif fv == manana:
+                destino = "manana"
+                due_label = "mañana"
+                due_class = "tomorrow"
+            elif fv <= limite_semana:
+                destino = "semana"
+                due_label = f"en {dias_diff}d"
+                stats["semana"] += 1
+            elif fv <= limite_mes:
+                destino = "mes"
+                due_label = f"en {dias_diff}d"
+                stats["mes"] += 1
+            else:
+                # Más allá del mes → ignorar para que la vista no explote
+                continue
+            if destino is None:
+                continue
+
+            grupos[destino].append({
+                "id": t.id,
+                "codigo": t.codigo,
+                "titulo": t.titulo,
+                "estado_nombre": t.estado.nombre if t.estado else None,
+                "asignado_nombre": t.asignado.nombre_completo if t.asignado else None,
+                "modulo": t.modulo,
+                "prioridad": t.prioridad.value if t.prioridad else "media",
+                "prioridad_color": PRIORIDAD_COLOR.get(
+                    t.prioridad.value if t.prioridad else "media", "#94a3b8"
+                ),
+                "due_label": due_label,
+                "fecha_vencimiento": fv.strftime("%Y-%m-%d") if fv else None,
+            })
+
+        # Tickets sin fecha: lo agregamos por separado (no los trajimos arriba)
+        sin_fecha = sin_fecha_qset.order_by(Ticket.created_at.desc()).limit(100).all()
+        for t in sin_fecha:
+            grupos["sin_fecha"].append({
+                "id": t.id,
+                "codigo": t.codigo,
+                "titulo": t.titulo,
+                "estado_nombre": t.estado.nombre if t.estado else None,
+                "asignado_nombre": t.asignado.nombre_completo if t.asignado else None,
+                "modulo": t.modulo,
+                "prioridad": t.prioridad.value if t.prioridad else "media",
+                "prioridad_color": PRIORIDAD_COLOR.get(
+                    t.prioridad.value if t.prioridad else "media", "#94a3b8"
+                ),
+                "due_label": "—",
+                "fecha_vencimiento": None,
+            })
+
+        total = sum(len(v) for v in grupos.values())
+
+        # Detectar si la llamada es via HTMX (sólo swap del bloque interno)
+        is_htmx = request.headers.get("HX-Request") == "true"
+
+        context = {
+            "usuario": usuario,
+            "q": q, "asignado_id": asignado_id, "prioridad": prioridad,
+            "solo_mios": es_solo_mios, "usuarios": usuarios,
+            "total": total, "stats": stats, "grupos": grupos,
+            "espacio_id": espacio_id,
+        }
+
+        if is_htmx:
+            # Sólo devolvemos las secciones (sin toolbar / header)
+            return templates.TemplateResponse(
+                request, "vistas/_planner_sections.html", context
+            )
+
+        return templates.TemplateResponse(
+            request, "vistas/planner.html", context
+        )
+    finally:
+        db.close()
+
+
+# =====================================================================
+# FEATURE 3 — Gantt con dependencias (FF, SS, SF, FS)
+# =====================================================================
+@app.get("/vistas/gantt", response_class=HTMLResponse)
+async def vista_gantt_page(
+    request: Request,
+    q: str = "",
+    modulo: str = "",
+    zoom: str = "week",
+):
+    """Vista multidimensional: Gantt con dependencias estilo Bitrix24.
+
+    Renderiza los tickets como barras en escala temporal y, si existen
+    dependencias (modelo TicketDependencia), las dibuja como flechas con
+    etiqueta FS / SS / FF / SF. Soporta drag (no implementado en esta
+    primera versión — el foco es visualización e importación) y zoom
+    día / semana / mes.
+
+    Requiere sesión activa.
+    """
+    from datetime import datetime, timedelta
+    from app.db.session import SessionLocal
+    from app.models.ticket import Ticket
+    from app.models.ticket_dependencia import TicketDependencia, TipoDependencia
+    from sqlalchemy import or_
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    if zoom not in ("day", "week", "month"):
+        zoom = "week"
+
+    espacio_id = request.query_params.get("espacio")
+    db = SessionLocal()
+    try:
+        qset = db.query(Ticket).filter(
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.fecha_inicio.isnot(None),
+            Ticket.fecha_vencimiento_sla.isnot(None),
+        )
+        if espacio_id:
+            try:
+                from app.models.espacio import Tablero
+                tableros_esp = db.query(Tablero.id).filter(
+                    Tablero.espacio_id == int(espacio_id)
+                ).all()
+                ids = [t[0] for t in tableros_esp]
+                if ids:
+                    qset = qset.filter(Ticket.tablero_id.in_(ids))
+            except (ValueError, TypeError):
+                pass
+        if q:
+            patron = f"%{q}%"
+            qset = qset.filter(or_(
+                Ticket.codigo.ilike(patron),
+                Ticket.titulo.ilike(patron),
+                Ticket.descripcion.ilike(patron),
+                Ticket.hu_o_caso_prueba.ilike(patron),
+            ))
+        if modulo:
+            qset = qset.filter(Ticket.modulo == modulo)
+
+        tickets = qset.order_by(Ticket.fecha_inicio.asc()).limit(300).all()
+        ticket_ids = [t.id for t in tickets]
+
+        # Cargar dependencias de los tickets seleccionados
+        deps = []
+        if ticket_ids:
+            deps = (
+                db.query(TicketDependencia)
+                .filter(TicketDependencia.predecesor_id.in_(ticket_ids))
+                .filter(TicketDependencia.sucesor_id.in_(ticket_ids))
+                .all()
+            )
+
+        # === Datos para la vista ===
+        PRIORIDAD_COLOR = {
+            "critica": "#ef4444",
+            "alta":    "#f97316",
+            "media":   "#f59e0b",
+            "baja":    "#94a3b8",
+        }
+        tickets_data = []
+        for t in tickets:
+            tickets_data.append({
+                "id": t.id,
+                "codigo": t.codigo,
+                "titulo": t.titulo,
+                "estado": t.estado.nombre if t.estado else "",
+                "estado_id": t.estado_id,
+                "asignado": t.asignado.nombre_completo if t.asignado else None,
+                "asignado_id": t.asignado_id,
+                "modulo": t.modulo,
+                "prioridad": t.prioridad.value if t.prioridad else "media",
+                "prioridad_color": PRIORIDAD_COLOR.get(
+                    t.prioridad.value if t.prioridad else "media", "#94a3b8"
+                ),
+                "fecha_inicio": t.fecha_inicio.strftime("%Y-%m-%d"),
+                "fecha_fin": t.fecha_vencimiento_sla.strftime("%Y-%m-%d"),
+                "progreso": 0,
+                "hu": t.hu_o_caso_prueba,
+            })
+
+        links_data = []
+        for d in deps:
+            try:
+                tipo_nombre = d.tipo.value if hasattr(d.tipo, "value") else str(d.tipo)
+            except Exception:
+                tipo_nombre = "fs"
+            links_data.append({
+                "id": d.id,
+                "source": d.predecesor_id,
+                "target": d.sucesor_id,
+                "tipo": tipo_nombre,
+                "lag_dias": d.lag_dias or 0,
+            })
+
+        # Catálogo de módulos para el filtro (extraído de los datos)
+        modulos_set = sorted({t["modulo"] for t in tickets_data if t["modulo"]})
+
+        return templates.TemplateResponse(
+            request,
+            "vistas/gantt.html",
+            {
+                "usuario": usuario,
+                "tickets_data": tickets_data,
+                "links_data": links_data,
+                "tickets": tickets,
+                "total_tickets": len(tickets_data),
+                "total_links": len(links_data),
+                "q": q, "modulo": modulo, "zoom": zoom,
+                "modulos": modulos_set,
+                "espacio_id": espacio_id,
+            },
+        )
+    finally:
+        db.close()
+
+
+# =====================================================================
+# FEATURE 2 — Admin · Disparador manual de triggers de deadline
+# =====================================================================
+@app.get("/admin/deadline", response_class=HTMLResponse)
+async def admin_deadline_page(request: Request):
+    """Panel de administración para revisar / ejecutar manualmente los
+    triggers de deadline (today / missed / approaching / overdue).
+
+    Solo accesible para usuarios con rol Administrador. Muestra un
+    resumen del último envío y permite lanzar los triggers en modo
+    "dry run" o "ejecutar".
+    """
+    from app.db.session import SessionLocal
+    from app.models.auditoria import Auditoria
+    from app.models.watch import Notificacion
+    from sqlalchemy import desc
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    # Guard de rol: solo Administrador (id=1 o nombre "Administrador")
+    rol = (getattr(usuario, "rol_nombre", "") or "").lower()
+    if "admin" not in rol and getattr(usuario, "id", None) != 1:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Acceso restringido a Administradores")
+
+    db = SessionLocal()
+    try:
+        ultimas_audit = (
+            db.query(Auditoria)
+            .filter(Auditoria.accion.ilike("deadline_%"))
+            .order_by(desc(Auditoria.created_at))
+            .limit(50)
+            .all()
+        )
+        ultimas_notifs = (
+            db.query(Notificacion)
+            .filter(Notificacion.tipo.in_([
+                "deadline_today", "deadline_missed",
+                "deadline_approaching", "task_overdue",
+            ]))
+            .order_by(desc(Notificacion.created_at))
+            .limit(50)
+            .all()
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/deadline.html",
+            {
+                "usuario": usuario,
+                "auditorias": ultimas_audit,
+                "notificaciones": ultimas_notifs,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/deadline/ejecutar")
+async def admin_deadline_ejecutar(request: Request):
+    """Endpoint POST que ejecuta los 4 triggers de deadline manualmente.
+
+    Acepta form-data con un campo ``trigger`` (``todos``, ``today``,
+    ``missed``, ``approaching`` o ``overdue``). Devuelve un JSON con
+    el resultado para que el panel admin pueda mostrarlo inline.
+    """
+    from app.services.deadline_notifier import (
+        ejecutar_todos_los_triggers,
+        trigger_deadline_today,
+        trigger_deadline_missed,
+        trigger_deadline_approaching,
+        trigger_task_overdue,
+    )
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    rol = (getattr(usuario, "rol_nombre", "") or "").lower()
+    if "admin" not in rol and getattr(usuario, "id", None) != 1:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Acceso restringido a Administradores")
+
+    form = await request.form()
+    trigger = (form.get("trigger") or "todos").lower()
+
+    if trigger == "today":
+        res = trigger_deadline_today()
+        resultados = {"today": res}
+    elif trigger == "missed":
+        res = trigger_deadline_missed()
+        resultados = {"missed": res}
+    elif trigger == "approaching":
+        res = trigger_deadline_approaching()
+        resultados = {"approaching": res}
+    elif trigger == "overdue":
+        res = trigger_task_overdue()
+        resultados = {"overdue": res}
+    else:
+        resultados = ejecutar_todos_los_triggers()
+
+    # Serializar a dict
+    payload = {}
+    for k, v in resultados.items():
+        payload[k] = {
+            "total": v.total,
+            "notificados": v.notificados,
+            "errores": v.errores,
+        }
+    return JSONResponse({"ok": True, "resultados": payload})
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
     """Dashboard con KPIs y métricas del módulo de incidencias.

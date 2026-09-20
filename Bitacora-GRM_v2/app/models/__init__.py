@@ -16,6 +16,10 @@ from app.models.campo_personalizado import CampoPersonalizado, ValorCampo
 from app.models.butler_extras import (
     BotonTarjeta, EjecucionBoton, ComandoProgramado, EjecucionComando,
 )
+# === FEATURE 3: Dependencias Gantt entre tickets (FF/SS/SF/FS) ===
+from app.models.ticket_dependencia import (
+    TicketDependencia, TipoDependencia, TIPO_DEPENDENCIA_NOMBRES,
+)
 
 __all__ = [
     "Usuario", "RolUsuario",
@@ -33,4 +37,6 @@ __all__ = [
     "Watch", "Reaccion", "Notificacion",
     "CampoPersonalizado", "ValorCampo",
     "BotonTarjeta", "EjecucionBoton", "ComandoProgramado", "EjecucionComando",
+    # FEATURE 3
+    "TicketDependencia", "TipoDependencia", "TIPO_DEPENDENCIA_NOMBRES",
 ]

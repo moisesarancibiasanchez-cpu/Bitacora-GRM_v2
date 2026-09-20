@@ -1,0 +1,214 @@
+{# =====================================================================
+   FEATURE 2 — Panel admin · Triggers de deadline (Bitrix24 style).
+
+   Permite al Administrador:
+     - Visualizar el historial reciente de auditorías (deadline_*).
+     - Ver las últimas notificaciones in-app generadas.
+     - Ejecutar manualmente cada uno de los 4 triggers:
+         * today       → tickets que vencen HOY
+         * missed      → tickets con fecha vencida
+         * approaching → tickets que vencen en las próximas 4h
+         * overdue     → tickets no completados con fecha vencida
+       o todos juntos con un solo click.
+
+   El envío de correos se hace a través de email_service (que cae al
+   dev_inbox cuando no hay SMTP configurado).
+   ===================================================================== #}
+{% extends "base.html" %}
+
+{% block title %}Admin · Triggers de Deadline · Bitácora GRM{% endblock %}
+
+{% block extra_css %}
+<style>
+  .deadline-trigger-btn {
+    transition: all .15s ease;
+  }
+  .deadline-trigger-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,.08);
+  }
+  .deadline-result {
+    background: #f8fafc;
+    border-left: 4px solid #6366f1;
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    font-family: monospace;
+    font-size: .875rem;
+  }
+  .deadline-row { background: #fff; border-radius: 8px; padding: .75rem;
+                  border: 1px solid #e2e8f0; margin-bottom: .5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-4 py-3 max-w-[1200px] mx-auto">
+
+  <header class="mb-4">
+    <h1 class="text-xl font-bold text-slate-800">⏰ Triggers de Deadline</h1>
+    <p class="text-xs text-slate-500">
+      Ejecuta manualmente los 4 disparadores de Bitrix24 (today · missed ·
+      approaching · overdue). El envío de correos respeta la configuración
+      SMTP y cae al <strong>Dev Inbox</strong> si SMTP no está activo.
+    </p>
+  </header>
+
+  {# ============ Panel de triggers ============ #}
+  <section class="bg-white rounded-lg shadow-sm p-4 mb-4">
+    <h2 class="text-sm font-bold text-slate-700 mb-3 uppercase tracking-wider">
+      Ejecutar triggers
+    </h2>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <button data-trigger="today"
+              class="deadline-trigger-btn px-3 py-2 bg-amber-100 text-amber-1000 border border-amber-300 rounded text-sm font-medium hover:bg-amber-200">
+        ⏰ <strong>Today</strong><br>
+        <span class="text-xs">Vencen hoy</span>
+      </button>
+      <button data-trigger="missed"
+              class="deadline-trigger-btn px-3 py-2 bg-red-100 text-red-800 border border-red-300 rounded text-sm font-medium hover:bg-red-200">
+        ❌ <strong>Missed</strong><br>
+        <span class="text-xs">Vencidas</span>
+      </button>
+      <button data-trigger="approaching"
+              class="deadline-trigger-btn px-3 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded text-sm font-medium hover:bg-blue-200">
+        ⚠️ <strong>Approaching</strong><br>
+        <span class="text-xs">Próximas 4h</span>
+      </button>
+      <button data-trigger="overdue"
+              class="deadline-trigger-btn px-3 py-2 bg-purple-100 text-purple-800 border border-purple-300 rounded text-sm font-medium hover:bg-purple-200">
+        🕒 <strong>Overdue</strong><br>
+        <span class="text-xs">Sin completar</span>
+      </button>
+      <button data-trigger="todos"
+              class="deadline-trigger-btn px-3 py-2 bg-indigo-600 text-white border border-indigo-700 rounded text-sm font-bold hover:bg-indigo-700">
+        🚀 <strong>TODOS</strong><br>
+        <span class="text-xs">Ejecutar los 4</span>
+      </button>
+    </div>
+
+    {# Resultado inline #}
+    <div id="deadline-result" class="hidden mt-4"></div>
+  </section>
+
+  {# ============ Historial de notificaciones ============ #}
+  <section class="bg-white rounded-lg shadow-sm p-4 mb-4">
+    <h2 class="text-sm font-bold text-slate-700 mb-3 uppercase tracking-wider">
+      📬 Últimas notificaciones generadas (in-app)
+    </h2>
+    {% if notificaciones %}
+      {% for n in notificaciones %}
+        <div class="deadline-row flex items-center gap-3">
+          <span class="px-2 py-0.5 rounded text-xs font-mono
+                       {% if n.tipo == 'deadline_today' %}bg-amber-100 text-amber-800
+                       {% elif n.tipo == 'deadline_missed' %}bg-red-100 text-red-800
+                       {% elif n.tipo == 'deadline_approaching' %}bg-blue-100 text-blue-800
+                       {% elif n.tipo == 'task_overdue' %}bg-purple-100 text-purple-800
+                       {% else %}bg-slate-100 text-slate-700{% endif %}">
+            {{ n.tipo }}
+          </span>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm text-slate-700 truncate">{{ n.mensaje or n.titulo or '—' }}</div>
+            <div class="text-xs text-slate-500">
+              Ticket #{{ n.ticket_id or '—' }} ·
+              {{ n.created_at.strftime('%Y-%m-%d %H:%M') if n.created_at else '' }}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="text-sm text-slate-500 italic">
+        Aún no se han generado notificaciones de deadline. Ejecuta un trigger
+        para ver el resultado aquí.
+      </p>
+    {% endif %}
+  </section>
+
+  {# ============ Auditoría ============ #}
+  <section class="bg-white rounded-lg shadow-sm p-4">
+    <h2 class="text-sm font-bold text-slate-700 mb-3 uppercase tracking-wider">
+      📜 Auditoría reciente (acciones deadline_*)
+    </h2>
+    {% if auditorias %}
+      <table class="w-full text-xs">
+        <thead class="bg-slate-50 text-slate-600">
+          <tr>
+            <th class="text-left px-2 py-1">Fecha</th>
+            <th class="text-left px-2 py-1">Acción</th>
+            <th class="text-left px-2 py-1">Detalle</th>
+            <th class="text-left px-2 py-1">Usuario</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in auditorias %}
+          <tr class="border-t border-slate-100">
+            <td class="px-2 py-1 font-mono text-slate-500">
+              {{ a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '' }}
+            </td>
+            <td class="px-2 py-1 font-mono text-indigo-700">{{ a.accion }}</td>
+            <td class="px-2 py-1 text-slate-600">{{ a.detalle or '—' }}</td>
+            <td class="px-2 py-1 text-slate-600">
+              {{ a.usuario_id or '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-sm text-slate-500 italic">
+        Sin registros de auditoría para triggers de deadline todavía.
+      </p>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.body.addEventListener('click', async ev => {
+  const btn = ev.target.closest('.deadline-trigger-btn');
+  if (!btn) return;
+  const trigger = btn.dataset.trigger;
+  if (!trigger) return;
+
+  btn.disabled = true;
+  const originalHTML = btn.innerHTML;
+  btn.innerHTML = '⏳ Ejecutando…';
+
+  try {
+    const fd = new FormData();
+    fd.append('trigger', trigger);
+    const resp = await fetch('/admin/deadline/ejecutar', {
+      method: 'POST',
+      body: fd,
+      headers: {'HX-Request': 'true'},
+    });
+    const data = await resp.json();
+    const box = document.getElementById('deadline-result');
+    box.classList.remove('hidden');
+    if (data.ok) {
+      box.innerHTML =
+        '<div class="deadline-result">' +
+        '<div class="text-emerald-700 font-bold mb-1">✅ Trigger ejecutado</div>' +
+        '<pre class="whitespace-pre-wrap text-xs">' +
+          JSON.stringify(data.resultados, null, 2) +
+        '</pre>' +
+        '</div>';
+      // Recargar la página después de 2s para refrescar las listas
+      setTimeout(() => location.reload(), 2000);
+    } else {
+      box.innerHTML =
+        '<div class="deadline-result border-red-500">' +
+        '<div class="text-red-700 font-bold mb-1">❌ Error</div>' +
+        '<pre class="whitespace-pre-wrap text-xs">' +
+          JSON.stringify(data, null, 2) +
+        '</pre></div>';
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }
+});
+</script>
+{% endblock %}

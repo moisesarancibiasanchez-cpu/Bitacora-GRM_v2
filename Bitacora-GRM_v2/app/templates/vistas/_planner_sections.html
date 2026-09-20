@@ -1,0 +1,86 @@
+{# Partial usado por /vistas/planner y por el endpoint HTMX GET mismo.
+   Contiene sólo las secciones; no extiende base.html (para que el swap HTMX funcione). #}
+{% macro render_card(t, due_class, due_label) %}
+<div class="planner-card {{ due_class }}" data-ticket-id="{{ t.id }}" data-ticket-codigo="{{ t.codigo }}">
+  <span class="planner-priority-dot" style="background:{{ t.prioridad_color|default('#94a3b8') }}"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2">
+      <span class="planner-card-code">{{ t.codigo }}</span>
+      <span class="planner-card-title">{{ t.titulo[:80] }}</span>
+    </div>
+    <div class="planner-card-meta">
+      {% if t.estado_nombre %}<span>📌 {{ t.estado_nombre }}</span>{% endif %}
+      {% if t.asignado_nombre %}<span>👤 {{ t.asignado_nombre }}</span>{% endif %}
+      {% if t.modulo %}<span>📁 {{ t.modulo }}</span>{% endif %}
+    </div>
+  </div>
+  <span class="planner-due {{ due_class }}">{{ due_label }}</span>
+</div>
+{% endmacro %}
+
+{% if grupos.vencidos %}
+<section class="planner-section overdue">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">🔴 Vencidos</h2>
+    <span class="planner-section-count">{{ grupos.vencidos|length }}</span>
+  </header>
+  {% for t in grupos.vencidos %}{{ render_card(t, 'overdue', t.due_label) }}{% endfor %}
+</section>
+{% endif %}
+
+{% if grupos.hoy %}
+<section class="planner-section today">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">⚠️ Vencen HOY</h2>
+    <span class="planner-section-count">{{ grupos.hoy|length }}</span>
+  </header>
+  {% for t in grupos.hoy %}{{ render_card(t, 'today', t.due_label) }}{% endfor %}
+</section>
+{% endif %}
+
+{% if grupos.manana %}
+<section class="planner-section tomorrow">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">📅 Mañana</h2>
+    <span class="planner-section-count">{{ grupos.manana|length }}</span>
+  </header>
+  {% for t in grupos.manana %}{{ render_card(t, 'tomorrow', t.due_label) }}{% endfor %}
+</section>
+{% endif %}
+
+{% if grupos.semana %}
+<section class="planner-section week">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">📆 Esta semana</h2>
+    <span class="planner-section-count">{{ grupos.semana|length }}</span>
+  </header>
+  {% for t in grupos.semana %}{{ render_card(t, '', t.due_label) }}{% endfor %}
+</section>
+{% endif %}
+
+{% if grupos.mes %}
+<section class="planner-section month">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">🗓️ Este mes</h2>
+    <span class="planner-section-count">{{ grupos.mes|length }}</span>
+  </header>
+  {% for t in grupos.mes %}{{ render_card(t, '', t.due_label) }}{% endfor %}
+</section>
+{% endif %}
+
+{% if grupos.sin_fecha %}
+<section class="planner-section no-date">
+  <header class="planner-section-header">
+    <h2 class="planner-section-title">❓ Sin fecha asignada</h2>
+    <span class="planner-section-count">{{ grupos.sin_fecha|length }}</span>
+  </header>
+  {% for t in grupos.sin_fecha %}{{ render_card(t, '', '—') }}{% endfor %}
+</section>
+{% endif %}
+
+{% if total == 0 %}
+<div class="planner-section text-center text-slate-500 py-12">
+  <p class="text-lg mb-2">🎉 Sin deadlines pendientes</p>
+  <p class="text-xs">No hay tickets que coincidan con los filtros. Prueba a limpiar la búsqueda o seleccionar otro asignado.</p>
+</div>
+{% endif %}
