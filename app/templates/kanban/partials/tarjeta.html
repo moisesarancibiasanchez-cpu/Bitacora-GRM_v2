@@ -40,6 +40,36 @@
   </div>
   <h4 class="text-sm font-medium text-slate-800 leading-snug mb-1.5 line-clamp-2 group-hover:text-indigo-700 transition-colors">{{ ticket.titulo }}</h4>
   <p class="text-xs text-slate-500 line-clamp-2 mb-2 break-words" title="{{ ticket.descripcion or '' }}">{{ ticket.descripcion | truncate_text(70) }}</p>
+  {# ===========================================================
+     Badge "Listo en Prod" - Sólo cuando el ticket está en estado
+     "Producción OK". Muestra:
+       - Icono cohete (🚀) + texto
+       - Fecha del pase a Producción OK (desde historial_estados)
+       - Quién lo confirmó (usuario del historial_estados)
+     El historial_estados viene ordenado por fecha DESC, así que el
+     primer match es la última transición al estado Producción OK.
+     =========================================================== #}
+  {% if ticket.estado.nombre == 'Producción OK' %}
+    {% set prod_hist = None %}
+    {% for h in ticket.historial_estados %}
+      {% if h.estado_destino and h.estado_destino.nombre == 'Producción OK' %}
+        {% set prod_hist = h %}
+      {% endif %}
+    {% endfor %}
+    <div class="mb-2 flex items-center gap-1.5 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-[10px] text-emerald-800"
+         title="Ticket verificado y desplegado en ambiente productivo">
+      <span class="text-[12px] leading-none">🚀</span>
+      <span class="font-semibold tracking-wide uppercase">Listo en Prod</span>
+      {% if prod_hist %}
+        <span class="text-emerald-700/80">·</span>
+        <span class="font-mono">{{ prod_hist.fecha.strftime('%Y-%m-%d') if prod_hist.fecha else '—' }}</span>
+        {% if prod_hist.usuario %}
+          <span class="text-emerald-700/80">·</span>
+          <span class="italic">{{ prod_hist.usuario.nombre_completo }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
   <div class="flex items-center justify-between text-[11px] text-slate-500">
     <div class="flex items-center gap-1.5">
       {% if ticket.asignado %}

@@ -517,6 +517,119 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
                     enum_name, e,
                 )
 
+    # 4.6) Asegurar que existe el estado "Producción OK".
+    #      Idempotente: solo se inserta si no existe por nombre. Esto
+    #      cubre BDs que ya tienen los 6 estados anteriores (los seeds
+    #      iniciales habrían fallado al saltarse por la guarda
+    #      ``db.query(Estado).count() > 0``).
+    #      Importante: la tabla ``estados`` hereda ``TimestampMixin``,
+    #      por lo que ``created_at`` y ``updated_at`` son NOT NULL.
+    #      Usamos ``datetime.utcnow()`` explícito en SQL porque ni
+    #      SQLite ni PG aplican los defaults de SQLAlchemy al INSERT
+    #      raw.
+    try:
+        from datetime import datetime as _dt
+        ts_now = _dt.utcnow()
+        if is_pg:
+            res = conn.execute(text(
+                "INSERT INTO estados (nombre, descripcion, color, orden, "
+                "es_inicial, es_final, categoria, sla_horas, archivado, "
+                "limite_wip, created_at, updated_at) "
+                "SELECT 'Producción OK', "
+                "       'Corrección desplegada y verificada en ambiente productivo', "
+                "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
+                "       FALSE, TRUE, 'produccion_ok', NULL, FALSE, NULL, "
+                "       :ts, :ts "
+                "WHERE NOT EXISTS (SELECT 1 FROM estados WHERE nombre = 'Producción OK')"
+            ), {"ts": ts_now})
+        else:
+            res = conn.execute(text(
+                "INSERT INTO estados (nombre, descripcion, color, orden, "
+                "es_inicial, es_final, categoria, sla_horas, archivado, "
+                "limite_wip, created_at, updated_at) "
+                "SELECT 'Producción OK', "
+                "       'Corrección desplegada y verificada en ambiente productivo', "
+                "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
+                "       0, 1, 'produccion_ok', NULL, 0, NULL, :ts, :ts "
+                "WHERE NOT EXISTS (SELECT 1 FROM estados WHERE nombre = 'Producción OK')"
+            ), {"ts": ts_now})
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info("[migrations] data: estado 'Producción OK' insertado (orden=%s)", n)
+            total += n
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: no se pudo insertar estado 'Producción OK': %s", e,
+        )
+
+    # 4.7) Asegurar que existen las 3 transiciones del flujo Producción OK.
+    #      Idempotente: solo se inserta si NO existe ya la combinación
+    #      (origen, destino). El seed inicial falla para BDs con
+    #      ``transiciones_estado`` no vacías, por lo que esta migración
+    #      es la red de seguridad para añadir las reglas a BDs existentes.
+    try:
+        # Sub-query común para resolver los IDs de los estados por nombre
+        # (válido en PG y SQLite).
+        sub_origen = "(SELECT id FROM estados WHERE nombre = :origen)"
+        sub_destino = "(SELECT id FROM estados WHERE nombre = :destino)"
+
+        nuevas_transiciones = [
+            # (origen, destino, rol_requerido, requiere_comentario, descripcion)
+            (
+                "Cerrado", "Producción OK", "agente_senior", 1,
+                "Confirmar deploy verificado en producción. Obligatorio documentar build/PR/ambiente.",
+            ),
+            (
+                "Producción OK", "Cerrado", "agente_senior", 1,
+                "Rollback: el deploy en producción tuvo un incidente. Obligatorio documentar el motivo.",
+            ),
+            (
+                "Producción OK", "En curso", "administrador", 1,
+                "Reabrir ticket: el fix en producción presenta un bug que requiere trabajo.",
+            ),
+        ]
+        for origen, destino, rol, req_comentario, desc in nuevas_transiciones:
+            try:
+                # Pre-check: si ya existe la combinación (origen, destino),
+                # NO insertamos (idempotente). Esto evita violar el
+                # UniqueConstraint ``uq_transicion_origen_destino``.
+                existe = conn.execute(text(
+                    "SELECT 1 FROM transiciones_estado t "
+                    "JOIN estados o ON o.id = t.estado_origen_id "
+                    "JOIN estados d ON d.id = t.estado_destino_id "
+                    "WHERE o.nombre = :origen AND d.nombre = :destino"
+                ), {"origen": origen, "destino": destino}).fetchone()
+                if existe:
+                    continue
+                res = conn.execute(text(
+                    f"INSERT INTO transiciones_estado "
+                    f"(estado_origen_id, estado_destino_id, rol_requerido, "
+                    f" requiere_comentario, descripcion) "
+                    f"SELECT {sub_origen}, {sub_destino}, :rol, :req, :desc "
+                    f"WHERE EXISTS (SELECT 1 FROM estados WHERE nombre = :origen) "
+                    f"  AND EXISTS (SELECT 1 FROM estados WHERE nombre = :destino)"
+                ), {
+                    "origen": origen, "destino": destino,
+                    "rol": rol, "req": req_comentario, "desc": desc,
+                })
+                n = res.rowcount if hasattr(res, "rowcount") else 0
+                if n:
+                    logger.info(
+                        "[migrations] data: transición '%s' → '%s' insertada (rol=%s)",
+                        origen, destino, rol,
+                    )
+                    total += n
+            except Exception as e_inner:
+                logger.warning(
+                    "[migrations] data: no se pudo insertar transición '%s'→'%s': %s",
+                    origen, destino, e_inner,
+                )
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: error general insertando transiciones de Producción OK: %s",
+            e,
+        )
+
     return total
 
 
