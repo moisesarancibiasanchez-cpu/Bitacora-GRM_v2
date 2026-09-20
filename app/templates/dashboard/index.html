@@ -164,14 +164,15 @@
         </div>
       </div>
 
-      <!-- ===== FILA 2 — FUNNEL + ACTIVIDAD DIARIA ===== -->
+      <!-- ===== FILA 2 — DISTRIBUCIÓN POR ESTADO + ACTIVIDAD DIARIA ===== -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+        <!-- Distribución por estado -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-slate-700">Funnel de avance</h3>
-            <span class="text-[10px] uppercase tracking-wide text-slate-400">click para detalle</span>
+            <h3 class="text-sm font-semibold text-slate-700">Distribución por estado</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">incidencias activas</span>
           </div>
-          <div id="funnel-container" class="space-y-2"></div>
+          <div id="dist-estado-container" class="space-y-2"></div>
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-4">
@@ -189,14 +190,8 @@
         </div>
       </div>
 
-      <!-- ===== FILA 3 — DISTRIBUCIÓN + PRÓXIMOS A VENCER SLA ===== -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-
-        <!-- Distribución por estado -->
-        <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <h3 class="text-sm font-semibold text-slate-700 mb-3">Distribución por estado</h3>
-          <div id="dist-estado-container" class="space-y-2"></div>
-        </div>
+      <!-- ===== FILA 3 — DISTRIBUCIÓN POR PRIORIDAD + PRÓXIMOS A VENCER SLA ===== -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
 
         <!-- Distribución por prioridad -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
@@ -495,32 +490,14 @@
     drawSpark('spark-sla', d.sparklines.sla || d.actividad_por_dia.map(() => d.sla.porcentaje_cumplimiento || 0), '#10b981');
     drawSpark('spark-backlog', d.sparklines.backlog || d.actividad_por_dia.map(() => d.incidencias.backlog_7d || 0), '#f59e0b');
 
-    // === Fila 2: Funnel ===
-    const fc = safeId('funnel-container');
-    if (fc) {
-      if (!d.funnel || d.funnel.length === 0) {
-        fc.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Sin datos para el funnel</p>';
-      } else {
-        const max = Math.max.apply(null, d.funnel.map(f => f.total)) || 1;
-        fc.innerHTML = d.funnel.map(f => {
-          const pct = (f.total / max) * 100;
-          return '<div class="funnel-item cursor-pointer" data-estado="' + (f.estado || '') + '">'
-            + '<div class="flex items-center justify-between text-xs mb-1">'
-            + '<span class="font-medium" style="color:' + f.color + '">' + f.estado + '</span>'
-            + '<span class="font-bold text-slate-800">' + fmt(f.total) + '</span>'
-            + '</div>'
-            + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
-            + '<div class="h-full" style="width:' + pct.toFixed(1) + '%; background:' + f.color + '"></div>'
-            + '</div>'
-            + '</div>';
-        }).join('');
-      }
-    }
-
     // === Fila 2: Chart actividad ===
+    // (El card "Distribución por estado" ahora vive en la columna izquierda
+    //  de Fila 2 y se renderiza más abajo en el bloque "Distribución por
+    //  estado". El campo d.funnel puede seguir llegando del backend pero
+    //  ya no se consume — ver /dashboard-completo.)
     drawActivityChart(d.actividad_por_dia || []);
 
-    // === Fila 3: Distribución por estado ===
+    // === Fila 2 / columna izquierda: Distribución por estado ===
     const ec = safeId('dist-estado-container');
     if (ec) {
       if (!d.distribucion_estado || d.distribucion_estado.length === 0) {
