@@ -24,10 +24,20 @@
 {% block extra_css %}
 <style>
   /* ===== Contenedor con scroll vertical =====
-     El layout es flex-column: header (toolbar) y stats crecen a su altura
-     natural, planner-content toma el resto y aplica overflow-y: auto.
-     El truco está en `min-height: 0` para que un hijo flex pueda
-     encogerse por debajo de su contenido y disparar la barra de scroll. */
+     Estrategia en DOS capas para que el scroll vertical sea INEVITABLE:
+
+     1) El layout es flex-column (.planner-wrap, height:100%) que reparte
+        el alto del <main> entre header (natural) + stats (natural) +
+        #planner-content (flex:1). El `min-height: 0` en el hijo flex es
+        OBLIGATORIO para que pueda encogerse y disparar el scroll.
+
+     2) Como fallback adicional — por si el padre no es flex o no tiene
+        altura conocida — forzamos un `height` EXPLÍCITO en píxeles basado
+        en el viewport. Así el scroll siempre existe aunque el flex falle.
+
+     3) Usamos `overflow-y: scroll` (no `auto`) para que la barra esté
+        SIEMPRE visible, incluso cuando el contenido cabe: es la prueba
+        visual de que el scroll existe y se aplica a TODOS los registros. */
   .planner-wrap {
     display: flex;
     flex-direction: column;
@@ -35,33 +45,59 @@
     min-height: 0;
   }
   .planner-scroll {
-    /* Ocupa todo el espacio vertical sobrante bajo el toolbar+stats */
+    /* (a) Modo flex: ocupa todo el alto sobrante bajo toolbar+stats */
     flex: 1 1 0;
     min-height: 0;
-    overflow-y: auto;
+    /* (b) Altura explícita: garantiza scroll cuando el contenido es largo
+           y/o cuando el padre flex no llega a tener la altura esperada */
+    height: calc(100vh - 240px);
+    max-height: calc(100vh - 240px);
+    /* (c) SIEMPRE muestra la barra vertical */
+    overflow-y: scroll;
     overflow-x: hidden;
-    padding-right: 6px;
-    /* Fallback cuando el padre NO es flex: scroll en viewport */
-    max-height: calc(100vh - 280px);
-    /* Scroll suave */
+    padding-right: 8px;
+    /* Borde visible para que se note el contenedor con scroll */
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fafbfc;
     scroll-behavior: smooth;
   }
-  .planner-scroll::-webkit-scrollbar { width: 8px; }
-  .planner-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+  /* Scrollbar visible y custom (Webkit / Chromium) */
+  .planner-scroll::-webkit-scrollbar { width: 10px; }
+  .planner-scroll::-webkit-scrollbar-track {
+    background: #f1f5f9; border-radius: 5px;
+    margin: 4px 0;
+  }
   .planner-scroll::-webkit-scrollbar-thumb {
+    background: #94a3b8; border-radius: 5px;
+    border: 2px solid #f1f5f9;
+  }
+  .planner-scroll::-webkit-scrollbar-thumb:hover { background: #475569; }
+  /* Firefox */
+  .planner-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #f1f5f9;
+  }
+
+  /* Cada sección del Planner también puede hacer su propio scroll
+     interno si tiene MUCHAS filas, sin esperar a que el contenedor
+     padre se llene. `overflow-y: scroll` mantiene visible la barra. */
+  .planner-section-scroll {
+    max-height: 280px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    border-top: 1px solid #e2e8f0;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #f1f5f9;
+  }
+  .planner-section-scroll::-webkit-scrollbar { width: 8px; }
+  .planner-section-scroll::-webkit-scrollbar-track {
+    background: #f8fafc; border-radius: 4px;
+  }
+  .planner-section-scroll::-webkit-scrollbar-thumb {
     background: #cbd5e1; border-radius: 4px;
   }
-  .planner-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-  /* Cada sección del Planner (tabla o grilla) puede hacer su propio
-     scroll interno cuando el conjunto de filas es muy grande, sin
-     esperar a que el contenedor padre se llene. Limita la altura máxima
-     por sección y permite scroll vertical + sticky thead por sección. */
-  .planner-section-scroll {
-    max-height: 360px;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
+  .planner-section-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
   /* ===== Tarjeta/sección ===== */
   .planner-section {
