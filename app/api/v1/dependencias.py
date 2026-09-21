@@ -19,6 +19,8 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from markupsafe import escape as _esc
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -511,10 +513,22 @@ async def importar_xml_file(
     crear_tickets_faltantes: bool = False,
     actualizar_fechas: bool = True,
     detallar_omitidos: bool = False,
+    render: Optional[str] = Query(
+        None,
+        description="Si se pasa 'html', devuelve un reporte HTML "
+                    "(HTMLResponse) en lugar de JSON. Pensado para uso "
+                    "directo desde HTMX en el modal de import del Gantt.",
+    ),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
-    """Importa dependencias desde un archivo .xml/.mpp subido."""
+    """Importa dependencias desde un archivo .xml/.mpp subido.
+
+    Modos:
+        - Default: devuelve ``ImportarXMLResponse`` en JSON (uso API).
+        - ``?render=html``: devuelve un fragmento HTML listo para hacer
+          swap con HTMX en el modal de import del Gantt.
+    """
     _requiere_admin_o_agente_senior(usuario)
     contenido = await file.read()
     if not contenido:
@@ -525,9 +539,351 @@ async def importar_xml_file(
         crear_tickets_faltantes=crear_tickets_faltantes,
         actualizar_fechas=actualizar_fechas,
     )
-    return importar_xml(
+    resultado = importar_xml(
         payload,
         detallar_omitidos=detallar_omitidos,
         db=db,
         usuario=usuario,
+    )
+
+    if render == "html":
+        html = _render_importar_xml_html(resultado, payload, filename=file.filename or "")
+        return HTMLResponse(html)
+
+    return resultado
+
+
+# -----------------------------------------------------------------------------
+# Renderizador HTML del resultado de import (uso HTMX)
+# -----------------------------------------------------------------------------
+_TIPO_BADGE = {
+    "fs": ("FS", "bg-indigo-100 text-indigo-800", "Fin → Inicio"),
+    "ss": ("SS", "bg-amber-100 text-amber-800",   "Inicio → Inicio"),
+    "ff": ("FF", "bg-emerald-100 text-emerald-800", "Fin → Fin"),
+    "sf": ("SF", "bg-pink-100 text-pink-800",     "Inicio → Fin"),
+}
+
+_MOTIVO_BADGE = {
+    "ticket_no_encontrado": ("Ticket no encontrado", "bg-rose-100 text-rose-800"),
+    "auto_dependencia":     ("Auto-dependencia (A→A)", "bg-amber-100 text-amber-800"),
+}
+
+
+def _badge(label: str, cls: str) -> str:
+    return (
+        f'<span class="inline-flex items-center px-2 py-0.5 rounded text-xs '
+        f'font-semibold {cls}">{_esc(label)}</span>'
+    )
+
+
+def _render_importar_xml_html(
+    resultado: "ImportarXMLResponse",
+    payload: "ImportarXMLRequest",
+    filename: str = "",
+) -> str:
+    """Construye un fragmento HTML con el reporte del import, listo para
+    ``hx-swap="innerHTML"`` dentro del modal de import del Gantt.
+
+    Estructura:
+        1. Banner de modo (preview / aplicado).
+        2. Grid de 5 KPIs (tareas / conocidas / a crear / links / omitidos).
+        3. Errores (si hay).
+        4. Tabla ``Tareas a crear`` colapsable.
+        5. Tabla ``Links a crear`` colapsable.
+        6. Lista ``Links omitidos (muestra)`` colapsable.
+    """
+    es_preview = bool(resultado.preview)
+    tareas_a_crear = resultado.tareas_a_crear or []
+    links_a_crear  = resultado.links_a_crear  or []
+    errores        = resultado.errores        or []
+    muestra        = resultado.links_omitidos_muestra or []
+    omitidos_count = resultado.links_omitidos_count or 0
+
+    # ---- Banner de modo ----
+    if es_preview:
+        banner = (
+            '<div class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 '
+            'flex items-center gap-2 text-sm text-sky-900">'
+            '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" '
+            'viewBox="0 0 24 24"><path stroke-linecap="round" '
+            'stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01'
+            'M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+            '<span><b>Modo preview.</b> No se guardaron cambios. Desmarca '
+            '"Solo preview" y vuelve a importar para aplicar.</span></div>'
+        )
+    else:
+        banner = (
+            '<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 '
+            'flex items-center gap-2 text-sm text-emerald-900">'
+            '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" '
+            'viewBox="0 0 24 24"><path stroke-linecap="round" '
+            'stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+            '<span><b>Importación aplicada.</b> Cambios persistidos en la base '
+            'de datos.</span></div>'
+        )
+
+    # ---- KPIs ----
+    pct_conocidas = (
+        f"{(resultado.tareas_conocidas / resultado.tareas_xml * 100):.0f}%"
+        if resultado.tareas_xml else "—"
+    )
+    pct_links_ok = (
+        f"{len(links_a_crear) / max(resultado.links_xml, 1) * 100:.0f}%"
+        if resultado.links_xml else "—"
+    )
+
+    kpi_cards = [
+        ("Tareas en XML", str(resultado.tareas_xml), "slate"),
+        (f"Reconocidas ({pct_conocidas})", str(resultado.tareas_conocidas), "emerald"),
+        ("Tickets a crear", str(len(tareas_a_crear)), "amber" if tareas_a_crear else "slate"),
+        (f"Links a crear ({pct_links_ok})", str(len(links_a_crear)), "indigo"),
+        ("Links omitidos", str(omitidos_count), "rose" if omitidos_count else "slate"),
+    ]
+    color_map = {
+        "slate":   ("bg-slate-50 border-slate-200 text-slate-700",   "text-slate-900"),
+        "emerald": ("bg-emerald-50 border-emerald-200 text-emerald-700", "text-emerald-900"),
+        "amber":   ("bg-amber-50 border-amber-200 text-amber-700",   "text-amber-900"),
+        "indigo":  ("bg-indigo-50 border-indigo-200 text-indigo-700", "text-indigo-900"),
+        "rose":    ("bg-rose-50 border-rose-200 text-rose-700",       "text-rose-900"),
+    }
+    kpis_html = '<div class="grid grid-cols-2 sm:grid-cols-5 gap-2">'
+    for label, value, color in kpi_cards:
+        bg, fg = color_map[color]
+        kpis_html += (
+            f'<div class="rounded-lg border {bg} px-3 py-2">'
+            f'<div class="text-[11px] font-medium uppercase tracking-wide opacity-80">{_esc(label)}</div>'
+            f'<div class="text-xl font-bold {fg}">{_esc(value)}</div>'
+            f'</div>'
+        )
+    kpis_html += "</div>"
+
+    # Info adicional (tickets creados + fechas actualizadas)
+    extras = []
+    if resultado.tickets_creados:
+        extras.append(
+            f'<span class="inline-flex items-center gap-1">'
+            f'<b class="text-emerald-700">{resultado.tickets_creados}</b> '
+            f'ticket(s) nuevo(s) creado(s)</span>'
+        )
+    if resultado.fechas_actualizadas:
+        extras.append(
+            f'<span class="inline-flex items-center gap-1">'
+            f'<b class="text-emerald-700">{resultado.fechas_actualizadas}</b> '
+            f'fecha(s) actualizada(s)</span>'
+        )
+    if filename:
+        extras.append(
+            f'<span class="inline-flex items-center gap-1 text-slate-500">'
+            f'<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            f'<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            f'd="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>'
+            f'<span class="truncate max-w-[260px]" title="{_esc(filename)}">{_esc(filename)}</span>'
+            f'</span>'
+        )
+    extras_html = (
+        '<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">' + "".join(extras) + "</div>"
+        if extras else ""
+    )
+
+    # ---- Sección errores ----
+    if errores:
+        errores_html = (
+            '<details open class="rounded-lg border border-rose-200 bg-rose-50">'
+            '<summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-rose-800 '
+            'flex items-center gap-2">'
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            'd="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 '
+            '00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/></svg>'
+            f'Errores ({len(errores)})</summary>'
+            '<ul class="px-5 py-2 text-xs text-rose-900 list-disc space-y-0.5 max-h-40 overflow-y-auto">'
+            + "".join(f"<li>{_esc(e)}</li>" for e in errores)
+            + "</ul></details>"
+        )
+    else:
+        errores_html = ""
+
+    # ---- Tabla de tareas a crear ----
+    if tareas_a_crear:
+        rows = []
+        # Cabecera sticky dentro de un contenedor scrollable
+        body_rows = []
+        for t in tareas_a_crear:
+            uid   = t.get("uid", "—")
+            name  = t.get("name", "")
+            wbs   = t.get("wbs", "—")
+            inicio = (t.get("start") or "")[:10]
+            fin    = (t.get("finish") or "")[:10]
+            dur    = t.get("duration_hours", "")
+            if dur not in (None, ""):
+                try:
+                    dur = f"{float(dur):.0f} h"
+                except (TypeError, ValueError):
+                    dur = str(dur)
+            body_rows.append(
+                "<tr class='border-t border-slate-100'>"
+                f"<td class='px-2 py-1 text-slate-500 text-[11px]'>{_esc(str(uid))}</td>"
+                f"<td class='px-2 py-1 font-mono text-[11px] text-slate-600'>{_esc(str(wbs))}</td>"
+                f"<td class='px-2 py-1 text-xs'>{_esc(name)}</td>"
+                f"<td class='px-2 py-1 text-[11px] text-slate-600 whitespace-nowrap'>{_esc(inicio)}</td>"
+                f"<td class='px-2 py-1 text-[11px] text-slate-600 whitespace-nowrap'>{_esc(fin)}</td>"
+                f"<td class='px-2 py-1 text-[11px] text-slate-600 text-right'>{_esc(str(dur))}</td>"
+                "</tr>"
+            )
+        # Si hay más de 30, colapsamos por defecto y ponemos scroll interno.
+        total_t = len(tareas_a_crear)
+        open_attr = "open" if total_t <= 5 else ""
+        max_h = "max-h-72" if total_t > 30 else ""
+        tareas_html = (
+            '<details class="rounded-lg border border-amber-200 bg-white" '
+            f'{open_attr}>'
+            '<summary class="cursor-pointer px-3 py-2 text-sm font-semibold '
+            'text-amber-900 bg-amber-50 border-b border-amber-200 '
+            'flex items-center gap-2">'
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            'd="M12 4v16m8-8H4"/></svg>'
+            f'Tareas a crear ({total_t})'
+            '<span class="ml-auto text-[11px] font-normal text-amber-700">'
+            'Crea los tickets faltantes si activas esa opción</span>'
+            '</summary>'
+            '<div class="overflow-x-auto ' + max_h + ' overflow-y-auto">'
+            '<table class="min-w-full text-sm">'
+            '<thead class="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide '
+            'text-slate-500">'
+            '<tr>'
+            '<th class="px-2 py-1 text-left">UID</th>'
+            '<th class="px-2 py-1 text-left">WBS</th>'
+            '<th class="px-2 py-1 text-left">Nombre</th>'
+            '<th class="px-2 py-1 text-left">Inicio</th>'
+            '<th class="px-2 py-1 text-left">Fin</th>'
+            '<th class="px-2 py-1 text-right">Duración</th>'
+            '</tr></thead>'
+            '<tbody>' + "".join(body_rows) + '</tbody></table></div></details>'
+        )
+    else:
+        tareas_html = (
+            '<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 '
+            'text-sm text-emerald-800 flex items-center gap-2">'
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            'd="M5 13l4 4L19 7"/></svg>'
+            'Todas las tareas del XML matchearon con tickets existentes.'
+            '</div>'
+        )
+
+    # ---- Tabla de links a crear ----
+    if links_a_crear:
+        body_rows = []
+        for link in links_a_crear:
+            tipo_raw = (link.get("tipo") or "fs").lower()
+            tipo_badge = _TIPO_BADGE.get(
+                tipo_raw,
+                (tipo_raw.upper(), "bg-slate-100 text-slate-700", tipo_raw.upper()),
+            )
+            lag = link.get("lag_dias", 0)
+            lag_str = f"+{lag}d" if lag > 0 else (f"{lag}d" if lag else "0d")
+            body_rows.append(
+                "<tr class='border-t border-slate-100'>"
+                f"<td class='px-2 py-1 font-mono text-[11px] text-slate-700'>{_esc(link.get('predecesor_codigo', '—'))}</td>"
+                "<td class='px-2 py-1 text-center text-slate-400'>→</td>"
+                f"<td class='px-2 py-1 font-mono text-[11px] text-slate-700'>{_esc(link.get('sucesor_codigo', '—'))}</td>"
+                f"<td class='px-2 py-1 text-center'>{_badge(tipo_badge[0], tipo_badge[1])}</td>"
+                f"<td class='px-2 py-1 text-center text-[11px] text-slate-600'>{_esc(lag_str)}</td>"
+                "</tr>"
+            )
+        total_l = len(links_a_crear)
+        open_attr = "open" if total_l <= 10 else ""
+        max_h = "max-h-72" if total_l > 30 else ""
+        links_html = (
+            '<details class="rounded-lg border border-indigo-200 bg-white" '
+            f'{open_attr}>'
+            '<summary class="cursor-pointer px-3 py-2 text-sm font-semibold '
+            'text-indigo-900 bg-indigo-50 border-b border-indigo-200 '
+            'flex items-center gap-2">'
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            'd="M13.828 10.172a4 4 0 015.656 0l1.415 1.415a4 4 0 010 5.656l-3 3a4 4 0 '
+            '01-5.656 0M10.172 13.828a4 4 0 01-5.656 0l-1.415-1.415a4 4 0 010-5.656l3-3a4 4 0 015.656 0"/></svg>'
+            f'Links / dependencias a crear ({total_l})</summary>'
+            '<div class="overflow-x-auto ' + max_h + ' overflow-y-auto">'
+            '<table class="min-w-full text-sm">'
+            '<thead class="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide '
+            'text-slate-500">'
+            '<tr>'
+            '<th class="px-2 py-1 text-left">Predecesor</th>'
+            '<th class="px-2 py-1"></th>'
+            '<th class="px-2 py-1 text-left">Sucesor</th>'
+            '<th class="px-2 py-1 text-center">Tipo</th>'
+            '<th class="px-2 py-1 text-center">Lag</th>'
+            '</tr></thead>'
+            '<tbody>' + "".join(body_rows) + '</tbody></table></div></details>'
+        )
+    else:
+        links_html = (
+            '<div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 '
+            'text-sm text-slate-700">Sin links a crear.</div>'
+        )
+
+    # ---- Lista de links omitidos (muestra) ----
+    if omitidos_count:
+        items = []
+        for m in muestra:
+            motivo_key = m.get("motivo", "")
+            motivo_badge = _MOTIVO_BADGE.get(
+                motivo_key,
+                (motivo_key or "—", "bg-slate-100 text-slate-700"),
+            )
+            pred_cod = m.get("predecesor_codigo") or f"UID {m.get('predecesor_uid', '?')}"
+            suc_uid  = m.get("sucesor_uid", "?")
+            items.append(
+                "<li class='flex items-center gap-2 py-1 border-t border-slate-100 first:border-0'>"
+                f"<span class='font-mono text-[11px] text-slate-600'>{_esc(str(pred_cod))}</span>"
+                f"<span class='text-slate-400'>→</span>"
+                f"<span class='font-mono text-[11px] text-slate-600'>UID {_esc(str(suc_uid))}</span>"
+                f"{_badge(motivo_badge[0], motivo_badge[1])}"
+                "</li>"
+            )
+        mas = (
+            f'<span class="text-[11px] text-slate-500 italic">'
+            f'+{omitidos_count - len(muestra)} omitidos más (no mostrados)</span>'
+            if omitidos_count > len(muestra) else ""
+        )
+        open_attr = "open" if omitidos_count <= 5 else ""
+        omitidos_html = (
+            '<details class="rounded-lg border border-rose-200 bg-white" '
+            f'{open_attr}>'
+            '<summary class="cursor-pointer px-3 py-2 text-sm font-semibold '
+            'text-rose-900 bg-rose-50 border-b border-rose-200 '
+            'flex items-center gap-2">'
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            'd="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 '
+            '5.636m12.728 12.728L5.636 5.636"/></svg>'
+            f'Links omitidos ({omitidos_count}) — muestra de {len(muestra)}</summary>'
+            '<ul class="px-3 py-1 text-sm">' + "".join(items) + mas + '</ul>'
+            '</details>'
+        )
+    else:
+        omitidos_html = (
+            '<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 '
+            'text-sm text-emerald-800 flex items-center gap-2">'
+            '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            'd="M5 13l4 4L19 7"/></svg>'
+            'Ningún link omitido. Todos los pares predecesor/sucesor se encontraron.'
+            '</div>'
+        )
+
+    # ---- Ensamblaje final ----
+    return (
+        '<div class="space-y-3" id="import-report">'
+        + banner
+        + kpis_html
+        + (f'<div class="mt-2">{extras_html}</div>' if extras_html else "")
+        + (f'<div class="mt-1">{errores_html}</div>' if errores_html else "")
+        + f'<div class="mt-1">{tareas_html}</div>'
+        + f'<div>{links_html}</div>'
+        + f'<div>{omitidos_html}</div>'
+        + '</div>'
     )
