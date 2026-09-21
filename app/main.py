@@ -1948,8 +1948,13 @@ async def vista_gantt_page(
                 "prioridad_color": PRIORIDAD_COLOR.get(
                     t.prioridad.value if t.prioridad else "media", "#94a3b8"
                 ),
-                "fecha_inicio": t.fecha_inicio.strftime("%Y-%m-%d"),
-                "fecha_fin": t.fecha_vencimiento_sla.strftime("%Y-%m-%d"),
+                # === Keys consumidas por app/templates/vistas/gantt.html ===
+                # Antes: 'fecha_inicio'/'fecha_fin' → el JS nunca encontraba
+                # las fechas y las barras no se renderizaban.
+                "inicio": t.fecha_inicio.strftime("%Y-%m-%d"),
+                "fin": t.fecha_vencimiento_sla.strftime("%Y-%m-%d"),
+                "sla_cumplido": t.sla_cumplido,   # 1=cumplido, 0=vencido, -1=pendiente
+                "archivado": bool(t.archivado),
                 "progreso": 0,
                 "hu": t.hu_o_caso_prueba,
             })

@@ -28,13 +28,21 @@
 <style>
   .gantt-wrap { overflow-x: auto; overflow-y: visible; background: #fff;
                 border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-  .gantt-grid line.day-minor { stroke: #f1f5f9; stroke-width: 1; }
-  .gantt-grid line.week      { stroke: #e2e8f0; stroke-width: 1; }
-  .gantt-grid line.month     { stroke: #cbd5e1; stroke-width: 1.5; }
+  .gantt-grid line.day-minor { stroke: #e2e8f0; stroke-width: 1; }
+  .gantt-grid line.week      { stroke: #cbd5e1; stroke-width: 1; }
+  .gantt-grid line.month     { stroke: #94a3b8; stroke-width: 1.5; }
   .gantt-grid line.today     { stroke: #ef4444; stroke-width: 2; stroke-dasharray: 4 2; }
-  .gantt-grid text.weekday   { fill: #94a3b8; font-size: 10px; font-family: monospace; }
-  .gantt-grid text.month     { fill: #475569; font-size: 11px; font-weight: 600; }
-  .gantt-grid text.day-num   { fill: #cbd5e1; font-size: 9px; font-family: monospace; }
+  .gantt-grid text.month     { fill: #1e293b; font-size: 11px; font-weight: 700;
+                                font-family: 'Inter', system-ui, sans-serif; }
+  /* day-num mucho más oscuro (#475569 vs #cbd5e1 anterior) para que
+     se lea sin esfuerzo sobre fondo blanco. */
+  .gantt-grid text.day-num   { fill: #475569; font-size: 10px; font-weight: 600;
+                                font-family: 'Inter', system-ui, sans-serif; }
+  /* Banda horizontal que actúa como header de la grilla (zona reservada
+     para mes/día). Si no, los textos del header se mezclan con la primera
+     fila del Gantt. */
+  .gantt-grid-bg             { fill: #f8fafc; }
+  .gantt-header-divider      { stroke: #cbd5e1; stroke-width: 1; }
   .gantt-bar { fill: #6366f1; fill-opacity: .9; cursor: pointer;
                transition: fill-opacity .15s ease; }
   .gantt-bar:hover { fill-opacity: 1; stroke: #4338ca; stroke-width: 2; }
@@ -125,7 +133,7 @@
       <p class="text-xs">Asigna <code>fecha_inicio</code> y <code>fecha_vencimiento_sla</code> a los tickets desde su detalle para que aparezcan aquí.</p>
     </div>
     {% else %}
-    <svg id="gantt-svg" width="100%" height="540" data-zoom="{{ zoom|default('week') }}">
+    <svg id="gantt-svg" width="100%" height="400" data-zoom="{{ zoom|default('week') }}">
       <defs>
         <marker id="arrow-head" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
           <path d="M0,0 L6,3 L0,6 z" fill="#475569"/>
@@ -304,7 +312,10 @@ const ZOOM_DEFAULT = document.getElementById('gantt-svg')?.dataset.zoom || 'week
 const CELL_WIDTH = { day: 32, week: 12, month: 4 };  // px por día
 const ROW_HEIGHT = 36;
 const BAR_HEIGHT = 22;
-const LEFT_PANEL = 220;
+const LEFT_PANEL = 240;
+// Reservamos una banda superior para mes/día para que NUNCA se
+// superpongan con la primera fila del Gantt.
+const HEADER_HEIGHT = 40;
 
 let currentZoom = ZOOM_DEFAULT;
 let viewportStart = null;
@@ -342,6 +353,13 @@ function fmtISODate(d) {
   return d.toISOString().slice(0, 10);
 }
 
+// Helper: devuelve el total de pixels verticales que debe medir el SVG
+// considerando filas + una zona de header.
+function svgTotalHeight() {
+  const rows = Math.max(TICKETS.length, 1);
+  return HEADER_HEIGHT + rows * ROW_HEIGHT + 12;
+}
+
 // ============================================================
 // Render principal
 // ============================================================
@@ -352,11 +370,18 @@ function render() {
   const range = computeRange();
   const totalDays = daysBetween(range.start, range.end);
   const totalW = LEFT_PANEL + totalDays * cellW;
-  svg.setAttribute('width', totalW);
+  const totalH = svgTotalHeight();
+  svg.setAttribute('width',  totalW);
+  svg.setAttribute('height', totalH);
+  svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
 
-  // ---- Grid (líneas verticales y etiquetas de tiempo) ----
+  // ---- Banda de fondo del header (no más superposiciones) ----
   const grid = document.getElementById('gantt-grid');
   grid.innerHTML = '';
+  grid.innerHTML += `<rect class="gantt-grid-bg" x="0" y="0" width="${totalW}" height="${HEADER_HEIGHT}"/>`;
+  grid.innerHTML += `<line class="gantt-header-divider" x1="0" y1="${HEADER_HEIGHT}" x2="${totalW}" y2="${HEADER_HEIGHT}"/>`;
+
+  // ---- Grid (líneas verticales y etiquetas de tiempo) ----
   for (let i = 0; i <= totalDays; i++) {
     const d = addDays(range.start, i);
     const x = LEFT_PANEL + i * cellW;
@@ -367,26 +392,35 @@ function render() {
     if (isToday) cls = 'today';
     else if (isMonth) cls = 'month';
     else if (isWeek) cls = 'week';
-    grid.innerHTML += `<line class="${cls}" x1="${x}" y1="0" x2="${x}" y2="540"/>`;
+    // Las líneas verticales arrancan DESPUÉS del header (HEADER_HEIGHT).
+    grid.innerHTML += `<line class="${cls}" x1="${x}" y1="${HEADER_HEIGHT}" x2="${x}" y2="${totalH}"/>`;
     if (isMonth) {
       const mes = d.toLocaleDateString('es', { month: 'short', year: '2-digit' });
-      grid.innerHTML += `<text class="month" x="${x + 4}" y="14">${mes}</text>`;
-    } else if (currentZoom === 'day' || (currentZoom === 'week' && isWeek)) {
+      grid.innerHTML += `<text class="month" x="${x + 4}" y="16">${escapeHtml(mes)}</text>`;
+    }
+    if (currentZoom === 'day' || (currentZoom === 'week' && isWeek)) {
       const dn = d.getDate();
-      grid.innerHTML += `<text class="day-num" x="${x + 2}" y="26">${dn}</text>`;
+      grid.innerHTML += `<text class="day-num" x="${x + 2}" y="32">${dn}</text>`;
     }
   }
 
   // ---- Filas: una por ticket, con background y label ----
   const rows = document.getElementById('gantt-rows');
   rows.innerHTML = '';
-  const totalRows = TICKETS.length;
   TICKETS.forEach((t, idx) => {
-    const y = idx * ROW_HEIGHT + 30;
+    const y = idx * ROW_HEIGHT + HEADER_HEIGHT;
     rows.innerHTML += `<rect class="gantt-row-bg" x="0" y="${y}" width="${totalW}" height="${ROW_HEIGHT}"/>`;
-    rows.innerHTML += `<text x="8" y="${y + 22}" font-size="11" fill="#1e293b" font-weight="500">${t.codigo}</text>`;
-    rows.innerHTML += `<text x="80" y="${y + 22}" font-size="10" fill="#64748b">${escapeHtml(t.titulo.slice(0, 28))}</text>`;
+    rows.innerHTML += `<text x="8" y="${y + 22}" font-size="11" fill="#0f172a" font-weight="600">${escapeHtml(t.codigo)}</text>`;
+    // Título truncado a 22 caracteres para que NO se superponga con la
+    // primera línea vertical del grid (que arranca en x=LEFT_PANEL=240).
+    const tituloCorto = (t.titulo || '').length > 22
+      ? t.titulo.slice(0, 21).trimEnd() + '…'
+      : (t.titulo || '');
+    rows.innerHTML += `<text x="84" y="${y + 22}" font-size="10" fill="#475569">${escapeHtml(tituloCorto)}</text>`;
   });
+
+  // ---- Líneas verticales del panel izquierdo (separador) ----
+  rows.innerHTML += `<line x1="${LEFT_PANEL}" y1="0" x2="${LEFT_PANEL}" y2="${totalH}" stroke="#cbd5e1" stroke-width="1"/>`;
 
   // ---- Barras de tickets ----
   const bars = document.getElementById('gantt-bars');
@@ -397,16 +431,22 @@ function render() {
     const dFin = new Date(t.fin);
     const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
     const w = Math.max(8, daysBetween(dIni, dFin) * cellW);
-    const y = idx * ROW_HEIGHT + 30 + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+    const y = idx * ROW_HEIGHT + HEADER_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
     let cls = 'gantt-bar';
     if (t.sla_cumplido === 0) cls += ' is-overdue';
     else if (t.archivado)     cls += ' is-done';
+    // Triple handler: single click, doble click y botón derecho.
+    // Pasamos el código por atributo (seguro: HTML escape en el render).
+    const codigoSafe = encodeURIComponent(t.codigo || '');
     bars.innerHTML += `<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${BAR_HEIGHT}" rx="3"
                        data-ticket-id="${t.id}"
-                       data-ticket-codigo="${t.codigo}"
-                       onclick="abrirDetalle(${t.id})"/>`;
+                       data-ticket-codigo="${codigoSafe}"
+                       onclick="abrirDetalle(${t.id})"
+                       ondblclick="abrirDetalle(${t.id})"
+                       oncontextmenu="abrirMenuGantt(event, ${t.id}, '${codigoSafe}'); return false;"
+                       style="cursor: pointer;"/>`;
     if (w > 60) {
-      bars.innerHTML += `<text class="gantt-bar-label" x="${x + 6}" y="${y + 15}">${t.codigo}</text>`;
+      bars.innerHTML += `<text class="gantt-bar-label" x="${x + 6}" y="${y + 15}">${escapeHtml(t.codigo)}</text>`;
     }
   });
 
@@ -419,8 +459,8 @@ function render() {
     if (!tP || !tS || !tP.inicio || !tP.fin || !tS.inicio || !tS.fin) return;
     const idxP = TICKETS.indexOf(tP);
     const idxS = TICKETS.indexOf(tS);
-    const yP = idxP * ROW_HEIGHT + 30 + ROW_HEIGHT / 2;
-    const yS = idxS * ROW_HEIGHT + 30 + ROW_HEIGHT / 2;
+    const yP = idxP * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
+    const yS = idxS * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
     let x1, x2;
     if (l.tipo === 'fs') { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.fin)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.inicio)) * cellW; }
     else if (l.tipo === 'ss') { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.inicio)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.inicio)) * cellW; }
@@ -435,10 +475,136 @@ function render() {
 // Modal de detalle (reusa el endpoint existente)
 // ============================================================
 function abrirDetalle(ticketId) {
+  if (!ticketId) return;
   const modal = document.getElementById('modal-root');
+  if (!modal) {
+    console.error('No se encontró #modal-root en el DOM');
+    return;
+  }
   modal.innerHTML = '<div class="p-8 text-center text-slate-500">Cargando…</div>';
-  modal.showModal();
-  htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, { target: '#modal-root', swap: 'innerHTML' });
+  if (typeof modal.showModal === 'function') {
+    modal.showModal();
+  } else {
+    modal.setAttribute('open', '');
+  }
+  if (window.htmx && typeof htmx.ajax === 'function') {
+    htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`,
+              { target: '#modal-root', swap: 'innerHTML' });
+  } else {
+    // Fallback si HTMX no estuviera cargado: fetch + innerHTML.
+    fetch(`/api/v1/tickets/${ticketId}/detalle-html`, {
+      headers: { 'HX-Request': 'true' },
+      credentials: 'same-origin',
+    })
+      .then(r => r.text())
+      .then(html => { modal.innerHTML = html; })
+      .catch(err => {
+        modal.innerHTML = `<div class="p-6 text-rose-700 text-sm">
+          Error al cargar el detalle: ${err.message}</div>`;
+      });
+  }
+}
+
+// ============================================================
+// Menú contextual (clic derecho sobre una barra)
+// ============================================================
+function cerrarMenuGantt() {
+  const m = document.getElementById('gantt-context-menu');
+  if (m) m.remove();
+  document.removeEventListener('keydown', _menuEscListener, true);
+}
+
+let _menuEscListener = (ev) => { if (ev.key === 'Escape') cerrarMenuGantt(); };
+
+function abrirMenuGantt(ev, ticketId, codigoEnc) {
+  if (ev) ev.preventDefault();
+  cerrarMenuGantt();
+  const codigo = (() => { try { return decodeURIComponent(codigoEnc); } catch (e) { return codigoEnc; } })();
+  const menu = document.createElement('div');
+  menu.id = 'gantt-context-menu';
+  // Tailwind utility classes via class attribute. Fixed pos en viewport.
+  menu.className = 'fixed bg-white border border-slate-200 rounded-lg shadow-xl z-[1000] py-1 text-sm min-w-[200px]';
+  menu.style.left = ev.clientX + 'px';
+  menu.style.top  = ev.clientY + 'px';
+  // Safe-encoding en atributos para evitar XSS por títulos/códigos malformados.
+  const codigoAttr = escapeAttr(codigo);
+  menu.innerHTML = `
+    <div class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+      Ticket ${codigoAttr}
+    </div>
+    <button type="button" data-act="detalle"
+            class="block w-full text-left px-3 py-1.5 hover:bg-slate-100 text-slate-700">
+      👁️ Ver detalle
+    </button>
+    <button type="button" data-act="fechas"
+            class="block w-full text-left px-3 py-1.5 hover:bg-slate-100 text-slate-700">
+      📅 Editar fechas (abre detalle)
+    </button>
+    <div class="border-t border-slate-100 my-1"></div>
+    <button type="button" data-act="copiar"
+            class="block w-full text-left px-3 py-1.5 hover:bg-slate-100 text-slate-700">
+      📋 Copiar código
+    </button>
+    <button type="button" data-act="kanban"
+            class="block w-full text-left px-3 py-1.5 hover:bg-slate-100 text-slate-700">
+      📌 Ir al tablero Kanban
+    </button>
+  `;
+  document.body.appendChild(menu);
+
+  // Click-outside para cerrar.
+  setTimeout(() => {
+    document.addEventListener('click', function _once(ev2) {
+      if (menu.contains(ev2.target)) return;
+      cerrarMenuGantt();
+      document.removeEventListener('click', _once);
+    });
+  }, 0);
+
+  // Acciones
+  menu.querySelector('[data-act="detalle"]').addEventListener('click', () => {
+    cerrarMenuGantt();
+    abrirDetalle(ticketId);
+  });
+  menu.querySelector('[data-act="fechas"]').addEventListener('click', () => {
+    cerrarMenuGantt();
+    abrirDetalle(ticketId);
+    // Intenta enfocar el tab/programar fechas tras el swap
+    setTimeout(() => {
+      const inp = document.querySelector('#modal-root input[name="valor_fecha_inicio"]');
+      if (inp) inp.focus();
+    }, 600);
+  });
+  menu.querySelector('[data-act="copiar"]').addEventListener('click', async (ev2) => {
+    ev2.preventDefault();
+    cerrarMenuGantt();
+    try {
+      await navigator.clipboard.writeText(codigo);
+      _toastGantt(`Código ${codigoAttr} copiado al portapapeles`, 'ok');
+    } catch (e) {
+      _toastGantt('No se pudo copiar al portapapeles', 'err');
+    }
+  });
+  menu.querySelector('[data-act="kanban"]').addEventListener('click', () => {
+    cerrarMenuGantt();
+    window.location.href = '/kanban';
+  });
+
+  // Esc para cerrar
+  document.addEventListener('keydown', _menuEscListener, true);
+}
+
+// Toast ligero (reusa estilo de Tailwind sin agregar CSS nuevo)
+function _toastGantt(msg, kind) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-[1100] px-3 py-1.5 rounded text-xs font-medium shadow-lg '
+    + (kind === 'err'
+        ? 'bg-rose-600 text-white'
+        : 'bg-slate-800 text-white');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .25s'; }, 1600);
+  setTimeout(() => { t.remove(); }, 2000);
 }
 
 // ============================================================
@@ -447,6 +613,9 @@ function abrirDetalle(ticketId) {
 function escapeHtml(s) {
   if (!s) return '';
   return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(s) {
+  return escapeHtml(String(s == null ? '' : s));
 }
 
 // ============================================================
@@ -469,9 +638,25 @@ document.querySelectorAll('.zoom-btn').forEach(btn => {
 // Recargar Gantt tras crear dependencia
 document.body.addEventListener('reload-gantt', () => location.reload());
 
+// Cierre del modal genérico con ESC (delegación)
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    const m = document.getElementById('modal-root');
+    if (m && m.open) m.close();
+    cerrarMenuGantt();
+  }
+});
+
 // Inicial
 if (document.getElementById('gantt-svg')) {
   render();
 }
+
+// Re-render al cambiar el tamaño de la ventana (responsive)
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(render, 150);
+});
 </script>
 {% endblock %}
