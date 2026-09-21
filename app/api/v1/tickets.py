@@ -656,7 +656,9 @@ async def guardar_ticket_campos(
 
     # Mapear los campos enviados a un dict {campo: valor}
     CAMPOS_ACEPTADOS = {
-        "titulo", "descripcion", "prioridad", "asignado_id", "fecha_vencimiento",
+        "titulo", "descripcion", "prioridad", "asignado_id",
+        # === Campos de scheduling (Gantt): ambos aceptados ===
+        "fecha_inicio", "fecha_vencimiento",
         # === Campos extendidos del módulo de Incidencias ===
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
         "ambiente", "item",
@@ -711,6 +713,7 @@ async def guardar_ticket_campos(
             "descripcion": "descripcion_editada",
             "prioridad": "prioridad_cambiada",
             "asignado_id": "asignacion",
+            "fecha_inicio": "inicio_cambiado",
             "fecha_vencimiento": "vencimiento_cambiado",
             # === Campos extendidos del módulo de Incidencias ===
             "modulo": "modulo_editado",
