@@ -158,8 +158,30 @@ DETALLE_TEMPLATE = Template(r"""
               </select>
             </div>
 
+            {# Fecha de inicio (Gantt) editable #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+                Fecha de inicio
+                <span class="group relative inline-flex">
+                  <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                    Inicio planificado del trabajo. Combinado con la fecha de vencimiento
+                    forma la barra del ticket en el
+                    <strong class="text-amber-300">Gantt</strong>. Si la dejas vacía, el
+                    ticket no aparecerá en el Gantt aunque tenga fecha de vencimiento.
+                  </span>
+                </span>
+              </span>
+              <input type="date" name="valor_fecha_inicio"
+                     value="{{ ticket.fecha_inicio.strftime('%Y-%m-%d') if ticket.fecha_inicio else '' }}"
+                     onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                     class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+            </div>
+
             {# Fecha de vencimiento editable con glosa SLA #}
-            <div class="col-span-2">
+            <div>
               <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
                 Fecha de vencimiento (SLA)
                 <span class="group relative inline-flex">

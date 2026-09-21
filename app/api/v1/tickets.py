@@ -483,6 +483,7 @@ async def actualizar_ticket_campo(
             "descripcion": ["valor_descripcion", "descripcion"],
             "prioridad": ["valor_prioridad", "prioridad"],
             "asignado_id": ["valor_asignado_id", "asignado_id"],
+            "fecha_inicio": ["valor_fecha_inicio", "fecha_inicio"],
             "fecha_vencimiento": ["valor_fecha_vencimiento", "fecha_vencimiento"],
         }
         for alias in aliases.get(campo, []):
@@ -520,6 +521,7 @@ async def actualizar_ticket_campo(
         "descripcion": "descripcion_editada",
         "prioridad": "prioridad_cambiada",
         "asignado_id": "asignacion",
+        "fecha_inicio": "inicio_cambiado",
         "fecha_vencimiento": "vencimiento_cambiado",
     }
     registrar_auditoria(

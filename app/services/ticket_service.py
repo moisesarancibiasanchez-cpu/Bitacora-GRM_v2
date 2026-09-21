@@ -566,7 +566,9 @@ class TicketService:
     # ----------------------------------------------------------------------
     CAMPOS_EDITABLES = {
         "titulo", "descripcion", "prioridad", "asignado_id",
-        "fecha_vencimiento", "catalogo_tipo_id", "datos_catalogo",
+        # === Scheduling (Gantt): ambos campos editables desde el modal ===
+        "fecha_inicio", "fecha_vencimiento",
+        "catalogo_tipo_id", "datos_catalogo",
         # === Campos extendidos del módulo de Incidencias (LOVs) ===
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
         "ambiente", "item",
@@ -626,6 +628,8 @@ class TicketService:
             # Calcular valor anterior legible
             if campo == "prioridad":
                 anterior_raw = ticket.prioridad.value if hasattr(ticket.prioridad, "value") else ticket.prioridad
+            elif campo == "fecha_inicio":
+                anterior_raw = ticket.fecha_inicio.isoformat() if ticket.fecha_inicio else None
             elif campo == "fecha_vencimiento":
                 anterior_raw = ticket.fecha_vencimiento_sla.isoformat() if ticket.fecha_vencimiento_sla else None
             elif campo == "asignado_id":
@@ -643,6 +647,38 @@ class TicketService:
                     if str(anterior_raw) == str(nuevo_legible):
                         continue  # sin cambio, no auditar
                     ticket.prioridad = nuevo_valor_enum
+                elif campo == "fecha_inicio":
+                    if valor in (None, "", "null"):
+                        if anterior_raw is None:
+                            continue  # ya estaba vacío
+                        ticket.fecha_inicio = None
+                        nuevo_legible = None
+                    else:
+                        try:
+                            v = str(valor).strip()
+                            if "T" in v or (" " in v and ":" in v):
+                                nuevo_dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                            else:
+                                # Para fecha_inicio usamos 00:00 (inicio del día)
+                                nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
+                            if nuevo_dt.tzinfo is not None:
+                                nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                            # Coherencia: no permitir inicio > vencimiento actual
+                            if (ticket.fecha_vencimiento_sla and
+                                    nuevo_dt.date() > ticket.fecha_vencimiento_sla.date()):
+                                errores.append(
+                                    f"fecha_inicio ({v}) no puede ser posterior a "
+                                    f"fecha_vencimiento_sla "
+                                    f"({ticket.fecha_vencimiento_sla.date().isoformat()})"
+                                )
+                                continue
+                            if ticket.fecha_inicio and ticket.fecha_inicio == nuevo_dt:
+                                continue  # sin cambio
+                            ticket.fecha_inicio = nuevo_dt
+                            nuevo_legible = nuevo_dt.isoformat()
+                        except (ValueError, TypeError):
+                            errores.append(f"Fecha inválida: {valor}")
+                            continue
                 elif campo == "fecha_vencimiento":
                     if valor in (None, "", "null"):
                         if anterior_raw is None:
@@ -659,6 +695,14 @@ class TicketService:
                                 nuevo_dt = nuevo_dt.replace(hour=23, minute=59)
                             if nuevo_dt.tzinfo is not None:
                                 nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                            # Coherencia: no permitir vencimiento < inicio actual
+                            if (ticket.fecha_inicio and
+                                    nuevo_dt.date() < ticket.fecha_inicio.date()):
+                                errores.append(
+                                    f"fecha_vencimiento ({v}) no puede ser anterior a "
+                                    f"fecha_inicio ({ticket.fecha_inicio.date().isoformat()})"
+                                )
+                                continue
                             if ticket.fecha_vencimiento_sla and ticket.fecha_vencimiento_sla == nuevo_dt:
                                 continue  # sin cambio
                             ticket.fecha_vencimiento_sla = nuevo_dt
@@ -768,6 +812,8 @@ class TicketService:
         # Calcular valor anterior legible
         if campo == "prioridad":
             anterior_raw = ticket.prioridad.value if hasattr(ticket.prioridad, "value") else ticket.prioridad
+        elif campo == "fecha_inicio":
+            anterior_raw = ticket.fecha_inicio.isoformat() if ticket.fecha_inicio else None
         elif campo == "fecha_vencimiento":
             anterior_raw = ticket.fecha_vencimiento_sla.isoformat() if ticket.fecha_vencimiento_sla else None
         elif campo == "asignado_id":
@@ -782,6 +828,34 @@ class TicketService:
                 nuevo_valor_enum = Prioridad(valor)
                 ticket.prioridad = nuevo_valor_enum
                 nuevo_legible = nuevo_valor_enum.value
+            elif campo == "fecha_inicio":
+                if valor in (None, "", "null"):
+                    ticket.fecha_inicio = None
+                    nuevo_legible = None
+                else:
+                    try:
+                        # Aceptar 'YYYY-MM-DD' o ISO con hora
+                        v = str(valor).strip()
+                        if "T" in v or " " in v and ":" in v:
+                            nuevo_dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                        else:
+                            # Para fecha_inicio usamos 00:00 (inicio del día)
+                            nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
+                        # Convertir a naive UTC si tiene tzinfo
+                        if nuevo_dt.tzinfo is not None:
+                            nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                        # Coherencia: no permitir inicio > vencimiento actual
+                        if (ticket.fecha_vencimiento_sla and
+                                nuevo_dt.date() > ticket.fecha_vencimiento_sla.date()):
+                            return ticket, None, None, (
+                                f"fecha_inicio ({v}) no puede ser posterior a "
+                                f"fecha_vencimiento_sla "
+                                f"({ticket.fecha_vencimiento_sla.date().isoformat()})"
+                            )
+                        ticket.fecha_inicio = nuevo_dt
+                        nuevo_legible = nuevo_dt.isoformat()
+                    except (ValueError, TypeError) as exc:
+                        return ticket, None, None, f"Fecha inválida: {valor}"
             elif campo == "fecha_vencimiento":
                 if valor in (None, "", "null"):
                     ticket.fecha_vencimiento_sla = None
@@ -798,6 +872,13 @@ class TicketService:
                         # Convertir a naive UTC si tiene tzinfo
                         if nuevo_dt.tzinfo is not None:
                             nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                        # Coherencia: no permitir vencimiento < inicio actual
+                        if (ticket.fecha_inicio and
+                                nuevo_dt.date() < ticket.fecha_inicio.date()):
+                            return ticket, None, None, (
+                                f"fecha_vencimiento ({v}) no puede ser anterior a "
+                                f"fecha_inicio ({ticket.fecha_inicio.date().isoformat()})"
+                            )
                         ticket.fecha_vencimiento_sla = nuevo_dt
                         nuevo_legible = nuevo_dt.isoformat()
                     except (ValueError, TypeError) as exc:

@@ -256,6 +256,12 @@ class TicketUpdate(BaseModel):
     prioridad: Optional[str] = None
     asignado_id: Optional[int] = None
     datos_catalogo: Optional[Dict[str, Any]] = None
+    # === Campos de scheduling (Gantt) ===
+    # Aceptan ISO 'YYYY-MM-DD' o ISO con hora. Si se envían ambos, fecha_inicio
+    # debe ser <= fecha_vencimiento_sla; la validación de coherencia se hace
+    # en el servicio (``TicketService.actualizar_campos``).
+    fecha_inicio: Optional[datetime] = None
+    fecha_vencimiento_sla: Optional[datetime] = None
     # === Campos extendidos del módulo de Incidencias ===
     modulo: Optional[str] = Field(default=None, max_length=80)
     ambiente: Optional[str] = Field(default=None, max_length=40)
