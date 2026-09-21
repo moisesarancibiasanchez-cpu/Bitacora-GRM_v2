@@ -23,6 +23,10 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  {# Bloque para que las páginas hijas inyecten CSS adicional sin
+     tener que duplicar el <head>. Necesario para que el scroll del
+     Planner (y de cualquier vista con CSS propio) se renderice. #}
+  {% block extra_css %}{% endblock %}
 </head>
 <body class="h-full bg-slate-50 font-sans text-slate-800">
   <header class="bg-white border-b border-slate-200 shadow-sm">
@@ -421,5 +425,7 @@
       });
     })();
   </script>
+  {# Bloque para que las páginas hijas inyecten JS adicional. #}
+  {% block extra_js %}{% endblock %}
 </body>
 </html>
