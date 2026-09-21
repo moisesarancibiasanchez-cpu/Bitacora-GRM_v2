@@ -23,12 +23,26 @@
 
 {% block extra_css %}
 <style>
-  /* ===== Contenedor con scroll vertical ===== */
+  /* ===== Contenedor con scroll vertical =====
+     El layout es flex-column: header (toolbar) y stats crecen a su altura
+     natural, planner-content toma el resto y aplica overflow-y: auto.
+     El truco está en `min-height: 0` para que un hijo flex pueda
+     encogerse por debajo de su contenido y disparar la barra de scroll. */
+  .planner-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
   .planner-scroll {
-    max-height: calc(100vh - 240px);
+    /* Ocupa todo el espacio vertical sobrante bajo el toolbar+stats */
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-right: 4px;
+    padding-right: 6px;
+    /* Fallback cuando el padre NO es flex: scroll en viewport */
+    max-height: calc(100vh - 280px);
     /* Scroll suave */
     scroll-behavior: smooth;
   }
@@ -38,6 +52,16 @@
     background: #cbd5e1; border-radius: 4px;
   }
   .planner-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* Cada sección del Planner (tabla o grilla) puede hacer su propio
+     scroll interno cuando el conjunto de filas es muy grande, sin
+     esperar a que el contenedor padre se llene. Limita la altura máxima
+     por sección y permite scroll vertical + sticky thead por sección. */
+  .planner-section-scroll {
+    max-height: 360px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
 
   /* ===== Tarjeta/sección ===== */
   .planner-section {
@@ -161,10 +185,10 @@
 {% endblock %}
 
 {% block content %}
-<div class="px-4 py-3 max-w-[1400px] mx-auto">
+<div class="planner-wrap px-4 py-3 max-w-[1400px] mx-auto">
 
   {# ============ Toolbar ============ #}
-  <header class="flex flex-wrap items-center gap-3 mb-4">
+  <header class="flex flex-wrap items-center gap-3 mb-4 shrink-0">
     <div class="flex items-center gap-2">
       <h1 class="text-xl font-bold text-slate-800">🗓️ Planner (Deadline view)</h1>
       <span class="text-xs text-slate-500">({{ total }} tickets con deadline)</span>
@@ -202,7 +226,7 @@
   </header>
 
   {# ============ Stats rápidas ============ #}
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs shrink-0">
     <div class="bg-white rounded-lg p-3 shadow-sm">
       <div class="text-2xl font-bold text-red-600">{{ stats.vencidos }}</div>
       <div class="text-slate-500">Vencidos</div>
@@ -221,7 +245,15 @@
     </div>
   </div>
 
-  {# ============ Contenido (HTMX swap target) con SCROLL VERTICAL ============ #}
+  {# ============ Contenido (HTMX swap target) con SCROLL VERTICAL ============
+     - Wrapper flex-column (.planner-wrap) hace que el bloque tome la altura
+       del <main> padre y reparte el espacio sobrante al #planner-content.
+     - #planner-content usa `flex: 1 1 0; min-height: 0; overflow-y: auto` y
+       muestra un único scroll vertical que recorre TODAS las secciones
+       (vencidos/hoy/mañana/semana/mes/sin_fecha) con sticky thead.
+     - Fallback: cada sección también puede hacer su propio scroll si el
+       conjunto de filas de esa sección es muy grande (clase
+       .planner-section-scroll aplicada opcionalmente). #}
   <div id="planner-content" class="planner-scroll">
     {% include "vistas/_planner_sections.html" %}
   </div>

@@ -16,55 +16,61 @@
     <span class="planner-section-count">{{ tickets|length }} {{ 'ticket' if tickets|length == 1 else 'tickets' }}</span>
   </header>
   {% if tickets %}
-  <table class="planner-table">
-    <thead>
-      <tr>
-        <th style="width:8%">Código</th>
-        <th style="width:32%">Título</th>
-        <th style="width:14%">Estado</th>
-        <th style="width:14%">Asignado</th>
-        <th style="width:14%">Módulo</th>
-        <th style="width:6%" title="Prioridad">Pri.</th>
-        <th style="width:12%" class="planner-cell-due">Vence</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in tickets %}
-      <tr class="{{ row_class }}" data-ticket-id="{{ t.id }}" data-ticket-codigo="{{ t.codigo }}">
-        <td><span class="planner-cell-code">{{ t.codigo }}</span></td>
-        <td><div class="planner-cell-title" title="{{ t.titulo }}">{{ t.titulo[:80] }}</div></td>
-        <td>
-          {% if t.estado_nombre %}
-          <span class="planner-cell-meta">📌 {{ t.estado_nombre }}</span>
-          {% else %}
-          <span class="planner-cell-meta text-slate-400">—</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if t.asignado_nombre %}
-          <span class="planner-cell-meta">👤 {{ t.asignado_nombre }}</span>
-          {% else %}
-          <span class="planner-cell-meta text-slate-400">Sin asignar</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if t.modulo %}
-          <span class="planner-cell-meta">📁 {{ t.modulo }}</span>
-          {% else %}
-          <span class="planner-cell-meta text-slate-400">—</span>
-          {% endif %}
-        </td>
-        <td>
-          <span class="planner-prio-dot" style="background:{{ t.prioridad_color|default('#94a3b8') }}"
-                title="{{ (t.prioridad or 'media')|capitalize }}"></span>
-        </td>
-        <td class="planner-cell-due">
-          <span class="planner-due-badge {{ row_class }}">{{ t.due_label }}</span>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {# Wrapper de scroll por sección: si el grupo tiene MUCHAS filas, hace
+     su propio scroll vertical sin esperar a que el contenedor padre
+     (.planner-scroll) se llene. La cabecera de la tabla (thead) sigue
+     siendo sticky al tope de CADA sección, no del contenedor global. #}
+  <div class="planner-section-scroll">
+    <table class="planner-table">
+      <thead>
+        <tr>
+          <th style="width:8%">Código</th>
+          <th style="width:32%">Título</th>
+          <th style="width:14%">Estado</th>
+          <th style="width:14%">Asignado</th>
+          <th style="width:14%">Módulo</th>
+          <th style="width:6%" title="Prioridad">Pri.</th>
+          <th style="width:12%" class="planner-cell-due">Vence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr class="{{ row_class }}" data-ticket-id="{{ t.id }}" data-ticket-codigo="{{ t.codigo }}">
+          <td><span class="planner-cell-code">{{ t.codigo }}</span></td>
+          <td><div class="planner-cell-title" title="{{ t.titulo }}">{{ t.titulo[:80] }}</div></td>
+          <td>
+            {% if t.estado_nombre %}
+            <span class="planner-cell-meta">📌 {{ t.estado_nombre }}</span>
+            {% else %}
+            <span class="planner-cell-meta text-slate-400">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if t.asignado_nombre %}
+            <span class="planner-cell-meta">👤 {{ t.asignado_nombre }}</span>
+            {% else %}
+            <span class="planner-cell-meta text-slate-400">Sin asignar</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if t.modulo %}
+            <span class="planner-cell-meta">📁 {{ t.modulo }}</span>
+            {% else %}
+            <span class="planner-cell-meta text-slate-400">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="planner-prio-dot" style="background:{{ t.prioridad_color|default('#94a3b8') }}"
+                  title="{{ (t.prioridad or 'media')|capitalize }}"></span>
+          </td>
+          <td class="planner-cell-due">
+            <span class="planner-due-badge {{ row_class }}">{{ t.due_label }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 </section>
 {% endmacro %}

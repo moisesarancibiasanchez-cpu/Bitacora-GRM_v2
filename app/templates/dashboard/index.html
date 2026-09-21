@@ -164,29 +164,15 @@
         </div>
       </div>
 
-      <!-- ===== FILA 2 — DISTRIBUCIÓN POR ESTADO + ACTIVIDAD DIARIA ===== -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-        <!-- Distribución por estado -->
+      <!-- ===== FILA 2 — DISTRIBUCIÓN POR ESTADO ===== -->
+      <div class="grid grid-cols-1 gap-4 mb-5">
+        <!-- Distribución por estado (única columna; "Actividad diaria" se eliminó) -->
         <div class="bg-white border border-slate-200 rounded-xl p-4">
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-semibold text-slate-700">Distribución por estado</h3>
             <span class="text-[10px] uppercase tracking-wide text-slate-400">incidencias activas</span>
           </div>
           <div id="dist-estado-container" class="space-y-2"></div>
-        </div>
-
-        <div class="bg-white border border-slate-200 rounded-xl p-4">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-slate-700">Actividad diaria</h3>
-            <div class="flex items-center gap-3 text-[11px]">
-              <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-sm bg-indigo-500"></span>Levantadas</span>
-              <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-sm bg-emerald-500"></span>Cerradas</span>
-              <span class="inline-flex items-center gap-1"><span class="inline-block w-2.5 h-0.5 bg-amber-500"></span>Media 7d</span>
-            </div>
-          </div>
-          <div id="chart-activity-wrap" class="h-40">
-            <svg id="chart-activity" viewBox="0 0 600 180" preserveAspectRatio="none" class="w-full h-full"></svg>
-          </div>
         </div>
       </div>
 
@@ -586,14 +572,11 @@
     drawSpark('spark-sla', d.sparklines.sla || d.actividad_por_dia.map(() => d.sla.porcentaje_cumplimiento || 0), '#10b981');
     drawSpark('spark-backlog', d.sparklines.backlog || d.actividad_por_dia.map(() => d.incidencias.backlog_7d || 0), '#f59e0b');
 
-    // === Fila 2: Chart actividad ===
-    // (El card "Distribución por estado" ahora vive en la columna izquierda
-    //  de Fila 2 y se renderiza más abajo en el bloque "Distribución por
-    //  estado". El campo d.funnel puede seguir llegando del backend pero
-    //  ya no se consume — ver /dashboard-completo.)
-    drawActivityChart(d.actividad_por_dia || []);
-
-    // === Fila 2 / columna izquierda: Distribución por estado ===
+    // === Fila 2: Distribución por estado ===
+    // (La card "Actividad diaria" fue eliminada del layout. La función
+    //  drawActivityChart() y su llamada se retiraron. El campo
+    //  d.actividad_por_dia puede seguir llegando del backend pero ya no
+    //  se consume en este template — ver /dashboard-completo.)
     const ec = safeId('dist-estado-container');
     if (ec) {
       if (!d.distribucion_estado || d.distribucion_estado.length === 0) {
@@ -664,62 +647,6 @@
     renderTopAgentes(d.top_agentes || []);
     const periodoLabel = safeId('top-agentes-periodo');
     if (periodoLabel) periodoLabel.textContent = (d.periodo_dias || 30) + 'd';
-  }
-
-  // ============== CHART ACTIVIDAD ==============
-  function drawActivityChart(serie) {
-    const svg = safeId('chart-activity');
-    if (!svg) return;
-    if (!serie || serie.length === 0) {
-      svg.parentElement.innerHTML = '<div class="text-slate-400 text-sm h-full flex items-center justify-center">Sin actividad en el periodo</div>';
-      return;
-    }
-    const W = 600, H = 180, padding = { t: 16, r: 16, b: 24, l: 32 };
-    const max = Math.max.apply(null, serie.map(s => Math.max(s.levantadas || 0, s.cerradas || 0))) || 1;
-    const innerW = W - padding.l - padding.r;
-    const innerH = H - padding.t - padding.b;
-    const slot = innerW / serie.length;
-    const barW = Math.max(2, slot * 0.35);
-
-    // grid Y
-    let grid = '';
-    for (let i = 0; i <= 4; i++) {
-      const y = padding.t + (innerH) * (i / 4);
-      const val = Math.round(max * (1 - i / 4));
-      grid += '<line x1="' + padding.l + '" x2="' + (W - padding.r) + '" y1="' + y + '" y2="' + y + '" stroke="#e2e8f0" stroke-width="1"' + (i === 0 ? '' : ' stroke-dasharray="3 3"') + '/>';
-      grid += '<text x="' + (padding.l - 5) + '" y="' + (y + 3) + '" text-anchor="end" font-size="10" fill="#94a3b8">' + val + '</text>';
-    }
-
-    // barras
-    let bars = '';
-    let xLabels = '';
-    let media7 = [];
-    for (let i = 0; i < serie.length; i++) {
-      const ini = Math.max(0, i - 6);
-      const slice = serie.slice(ini, i + 1).map(s => s.cerradas || 0);
-      media7.push(slice.reduce((a, b) => a + b, 0) / slice.length);
-    }
-    serie.forEach((s, i) => {
-      const x = padding.l + slot * i + slot / 2;
-      const hL = ((s.levantadas || 0) / max) * innerH;
-      const hC = ((s.cerradas || 0) / max) * innerH;
-      bars += '<rect x="' + (x - barW) + '" y="' + (padding.t + innerH - hL) + '" width="' + barW + '" height="' + hL + '" fill="#4f46e5" rx="1"><title>' + s.fecha + ': ' + s.levantadas + ' levantadas</title></rect>';
-      bars += '<rect x="' + x + '" y="' + (padding.t + innerH - hC) + '" width="' + barW + '" height="' + hC + '" fill="#10b981" rx="1"><title>' + s.fecha + ': ' + s.cerradas + ' cerradas</title></rect>';
-      // Etiquetas en 1°, mitad y último
-      if (i === 0 || i === Math.floor(serie.length / 2) || i === serie.length - 1) {
-        xLabels += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9" fill="#94a3b8">' + (s.fecha || '').slice(5) + '</text>';
-      }
-    });
-
-    // línea media móvil 7d
-    const pointsM = media7.map((v, i) => {
-      const x = padding.l + slot * i + slot / 2;
-      const y = padding.t + innerH - (v / max) * innerH;
-      return x.toFixed(1) + ',' + y.toFixed(1);
-    }).join(' ');
-    const mediaLine = '<polyline points="' + pointsM + '" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="4 2" opacity="0.85"/>';
-
-    svg.innerHTML = grid + bars + mediaLine + xLabels;
   }
 
   // ============== RIESGO ==============
@@ -1049,6 +976,210 @@
     const a = document.createElement('a');
     a.href = url;
     a.download = 'cuenta_resultado_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ===================================================================
+  // LISTA DE INCIDENCIAS RECIENTES
+  // Alimenta la card entre "Cuenta de Resultado" y "Top agentes".
+  //   - Endpoint: GET /api/v1/metricas/incidencias-recientes
+  //   - Columnas: Código | Título | Estado | Prioridad | Asignado |
+  //               Fecha Vencimiento | SLA Activo
+  //   - Métricas asociadas (7 KPI en franja superior) leen del mismo
+  //     response.metricas para evitar una segunda request.
+  //   - Exportación a CSV a partir del último response cacheado.
+  // ===================================================================
+  let _incidenciasRecientesCache = null;
+
+  // Helpers locales de formato -------------------------------------------------
+  function _fmtNum(n) {
+    if (n === null || n === undefined || isNaN(Number(n))) return '—';
+    return Number(n).toLocaleString('es-CL');
+  }
+  function _fmtPct(n) {
+    if (n === null || n === undefined || isNaN(Number(n))) return '—';
+    return Number(n).toFixed(1) + '%';
+  }
+  function _fmtHrs(n) {
+    if (n === null || n === undefined || isNaN(Number(n))) return '—';
+    return Number(n).toFixed(1);
+  }
+  function _escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  function _fmtFechaSla(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '—';
+      return d.toLocaleString('es-CL', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    } catch (e) { return '—'; }
+  }
+  function _prBadge(prio) {
+    const p = (prio || '').toLowerCase();
+    const colorMap = {
+      critica: { bg: '#fee2e2', fg: '#991b1b', dot: '#dc2626', label: 'Crítica' },
+      alta:    { bg: '#ffedd5', fg: '#9a3412', dot: '#ea580c', label: 'Alta'    },
+      media:   { bg: '#fef3c7', fg: '#92400e', dot: '#eab308', label: 'Media'   },
+      baja:    { bg: '#f1f5f9', fg: '#475569', dot: '#64748b', label: 'Baja'    },
+    };
+    const c = colorMap[p] || { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8', label: prio || '—' };
+    return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"'
+         + ' style="background:' + c.bg + '; color:' + c.fg + ';" title="Prioridad ' + _escapeHtml(c.label) + '">'
+         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + c.dot + '"></span>'
+         + _escapeHtml(c.label)
+         + '</span>';
+  }
+  function _slaBadge(label) {
+    const l = (label || 'N/A').toUpperCase();
+    const map = {
+      'VENCIDO':   { bg: '#fee2e2', fg: '#991b1b', border: '#fecaca' },
+      'HOY':       { bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+      'EN RIESGO': { bg: '#ffedd5', fg: '#9a3412', border: '#fed7aa' },
+      'EN TIEMPO': { bg: '#dcfce7', fg: '#166534', border: '#bbf7d0' },
+      'N/A':       { bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' },
+    };
+    const c = map[l] || map['N/A'];
+    return '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border"'
+         + ' style="background:' + c.bg + '; color:' + c.fg + '; border-color:' + c.border + ';">'
+         + _escapeHtml(l)
+         + '</span>';
+  }
+  function _estadoBadge(e) {
+    if (!e || !e.nombre) return '<span class="text-slate-400 text-[11px]">—</span>';
+    const bg = (e.color || '#94a3b8') + '22';
+    return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"'
+         + ' style="background:' + bg + '; color:' + (e.color || '#475569') + ';">'
+         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + (e.color || '#94a3b8') + '"></span>'
+         + _escapeHtml(e.nombre)
+         + '</span>';
+  }
+
+  async function cargarIncidenciasRecientes() {
+    const cont    = safeId('incidencias-recientes-wrap');
+    const loading = safeId('incidencias-recientes-loading');
+    const table   = safeId('incidencias-recientes-table');
+    const tbody   = safeId('incidencias-recientes-tbody');
+    const badge   = safeId('incidencias-recientes-periodo');
+    if (!cont || !table || !tbody) return;
+
+    const tipoSel = safeId('incidencias-recientes-tipo');
+    const tipo    = (tipoSel && tipoSel.value) ? tipoSel.value : 'incidencia';
+    const periodo = (safeId('periodo') || { value: '30' }).value;
+
+    // Mostrar loading sin perder la tabla (sólo overlay visual)
+    if (loading) loading.classList.remove('hidden');
+    table.classList.add('opacity-50');
+
+    try {
+      const r = await fetch(
+        '/api/v1/metricas/incidencias-recientes'
+        + '?periodo_dias=' + encodeURIComponent(periodo)
+        + '&tipo=' + encodeURIComponent(tipo)
+        + '&limite=50',
+        { headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) } }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      _incidenciasRecientesCache = data;
+
+      // === Pintar métricas asociadas ===
+      const m = data.metricas || {};
+      Object.keys(m).forEach(k => {
+        const el = document.querySelector('[data-metric="' + k + '"]');
+        if (!el) return;
+        if (k.indexOf('porcentaje_') === 0) el.textContent = _fmtPct(m[k]);
+        else if (k === 'tiempo_promedio_resolucion_horas') el.textContent = _fmtHrs(m[k]);
+        else if (k === 'promedio_edad_horas') el.textContent = _fmtHrs(m[k]);
+        else el.textContent = _fmtNum(m[k]);
+      });
+      if (badge) badge.textContent = (data.periodo_dias || periodo) + 'd · ' + (data.tickets || []).length + ' tickets';
+
+      // === Pintar tabla ===
+      const tickets = data.tickets || [];
+      if (!tickets.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400 text-xs">'
+          + 'Sin incidencias en el periodo seleccionado para los filtros aplicados.</td></tr>';
+        table.classList.remove('opacity-50');
+        if (loading) loading.classList.add('hidden');
+        return;
+      }
+      tbody.innerHTML = tickets.map(t => {
+        const codigo   = t.codigo || '';
+        const titulo   = t.titulo || '';
+        const estado   = _estadoBadge(t.estado || {});
+        const prioridad = _prBadge(t.prioridad);
+        const asignado = t.asignado && (t.asignado.nombre || t.asignado.nombre_completo)
+          ? '<div class="flex items-center gap-1.5">'
+            + '<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-bold">'
+            + _escapeHtml(((t.asignado.nombre || t.asignado.nombre_completo || '?').split(' ').map(s => s[0] || '').slice(0, 2).join('').toUpperCase()))
+            + '</span>'
+            + '<span class="truncate max-w-[140px]" title="' + _escapeHtml(t.asignado.nombre || t.asignado.nombre_completo) + '">'
+            + _escapeHtml(t.asignado.nombre || t.asignado.nombre_completo) + '</span></div>'
+          : '<span class="text-slate-400 text-[11px]">— Sin asignar —</span>';
+        const fv = _fmtFechaSla(t.fecha_vencimiento_sla);
+        const sla = _slaBadge(t.sla_cumplido_label);
+        return '<tr class="hover:bg-slate-50 cursor-pointer"'
+             + ' data-ticket-id="' + (t.id || '') + '"'
+             + ' data-ticket-codigo="' + _escapeHtml(codigo) + '"'
+             + ' onclick="window.location.href=\'/tickets/' + (t.id || '') + '\'">'
+          + '<td class="px-3 py-2 font-mono text-indigo-700 font-semibold whitespace-nowrap">' + _escapeHtml(codigo) + '</td>'
+          + '<td class="px-3 py-2 text-slate-700 max-w-[280px]"><div class="truncate" title="' + _escapeHtml(titulo) + '">' + _escapeHtml(titulo) + '</div></td>'
+          + '<td class="px-3 py-2 whitespace-nowrap">' + estado + '</td>'
+          + '<td class="px-3 py-2 whitespace-nowrap">' + prioridad + '</td>'
+          + '<td class="px-3 py-2">' + asignado + '</td>'
+          + '<td class="px-3 py-2 text-slate-600 whitespace-nowrap font-mono text-[11px]">' + fv + '</td>'
+          + '<td class="px-3 py-2 whitespace-nowrap">' + sla + '</td>'
+          + '</tr>';
+      }).join('');
+
+      table.classList.remove('opacity-50');
+      if (loading) loading.classList.add('hidden');
+    } catch (err) {
+      if (loading) loading.classList.add('hidden');
+      table.classList.remove('opacity-50');
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500 text-xs">'
+        + 'Error al cargar la lista: ' + _escapeHtml(err.message || String(err)) + '</td></tr>';
+      throw err;
+    }
+  }
+
+  function exportarIncidenciasRecientes() {
+    if (!_incidenciasRecientesCache) {
+      alert('No hay datos cargados para exportar. Espera unos segundos o cambia el filtro para recargar.');
+      return;
+    }
+    const data = _incidenciasRecientesCache;
+    const headers = ['Código', 'Título', 'Estado', 'Prioridad', 'Asignado', 'Fecha Vencimiento', 'SLA Activo', 'Horas Restantes', 'Módulo'];
+    const tickets = data.tickets || [];
+    const rows = tickets.map(t => [
+      t.codigo || '',
+      t.titulo || '',
+      (t.estado && t.estado.nombre) || '',
+      t.prioridad || '',
+      (t.asignado && (t.asignado.nombre || t.asignado.nombre_completo)) || '',
+      t.fecha_vencimiento_sla || '',
+      t.sla_cumplido_label || 'N/A',
+      t.horas_restantes === null || t.horas_restantes === undefined ? '' : String(t.horas_restantes),
+      t.modulo || '',
+    ]);
+    const csvRows = [headers, ...rows]
+      .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+    const csv = '\uFEFF' + csvRows.join('\n'); // BOM para Excel
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'incidencias_recientes_' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
