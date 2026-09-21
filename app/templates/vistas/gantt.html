@@ -481,26 +481,59 @@ function abrirDetalle(ticketId) {
     console.error('No se encontró #modal-root en el DOM');
     return;
   }
-  modal.innerHTML = '<div class="p-8 text-center text-slate-500">Cargando…</div>';
-  if (typeof modal.showModal === 'function') {
-    modal.showModal();
-  } else {
-    modal.setAttribute('open', '');
-  }
+  // Loading state con overlay visible: #modal-root es un <div class="contents">
+  // (no un <dialog>), por lo que NO usamos showModal() — el HTML cargado
+  // ya trae sus propias clases fixed/inset-0/z-[70] que lo hacen visible
+  // (mismo patrón que app/static/js/kanban.js).
+  modal.innerHTML =
+    '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30">' +
+      '<div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3">' +
+        '<div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>' +
+        '<span class="text-sm text-slate-600">Cargando detalle...</span>' +
+      '</div>' +
+    '</div>';
   if (window.htmx && typeof htmx.ajax === 'function') {
     htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`,
               { target: '#modal-root', swap: 'innerHTML' });
   } else {
-    // Fallback si HTMX no estuviera cargado: fetch + innerHTML.
+    // Fallback si HTMX no estuviera cargado. OJO: en modo demo el backend
+    // exige X-User-Id (configurado globalmente por base.html para HTMX,
+    // pero NO se añade automáticamente en fetch plano) — lo añadimos aquí.
     fetch(`/api/v1/tickets/${ticketId}/detalle-html`, {
-      headers: { 'HX-Request': 'true' },
+      headers: {
+        'X-User-Id': String(window.CURRENT_USER_ID || 1),
+        'HX-Request': 'true',
+        'Accept': 'text/html',
+      },
       credentials: 'same-origin',
     })
-      .then(r => r.text())
-      .then(html => { modal.innerHTML = html; })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(html => {
+        modal.innerHTML = html;
+        // Procesar atributos hx-* del HTML recién insertado y re-bind
+        // extras del modal (dropzone, markdown, listeners de cierre).
+        if (window.htmx && typeof htmx.process === 'function') {
+          try { htmx.process(modal); } catch (_) {}
+        }
+        if (typeof window.reinitModalExtras === 'function') {
+          try { window.reinitModalExtras(); } catch (_) {}
+        }
+      })
       .catch(err => {
-        modal.innerHTML = `<div class="p-6 text-rose-700 text-sm">
-          Error al cargar el detalle: ${err.message}</div>`;
+        modal.innerHTML =
+          '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">' +
+            '<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">' +
+              '<h3 class="text-lg font-semibold text-red-700 mb-2">Error</h3>' +
+              '<p class="text-sm text-slate-600 mb-4">' +
+                'No se pudo cargar el detalle del ticket: ' +
+                escapeHtml(err.message) +
+              '</p>' +
+              '<button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>' +
+            '</div>' +
+          '</div>';
       });
   }
 }
