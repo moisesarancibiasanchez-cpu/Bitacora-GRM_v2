@@ -349,10 +349,74 @@ def importar_xml(
             errores.append(f"No se pudo obtener estado por defecto: {e}")
             crear_nuevos = False
 
+    # FEATURE: parsing enriquecido (módulo temático + códigos HU individuales)
+    # Las siguientes dos líneas usan los campos ``hu_codes`` y ``modulo`` que
+    # el parser (``MSProjectXMLParser._parse_tareas``) añade cuando
+    # importa tareas desde un XML de MS Project. El objetivo es poder
+    # crear UN TICKET POR CÓDIGO DE HU para que el Gantt pueda filtrar
+    # por módulo (ej. ``Mejoras Transversales``) o por código individual
+    # (ej. ``MT_25``).
+    _NIVELES_IGNORADOS = {0, 1, 2}  # root/phases: sólo agrupadores
+
+    tareas_conocidas = 0
+    mapa_uid_a_ticket = {}    # uid_xml → primer Ticket representante (links)
+    mapa_uid_a_tickets = {}   # uid_xml → lista de TODOS los tickets del UID
+    tareas_a_crear = []       # preview (cuando dry_run=True)
+    tickets_creados = 0       # ejecuciones reales (cuando dry_run=False)
+    fechas_actualizadas = 0
+    errores: List[str] = []   # acumulado a nivel tarea/persistencia
+    crear_nuevos = bool(payload.crear_tickets_faltantes and not payload.dry_run)
+    default_estado_id = None
+    if crear_nuevos:
+        try:
+            default_estado_id = _ensure_default_estado(db)
+        except Exception as e:
+            errores.append(f"No se pudo obtener estado por defecto: {e}")
+            crear_nuevos = False
+
+    def _modulo_a_setear(t: Ticket, modulo: str) -> bool:
+        """True si ``modulo`` debe asignarse al ticket ``t``.
+
+        Respeta ediciones manuales: si el ticket ya tiene un modulo
+        DISTINTO, NO lo pisamos. Si coincide o está vacío, sí.
+        """
+        if not modulo:
+            return False
+        actual = (t.modulo or "").strip()
+        return not actual or actual == modulo
+
+    def _hu_a_setear(t: Ticket, hu_code: str) -> bool:
+        """True si ``hu_code`` debe asignarse a ``t.hu_o_caso_prueba``.
+
+        Respeta ediciones manuales: si ya tiene un valor NO vacío,
+        NO lo pisamos.
+        """
+        if not hu_code:
+            return False
+        actual = (t.hu_o_caso_prueba or "").strip()
+        return not actual or actual == hu_code
+
     for tarea in data["tareas"]:
-        t = _match_ticket(tarea)
+        outline_lvl = int(tarea.get("outline_level", 1) or 1)
+        uid = tarea["uid"]
+        # Ignorar root (0/1) y phases (2): no generan tickets.
+        if outline_lvl in _NIVELES_IGNORADOS:
+            continue
+        hu_codes: List[str] = list(tarea.get("hu_codes") or [])
+        modulo: str = (tarea.get("modulo") or "").strip()
+        wbs = (tarea.get("wbs") or "").strip()
+        name = (tarea.get("name") or "Tarea importada").strip()
+
+        # Para matching: si la tarea tiene UN solo código HU, lo usamos
+        # como clave preferente. Si trae varios o ninguno, usamos WBS/name.
+        match_key = hu_codes[0] if len(hu_codes) == 1 else (wbs or name)
+        tarea_para_match = dict(tarea)
+        tarea_para_match["wbs"] = match_key
+
+        t = _match_ticket(tarea_para_match)
         if t:
-            mapa_uid_a_ticket[tarea["uid"]] = t
+            mapa_uid_a_ticket[uid] = t
+            mapa_uid_a_tickets[uid] = [t]
             tareas_conocidas += 1
             # Completar fechas si está habilitado y faltan en el ticket.
             if payload.actualizar_fechas and not payload.dry_run:
@@ -364,60 +428,85 @@ def importar_xml(
                 if fin_dt and not t.fecha_vencimiento_sla:
                     t.fecha_vencimiento_sla = fin_dt
                     fechas_actualizadas += 1
+            # Enriquecer ``modulo`` y ``hu_o_caso_prueba`` si están vacíos
+            # y respetamos ediciones manuales (no pisamos valores no vacíos).
+            if _modulo_a_setear(t, modulo):
+                t.modulo = modulo
+            if hu_codes and _hu_a_setear(t, hu_codes[0]):
+                t.hu_o_caso_prueba = hu_codes[0]
             continue
 
         # No matcheó: previsualizar o crear.
         if not crear_nuevos:
-            # En modo preview, dejamos que `links_omitidos` reporte el
-            # problema a nivel de links.
             tareas_a_crear.append({
                 "uid": tarea["uid"],
                 "name": tarea["name"],
                 "wbs": tarea["wbs"],
+                "hu_codes": hu_codes,
+                "modulo": modulo,
                 "start": tarea["start"],
                 "finish": tarea["finish"],
                 "duration_hours": tarea["duration_hours"],
             })
             continue
 
-        # (B) Crear ticket nuevo.
-        wbs = (tarea.get("wbs") or "").strip()
-        name = (tarea.get("name") or "Tarea importada").strip()
-        uid = tarea["uid"]
-        codigo = f"MP_{uid}"
-        # Salvaguardas: si ya existe un ticket con ese código (poco probable
-        # porque ya falló el match), lo saltamos y dejamos que se reporte
-        # como omitido en links.
-        existing = db.query(Ticket).filter(Ticket.codigo == codigo).first()
-        if existing:
-            mapa_uid_a_ticket[uid] = existing
-            continue
-        nuevo = Ticket(
-            codigo=codigo,
-            titulo=name[:200],
-            descripcion=(
+        # (B) Crear tickets nuevos.
+        # Si la tarea trae N códigos HU, creamos N tickets (uno por código)
+        # para que cada uno tenga su propio ``hu_o_caso_prueba`` y pueda
+        # filtrarse individualmente en el Gantt.
+        # Si NO trae códigos, creamos UN ticket con ``hu_o_caso_prueba = wbs``.
+        if hu_codes:
+            codigos_a_crear = [(f"MP_{uid}_{code}", code) for code in hu_codes]
+        else:
+            codigos_a_crear = [(f"MP_{uid}", wbs or None)]
+
+        tickets_creados_para_uid: List[Ticket] = []
+        for codigo, hu_code in codigos_a_crear:
+            existing = db.query(Ticket).filter(Ticket.codigo == codigo).first()
+            if existing:
+                tickets_creados_para_uid.append(existing)
+                continue
+            titulo = (
+                f"{name[:150]} [{hu_code}]" if hu_code else name[:200]
+            )
+            descripcion = (
                 f"Ticket creado automáticamente al importar XML MS Project.\n"
                 f"UID: {uid}\nWBS: {wbs}\nDuración (h): "
-                f"{tarea.get('duration_hours')}"
-            ),
-            estado_id=default_estado_id,
-            creador_id=usuario.id,
-            hu_o_caso_prueba=wbs or None,
-            archivado=False,
-            fecha_inicio=_parse_msp_date(tarea.get("start")),
-            fecha_vencimiento_sla=_parse_msp_date(tarea.get("finish")),
-        )
-        db.add(nuevo)
-        try:
-            db.flush()  # para obtener el ID
-        except Exception as e:
-            db.rollback()
-            errores.append(f"No se pudo crear ticket para UID={uid}: {e}")
-            continue
-        # Lo añadimos al índice para que el match de los links funcione.
-        tickets.append(nuevo)
-        mapa_uid_a_ticket[uid] = nuevo
-        tickets_creados += 1
+                f"{tarea.get('duration_hours')}\n"
+                f"hu_codes: {', '.join(hu_codes) if hu_codes else '(ninguno)'}\n"
+                f"Origen paquete: {name[:200]}"
+            )
+            nuevo = Ticket(
+                codigo=codigo,
+                titulo=titulo[:200],
+                descripcion=descripcion,
+                estado_id=default_estado_id,
+                creador_id=usuario.id,
+                hu_o_caso_prueba=hu_code,
+                modulo=(modulo or None),
+                archivado=False,
+                fecha_inicio=_parse_msp_date(tarea.get("start")),
+                fecha_vencimiento_sla=_parse_msp_date(tarea.get("finish")),
+            )
+            db.add(nuevo)
+            try:
+                db.flush()  # para obtener el ID
+            except Exception as e:
+                db.rollback()
+                errores.append(
+                    f"No se pudo crear ticket para UID={uid} (code={hu_code}): {e}"
+                )
+                continue
+            tickets.append(nuevo)
+            tickets_creados += 1
+            tickets_creados_para_uid.append(nuevo)
+
+        # Mapa UID → primer ticket representante (para links). Si la
+        # tarea trae múltiples HUs, sólo el primero es representante;
+        # los demás quedan accesibles vía ``mapa_uid_a_tickets``.
+        if tickets_creados_para_uid:
+            mapa_uid_a_ticket[uid] = tickets_creados_para_uid[0]
+            mapa_uid_a_tickets[uid] = tickets_creados_para_uid
 
     # Persistir los cambios de fechas y tickets nuevos (un solo commit).
     if (fechas_actualizadas or tickets_creados) and not payload.dry_run:
@@ -708,10 +797,23 @@ def _render_importar_xml_html(
         rows = []
         # Cabecera sticky dentro de un contenedor scrollable
         body_rows = []
+        # Acumulamos la distribución por módulo para mostrar un mini-resumen
+        # justo encima de la tabla (mejora UX: el usuario ve de un vistazo
+        # qué módulos temáticos se crean).
+        from collections import Counter as _Counter
+        modulo_counter: "dict[str, int]" = _Counter()
+        total_hu_codes = 0
+        for t in tareas_a_crear:
+            mod_t = (t.get("modulo") or "").strip()
+            if mod_t:
+                modulo_counter[mod_t] += 1
+            total_hu_codes += len(t.get("hu_codes") or [])
         for t in tareas_a_crear:
             uid   = t.get("uid", "—")
             name  = t.get("name", "")
             wbs   = t.get("wbs", "—")
+            modulo_t = (t.get("modulo") or "").strip()
+            hu_codes_t = list(t.get("hu_codes") or [])
             inicio = (t.get("start") or "")[:10]
             fin    = (t.get("finish") or "")[:10]
             dur    = t.get("duration_hours", "")
@@ -720,20 +822,78 @@ def _render_importar_xml_html(
                     dur = f"{float(dur):.0f} h"
                 except (TypeError, ValueError):
                     dur = str(dur)
+            # Módulo + códigos como badges
+            modulo_badge = (
+                f'<span class="inline-block bg-indigo-100 text-indigo-800 '
+                f'px-1.5 py-0.5 rounded text-[10px] font-medium">{_esc(modulo_t)}</span>'
+                if modulo_t else
+                '<span class="inline-block bg-slate-100 text-slate-500 '
+                'px-1.5 py-0.5 rounded text-[10px]">sin módulo</span>'
+            )
+            hu_badges = ""
+            for code in hu_codes_t[:6]:  # cap para no romper layout
+                hu_badges += (
+                    f'<span class="inline-block bg-emerald-100 text-emerald-800 '
+                    f'px-1.5 py-0.5 rounded text-[10px] font-mono ml-1">{_esc(code)}</span>'
+                )
+            if len(hu_codes_t) > 6:
+                hu_badges += (
+                    f'<span class="inline-block text-[10px] text-slate-500 ml-1">'
+                    f'+{len(hu_codes_t) - 6} más</span>'
+                )
+            if hu_codes_t:
+                tickets_split = (
+                    f'<span class="text-[10px] text-amber-700 ml-1">'
+                    f'→ {len(hu_codes_t)} ticket(s)</span>'
+                )
+            else:
+                tickets_split = (
+                    f'<span class="text-[10px] text-slate-400 ml-1">'
+                    f'→ 1 ticket</span>'
+                )
             body_rows.append(
                 "<tr class='border-t border-slate-100'>"
                 f"<td class='px-2 py-1 text-slate-500 text-[11px]'>{_esc(str(uid))}</td>"
                 f"<td class='px-2 py-1 font-mono text-[11px] text-slate-600'>{_esc(str(wbs))}</td>"
-                f"<td class='px-2 py-1 text-xs'>{_esc(name)}</td>"
+                f"<td class='px-2 py-1 text-xs'>{_esc(name)}"
+                f"<div class='mt-0.5'>{modulo_badge}{hu_badges}{tickets_split}</div>"
+                f"</td>"
                 f"<td class='px-2 py-1 text-[11px] text-slate-600 whitespace-nowrap'>{_esc(inicio)}</td>"
                 f"<td class='px-2 py-1 text-[11px] text-slate-600 whitespace-nowrap'>{_esc(fin)}</td>"
                 f"<td class='px-2 py-1 text-[11px] text-slate-600 text-right'>{_esc(str(dur))}</td>"
                 "</tr>"
             )
+        # Mini-resumen por módulo (arriba de la tabla)
+        if modulo_counter:
+            chips = []
+            for mod_name, cnt in sorted(
+                modulo_counter.items(), key=lambda kv: (-kv[1], kv[0])
+            ):
+                chips.append(
+                    f'<span class="inline-flex items-center gap-1 bg-indigo-50 '
+                    f'border border-indigo-200 px-2 py-0.5 rounded-full text-[11px] '
+                    f'text-indigo-800">'
+                    f'<b>{cnt}</b>&nbsp;{_esc(mod_name)}'
+                    f'</span>'
+                )
+            chips_html = (
+                '<div class="flex flex-wrap gap-1 px-3 pt-2">'
+                + "".join(chips)
+                + '</div>'
+            )
+        else:
+            chips_html = ""
         # Si hay más de 30, colapsamos por defecto y ponemos scroll interno.
         total_t = len(tareas_a_crear)
         open_attr = "open" if total_t <= 5 else ""
         max_h = "max-h-72" if total_t > 30 else ""
+        resumen_t = (
+            f'Se crearán <b class="text-amber-900">{total_t}</b> paquete(s) '
+            f'expandido(s) a <b class="text-amber-900">'
+            f'{sum(modulo_counter.values()) + total_t}</b> tickets aprox.'
+            if total_hu_codes else
+            f'Se crearán <b class="text-amber-900">{total_t}</b> ticket(s).'
+        )
         tareas_html = (
             '<details class="rounded-lg border border-amber-200 bg-white" '
             f'{open_attr}>'
@@ -745,8 +905,10 @@ def _render_importar_xml_html(
             'd="M12 4v16m8-8H4"/></svg>'
             f'Tareas a crear ({total_t})'
             '<span class="ml-auto text-[11px] font-normal text-amber-700">'
-            'Crea los tickets faltantes si activas esa opción</span>'
+            + _esc(resumen_t) +
+            '</span>'
             '</summary>'
+            + chips_html +
             '<div class="overflow-x-auto ' + max_h + ' overflow-y-auto">'
             '<table class="min-w-full text-sm">'
             '<thead class="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide '
@@ -754,7 +916,7 @@ def _render_importar_xml_html(
             '<tr>'
             '<th class="px-2 py-1 text-left">UID</th>'
             '<th class="px-2 py-1 text-left">WBS</th>'
-            '<th class="px-2 py-1 text-left">Nombre</th>'
+            '<th class="px-2 py-1 text-left">Nombre / módulo / HU</th>'
             '<th class="px-2 py-1 text-left">Inicio</th>'
             '<th class="px-2 py-1 text-left">Fin</th>'
             '<th class="px-2 py-1 text-right">Duración</th>'

@@ -301,6 +301,60 @@ class MSProjectXMLParser:
                 meta[campo.lower()] = el.text
         return meta
 
+    # ---- Helpers para extraer códigos de HU/caso del nombre de la tarea ----
+    # Patrones admitidos (estilo Bitácora GRM):
+    #   - Rango:        "RI_63-67"       -> RI_63, RI_64, RI_65, RI_66, RI_67
+    #   - Sub-variante: "RI_49 (RI_49.1)" -> RI_49, RI_49.1
+    #   - Simple:       "MT_25", "IN_5.3"
+    @staticmethod
+    def _extraer_codigos_hu(name: str) -> List[str]:
+        """Devuelve la lista de códigos individuales presentes en ``name``.
+
+        Aplica tres pasadas en orden:
+            1. Rangos explícitos (PREFIX_N-M).
+            2. Sub-variantes entre paréntesis (PREFIX_X.Y).
+            3. Códigos sueltos restantes.
+        Devuelve los códigos deduplicados preservando el orden de aparición.
+        """
+        import re as _re
+        if not name:
+            return []
+        text = _re.sub(r"\s+", " ", name.replace("SC_ ", "SC_")).strip()
+        codes: List[str] = []
+        # 1) Rangos explícitos
+        for m in _re.finditer(r"\b([A-Z]{1,3})_(\d{1,3})-(\d{1,3})\b", text):
+            prefix, start, end = m.group(1), int(m.group(2)), int(m.group(3))
+            for n in range(start, end + 1):
+                codes.append(f"{prefix}_{n}")
+        # 2) Sub-variantes entre paréntesis: (RI_49.1) -> RI_49.1
+        for m in _re.finditer(r"\(([A-Z]{1,3}_[\d.]+)\)", text):
+            codes.append(m.group(1))
+        # 3) Códigos sueltos (sobre el texto SIN los rangos ya consumidos)
+        text_sin_rangos = _re.sub(r"\b([A-Z]{1,3})_\d{1,3}-\d{1,3}\b", "", text)
+        for m in _re.finditer(
+            r"\b([A-Z]{1,3})_(\d{1,3})(?:\.(\d{1,3}))?\b", text_sin_rangos
+        ):
+            prefix = m.group(1)
+            a = m.group(2)
+            b = m.group(3)
+            codes.append(f"{prefix}_{a}" + (f".{b}" if b else ""))
+        # Dedup preservando orden
+        seen = set()
+        unique: List[str] = []
+        for c in codes:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        return unique
+
+    @staticmethod
+    def _parent_wbs(wbs: str) -> str:
+        """Devuelve el WBS padre (sin la última pieza). Ej: '5.1.3' -> '5.1'."""
+        if not wbs:
+            return ""
+        partes = [p for p in wbs.split(".") if p]
+        return ".".join(partes[:-1]) if len(partes) > 1 else ""
+
     def _parse_tareas(self) -> List[dict]:
         """Lee todos los nodos ``<Task>`` y extrae los datos relevantes.
 
@@ -308,11 +362,32 @@ class MSProjectXMLParser:
         agrupan un conjunto de tareas hijas. Las incluimos en el listado
         para que el importador pueda decidir si crear tickets también
         para los resúmenes o solo para las hojas (OutlineLevel>=2).
+
+        Adicionalmente, para cada tarea agregamos:
+          - ``modulo``:  nombre de la tarea PADRE o ABUELA según el nivel
+            de outline (categoría temática). Sirve para etiquetar cada
+            ticket con su módulo (ej: ``Mejoras Transversales``, ``Registro
+            de Información``) y poder filtrar en el Gantt.
+          - ``hu_codes``:  lista de códigos individuales (HU o caso de
+            prueba) extraídos del nombre mediante regex tolerante.
+
+        Nota sobre el ``outline_level``: el campo ``<WBS>`` del XML puede
+        NO codificar la jerarquía de forma consistente (ej: ``WBS="14"``
+        para un task de nivel 4 sin punto en el WBS). Para resolver el
+        nombre del padre correctamente hacemos un seguimiento de la pila
+        de outline levels en orden de documento.
         """
+        import re as _re
         tareas = []
         contenedor = self._root.find(f"{self.NS}Tasks")
         if contenedor is None:
             return tareas
+
+        # Stack por outline_level: stack[L] = name del task vigente en nivel L.
+        # Esto resuelve el problema de "WBS=14" sin punto (su padre es el
+        # task vigente al outline_level anterior en orden de documento).
+        stack_nombres: Dict[int, str] = {0: ""}
+
         for t in contenedor.findall(f"{self.NS}Task"):
             uid = (t.findtext(f"{self.NS}UID") or "").strip()
             if not uid:
@@ -328,10 +403,52 @@ class MSProjectXMLParser:
                 outline_int = int(outline)
             except ValueError:
                 outline_int = 1
+            wbs = (t.findtext(f"{self.NS}WBS") or "").strip()
+            name = (t.findtext(f"{self.NS}Name") or "").strip()
+
+            # Resolución del módulo (categoría temática) con la pila:
+            #   - Nivel 1 (root): modulo=""
+            #   - Nivel 2 (phase): modulo = nombre del padre (root)
+            #   - Nivel 3 (grupo temático): modulo = nombre del padre (phase)
+            #   - Nivel >=4 (paquete/hoja):
+            #       modulo = nombre del nivel 3 (grupo temático) si existe,
+            #                sino nombre del nivel 2 (phase).
+            # Esto etiqueta correctamente categorías como
+            # "Mejoras Transversales" o "Seguimiento y Control" para que
+            # el dropdown del Gantt filtre por módulo temático real.
+            parent_name = stack_nombres.get(outline_int - 1, "") if outline_int >= 1 else ""
+            if outline_int <= 1:
+                modulo = ""
+            elif outline_int == 2:
+                modulo = parent_name  # phase: su "módulo" es el proyecto
+            elif outline_int == 3:
+                modulo = parent_name  # grupo temático: su "módulo" es la phase
+            else:
+                # level >= 4: usamos el nivel 3 si está en la pila;
+                # sino el nivel 2 (phase).
+                modulo = (
+                    stack_nombres.get(3, "")
+                    or stack_nombres.get(2, "")
+                    or parent_name
+                )
+            # Limpiamos prefijos numéricos y mapeamos a la LOV.
+            modulo = _limpiar_nombre_modulo(modulo)
+
+            # Códigos individuales de HU / caso de prueba parseados del name.
+            hu_codes = self._extraer_codigos_hu(name)
+
+            # Actualizar pila: este task ahora es el vigente a su nivel.
+            stack_nombres[outline_int] = name
+            # Limpiar niveles más profundos (al subir/bajar el outline level
+            # siempre se "cierran" los hijos).
+            for lvl in list(stack_nombres.keys()):
+                if lvl > outline_int:
+                    stack_nombres.pop(lvl, None)
+
             tareas.append({
                 "uid": uid_int,
-                "wbs": (t.findtext(f"{self.NS}WBS") or "").strip(),
-                "name": (t.findtext(f"{self.NS}Name") or "").strip(),
+                "wbs": wbs,
+                "name": name,
                 "start": (t.findtext(f"{self.NS}Start") or "").strip(),
                 "finish": (t.findtext(f"{self.NS}Finish") or "").strip(),
                 "duration_hours": duration_hours,
@@ -346,6 +463,9 @@ class MSProjectXMLParser:
                     (r.findtext(f"{self.NS}Name") or "").strip()
                     for r in t.findall(f"{self.NS}Resource")
                 ],
+                # === NUEVO: módulo temático + códigos HU/caso individuales ===
+                "modulo": modulo.strip()[:80],
+                "hu_codes": hu_codes,
             })
         return tareas
 
@@ -469,3 +589,81 @@ def _parse_iso_duration_to_hours(duration_str: str) -> Optional[float]:
     minutos = float(match.group(3) or 0)
     segundos = float(match.group(4) or 0)
     return dias * 24 + horas + minutos / 60 + segundos / 3600
+
+
+# Mapeo tolerante entre los nombres "largos" que pone el PM en MS Project
+# y la LOV permitida por ``Ticket.modulo`` (definida en app.schemas.ticket).
+# Sólo lo aplicamos si la LOV contiene una clave explícita; si no, dejamos
+# el nombre original tal cual (también es aceptado por la LOV porque "" lo
+# es, y los valores fuera-de-LOV no rompen TicketRead).
+_LOV_MODULOS = {
+    "control erm": "Control ERM",
+    "gobierno": "Gobierno",
+    "incidencias": "Incidencias",
+    "validacion": "Validación",
+    "auditoria": "Auditoria",
+    "filiales": "Filiales",
+    "informacion inventario": "Información Inventario",
+    "registro de informacion": "Registro de Información",
+    # Variante común en archivos reales: "Registro Información" sin "de".
+    "registro informacion": "Registro de Información",
+    "documentacion": "Documentación",
+    "mejoras transversales": "Mejoras Transversales",
+    # Toleramos el typo común "trasnversales" presente en archivos reales
+    "mejoras trasnversales": "Mejoras Transversales",
+    "seguimiento y control": "Seguimiento y Control",
+}
+
+
+def _limpiar_nombre_modulo(nombre: str) -> str:
+    """Limpia un nombre de módulo para alinearlo con la LOV del campo
+    ``Ticket.modulo``.
+
+    Pasos:
+        1. Quitar prefijos numéricos tipo ``"1 Caso Gobierno OK con OBS"``
+           o ``"27 Casos Mejoras trasnversales"`` -> ``"Gobierno OK con OBS"``
+           / ``"Mejoras trasnversales"``.
+        2. Buscar el término más representativo contra ``_LOV_MODULOS`` y,
+           si hay match, devolver la versión canónica de la LOV.
+        3. Si no hay match, devolver el nombre limpio (sin prefijo).
+
+    El objetivo es que ``modulo`` sea FILTRABLE en el dropdown del Gantt
+    sin obligar al usuario a renombrar las tareas del MPP.
+    """
+    import re as _re
+    if not nombre:
+        return ""
+    # Normalización: minúsculas sin acentos para comparar contra la LOV
+    def _norm(s: str) -> str:
+        import unicodedata
+        return "".join(
+            c for c in unicodedata.normalize("NFD", s.lower())
+            if unicodedata.category(c) != "Mn"
+        )
+
+    s = nombre.strip()
+    # Quitar prefijo "<n> <palabra(s)>" inicial -- ej: "1 Caso Gobierno..." -> "Gobierno..."
+    m_pref = _re.match(r"^\d+\s+[A-Za-zÁáÉéÍíÓóÚúÑñ]+\s+(.*)$", s)
+    if m_pref:
+        candidate = m_pref.group(1).strip()
+    else:
+        candidate = s
+
+    # Si tras quitar el prefijo la cadena restante YA está en la LOV,
+    # devolver su versión canónica.
+    candidate_norm = _norm(candidate)
+    for k, v in _LOV_MODULOS.items():
+        if k in candidate_norm:
+            return v
+
+    # Si NO hay match pero la cadena ORIGINAL completa sí contiene una
+    # clave de la LOV (ej: "1 Caso Mejoras trasnversales"),
+    # igualmente devolvemos la versión canónica.
+    full_norm = _norm(s)
+    for k, v in _LOV_MODULOS.items():
+        if k in full_norm:
+            return v
+
+    # Sin match: devolvemos la versión sin prefijo "1 Caso ...", que es
+    # más útil para filtrar visualmente en el dropdown.
+    return candidate[:80] if candidate else s[:80]
