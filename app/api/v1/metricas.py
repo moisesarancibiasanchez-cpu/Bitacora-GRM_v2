@@ -861,3 +861,234 @@ def cuenta_resultado_detalle(
 </div>
 """
     return HTMLResponse(html)
+
+
+# =============================================================================
+# Incidencias Recientes — endpoint dedicado para la nueva card del dashboard.
+#
+# Devuelve una lista plana de tickets tipo INC-0XX con los campos que pide la
+# nueva sección (Código, Título, Estado, Prioridad, Asignado, Fecha Vencimiento,
+# SLA Activo) más un bloque de métricas asociadas para darle contexto al
+# usuario sin saturar el listado.
+#
+# Filtros:
+#   - periodo_dias (default 30): ventana hacia atrás desde ahora.
+#   - tipo: 'incidencia' (default) | 'resultado_pruebas' | 'todos'.
+#   - limite: 1..200 (default 50) tope duro para que el endpoint sea barato.
+# =============================================================================
+
+
+@router.get("/incidencias-recientes")
+def incidencias_recientes(
+    periodo_dias: int = 30,
+    tipo: str = "incidencia",
+    limite: int = 50,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Listado de incidencias recientes con métricas asociadas.
+
+    Pensado para alimentar la card 'Lista de Incidencias Recientes' del
+    dashboard. Devuelve tickets + métricas asociadas (totales, vencidas,
+    % SLA, % sin asignar, TTR, etc.).
+    """
+    periodo_dias = max(1, min(periodo_dias, 365))
+    limite = max(1, min(limite, 200))
+    ahora = datetime.utcnow()
+    fecha_limite = ahora - timedelta(days=periodo_dias)
+
+    # === Filtro de tipo ===
+    if tipo == "incidencia":
+        tipo_filter = Ticket.tipo == TipoIncidencia.INCIDENCIA
+    elif tipo == "resultado_pruebas":
+        tipo_filter = Ticket.tipo == TipoIncidencia.RESULTADO_PRUEBAS
+    else:  # 'todos'
+        tipo_filter = Ticket.tipo.in_([
+            TipoIncidencia.INCIDENCIA,
+            TipoIncidencia.RESULTADO_PRUEBAS,
+            TipoIncidencia.SOLICITUD,
+            TipoIncidencia.CAMBIO,
+            TipoIncidencia.PROBLEMA,
+        ])
+
+    # === Listado de tickets ===
+    q = (
+        db.query(Ticket, Estado)
+        .join(Estado, Estado.id == Ticket.estado_id)
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+        )
+        .order_by(Ticket.created_at.desc())
+        .limit(limite)
+    )
+    tickets_out = []
+    for t, est in q.all():
+        # SLA activo = ticket no completado y con fecha de vencimiento futura
+        sla_activo = (
+            t.fecha_completado is None
+            and t.fecha_vencimiento_sla is not None
+        )
+        if sla_activo and t.fecha_vencimiento_sla is not None:
+            horas_rest = (t.fecha_vencimiento_sla - ahora).total_seconds() / 3600.0
+        else:
+            horas_rest = None
+
+        if horas_rest is None:
+            sla_label = "N/A"
+        elif horas_rest < 0:
+            sla_label = "VENCIDO"
+        elif horas_rest < 24:
+            sla_label = "HOY"
+        elif horas_rest < 72:
+            sla_label = "EN RIESGO"
+        else:
+            sla_label = "EN TIEMPO"
+
+        tickets_out.append({
+            "id": t.id,
+            "codigo": t.codigo,
+            "titulo": t.titulo,
+            "estado": {
+                "id": est.id,
+                "nombre": est.nombre,
+                "color": est.color or "#94a3b8",
+                "es_final": bool(est.es_final),
+            },
+            "prioridad": t.prioridad.value if t.prioridad else "media",
+            "asignado": (
+                {"id": t.asignado.id, "nombre": t.asignado.nombre_completo}
+                if t.asignado else None
+            ),
+            "modulo": t.modulo,
+            "ambiente": t.ambiente,
+            "fecha_vencimiento_sla": (
+                t.fecha_vencimiento_sla.isoformat()
+                if t.fecha_vencimiento_sla else None
+            ),
+            "sla_activo": sla_activo,
+            "horas_restantes": (
+                round(horas_rest, 1) if horas_rest is not None else None
+            ),
+            "sla_cumplido_label": sla_label,
+            "resultado_pruebas": t.resultado_pruebas,
+            "fecha_creacion": t.created_at.isoformat() if t.created_at else None,
+        })
+
+    # === Métricas asociadas (sobre TODO el periodo, no solo el top-N) ===
+    base = (
+        db.query(Ticket)
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+        )
+    )
+    total_periodo = base.count()
+
+    criticas_o_altas = base.filter(
+        Ticket.prioridad.in_([Prioridad.CRITICA, Prioridad.ALTA])
+    ).count()
+
+    vencidas = base.filter(
+        Ticket.fecha_completado.is_(None),
+        Ticket.fecha_vencimiento_sla.isnot(None),
+        Ticket.fecha_vencimiento_sla < ahora,
+    ).count()
+
+    en_riesgo_72h = base.filter(
+        Ticket.fecha_completado.is_(None),
+        Ticket.fecha_vencimiento_sla.isnot(None),
+        Ticket.fecha_vencimiento_sla >= ahora,
+        Ticket.fecha_vencimiento_sla <= ahora + timedelta(hours=72),
+    ).count()
+
+    asignadas = base.filter(Ticket.asignado_id.isnot(None)).count()
+    sin_asignar = base.filter(Ticket.asignado_id.is_(None)).count()
+    con_resultado = base.filter(
+        Ticket.resultado_pruebas.isnot(None),
+        func.trim(Ticket.resultado_pruebas) != "",
+    ).count()
+
+    edad_rows = (
+        db.query(
+            func.avg(
+                func.extract("epoch", ahora - Ticket.created_at) / 3600.0
+            )
+        )
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.fecha_completado.is_(None),
+        )
+        .scalar()
+    )
+    promedio_edad_horas = float(edad_rows) if edad_rows is not None else 0.0
+
+    ttr_rows = (
+        db.query(
+            func.avg(
+                func.extract("epoch", Ticket.fecha_completado - Ticket.created_at) / 3600.0
+            )
+        )
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.fecha_completado.isnot(None),
+        )
+        .scalar()
+    )
+    ttr_horas = float(ttr_rows) if ttr_rows is not None else 0.0
+
+    sla_cumplido_rows = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.fecha_completado.isnot(None),
+            Ticket.sla_cumplido.in_([0, 1]),
+        ).scalar() or 0
+    )
+    sla_ok_rows = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.fecha_completado.isnot(None),
+            Ticket.sla_cumplido == 1,
+        ).scalar() or 0
+    )
+    pct_sla = (sla_ok_rows / sla_cumplido_rows * 100) if sla_cumplido_rows > 0 else 0.0
+
+    def _pct(numer, denom):
+        return round((numer / denom * 100), 1) if denom > 0 else 0.0
+
+    metricas = {
+        "total_listado": len(tickets_out),
+        "total_periodo": total_periodo,
+        "criticas_o_altas": criticas_o_altas,
+        "vencidas": vencidas,
+        "en_riesgo_72h": en_riesgo_72h,
+        "asignadas": asignadas,
+        "sin_asignar": sin_asignar,
+        "con_resultado_pruebas": con_resultado,
+        "promedio_edad_horas": round(promedio_edad_horas, 1),
+        "tiempo_promedio_resolucion_horas": round(ttr_horas, 1),
+        "porcentaje_sla_cumplido": round(pct_sla, 1),
+        "porcentaje_sin_asignar": _pct(sin_asignar, total_periodo),
+        "porcentaje_con_resultado": _pct(con_resultado, total_periodo),
+    }
+
+    return {
+        "periodo_dias": periodo_dias,
+        "tipo": tipo,
+        "limite": limite,
+        "generado_en": ahora.isoformat(),
+        "tickets": tickets_out,
+        "metricas": metricas,
+    }

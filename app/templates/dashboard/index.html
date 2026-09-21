@@ -264,6 +264,97 @@
         </p>
       </div>
 
+      <!-- ===== LISTA DE INCIDENCIAS RECIENTES (entre Cuenta de Resultado y Top agentes) =====
+           Alimentada por /api/v1/metricas/incidencias-recientes.
+           Estructura de columnas pedida:
+             Código | Título | Estado | Prioridad | Asignado | Fecha Vencimiento | SLA Activo
+           Encima de la tabla se renderiza una franja de métricas asociadas
+           (totales, vencidas, % SLA, % sin asignar, TTR, etc.) que le da
+           contexto al usuario sin saturar el listado. -->
+      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-slate-700">Lista de Incidencias Recientes</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400" id="incidencias-recientes-periodo">—</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <select id="incidencias-recientes-tipo"
+                    onchange="cargarIncidenciasRecientes()"
+                    class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+              <option value="incidencia">Incidencias</option>
+              <option value="resultado_pruebas">Resultados de pruebas</option>
+              <option value="todos">Todos los tipos</option>
+            </select>
+            <button id="incidencias-recientes-export"
+                    onclick="exportarIncidenciasRecientes()"
+                    class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Franja de métricas asociadas -->
+        <div id="incidencias-recientes-metricas"
+             class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-3 text-[11px]">
+          <div class="rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100">
+            <div class="text-slate-500 text-[10px] uppercase tracking-wide">Total periodo</div>
+            <div class="font-bold text-slate-800 text-base font-mono" data-metric="total_periodo">—</div>
+          </div>
+          <div class="rounded-md bg-red-50 px-2 py-1.5 border border-red-100">
+            <div class="text-red-600 text-[10px] uppercase tracking-wide">Vencidas</div>
+            <div class="font-bold text-red-700 text-base font-mono" data-metric="vencidas">—</div>
+          </div>
+          <div class="rounded-md bg-amber-50 px-2 py-1.5 border border-amber-100">
+            <div class="text-amber-700 text-[10px] uppercase tracking-wide">En riesgo 72h</div>
+            <div class="font-bold text-amber-700 text-base font-mono" data-metric="en_riesgo_72h">—</div>
+          </div>
+          <div class="rounded-md bg-rose-50 px-2 py-1.5 border border-rose-100">
+            <div class="text-rose-700 text-[10px] uppercase tracking-wide">Crít/Altas</div>
+            <div class="font-bold text-rose-700 text-base font-mono" data-metric="criticas_o_altas">—</div>
+          </div>
+          <div class="rounded-md bg-indigo-50 px-2 py-1.5 border border-indigo-100">
+            <div class="text-indigo-700 text-[10px] uppercase tracking-wide">% SLA OK</div>
+            <div class="font-bold text-indigo-700 text-base font-mono" data-metric="porcentaje_sla_cumplido">—</div>
+          </div>
+          <div class="rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100">
+            <div class="text-slate-500 text-[10px] uppercase tracking-wide">% Sin asignar</div>
+            <div class="font-bold text-slate-700 text-base font-mono" data-metric="porcentaje_sin_asignar">—</div>
+          </div>
+          <div class="rounded-md bg-emerald-50 px-2 py-1.5 border border-emerald-100">
+            <div class="text-emerald-700 text-[10px] uppercase tracking-wide">TTR prom. (h)</div>
+            <div class="font-bold text-emerald-700 text-base font-mono" data-metric="tiempo_promedio_resolucion_horas">—</div>
+          </div>
+        </div>
+
+        <!-- Contenedor con scroll vertical (todos los registros) -->
+        <div id="incidencias-recientes-wrap"
+             class="overflow-auto border border-slate-200 rounded-md"
+             style="max-height: 420px;">
+          <div id="incidencias-recientes-loading" class="text-center py-6 text-slate-400 text-xs">
+            Cargando incidencias...
+          </div>
+          <table id="incidencias-recientes-table"
+                 class="hidden w-full text-xs"
+                 aria-label="Lista de Incidencias Recientes">
+            <thead class="bg-slate-100 text-[10px] uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Código</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Título</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Estado</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Prioridad</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Asignado</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Fecha Vencimiento</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">SLA Activo</th>
+              </tr>
+            </thead>
+            <tbody id="incidencias-recientes-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- ===== FILA 5 — TOP AGENTES + ACCIONES RÁPIDAS (NUEVA) ===== -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
 
@@ -415,6 +506,11 @@
       cargarCuentaResultado().catch(err => {
         const cont = safeId('cuenta-resultado-container');
         if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + (err.message || err) + '</div>';
+      });
+      // Lista de Incidencias Recientes: misma política (falla aislada).
+      cargarIncidenciasRecientes().catch(err => {
+        const cont = safeId('incidencias-recientes-wrap');
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar lista de incidencias: ' + (err.message || err) + '</div>';
       });
     } catch (e) {
       console.error('Error cargando métricas:', e);
