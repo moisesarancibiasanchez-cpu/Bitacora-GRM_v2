@@ -2000,8 +2000,12 @@ async def vista_gantt_page(
                 tipo_nombre = "fs"
             links_data.append({
                 "id": d.id,
-                "source": d.predecesor_id,
-                "target": d.sucesor_id,
+                # FEATURE 3/4: las claves DEBEN llamarse predecesor_id/
+                # sucesor_id (no source/target) porque el frontend en
+                # gantt.html las lee con esos nombres. Antes se enviaban
+                # como source/target y el render abortaba siempre.
+                "predecesor_id": d.predecesor_id,
+                "sucesor_id": d.sucesor_id,
                 "tipo": tipo_nombre,
                 "lag_dias": d.lag_dias or 0,
             })

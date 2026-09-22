@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_db, get_current_user
+from app.api.v1.deps import get_db, get_current_user, require_admin
 from app.models.etapa_proyecto import EtapaProyecto, TicketEtapa
 from app.models.usuario import Usuario, RolUsuario
 from app.services.etapa_service import EtapaError, EtapaService
@@ -108,11 +108,9 @@ def _ticket_etapa_to_dict(te: TicketEtapa) -> dict:
 
 
 def _require_admin(usuario: Usuario) -> None:
-    if not usuario or usuario.rol.value != "administrador":
-        raise HTTPException(
-            status_code=403,
-            detail="Solo administradores pueden modificar el catálogo de etapas.",
-        )
+    # Mantenido por compatibilidad hacia atrás con código legacy. Las
+    # rutas usan ahora ``Depends(require_admin)`` directamente.
+    require_admin(usuario)
 
 
 # -----------------------------------------------------------------------------
@@ -144,10 +142,9 @@ def listar_etapas(
 def crear_etapa(
     payload: EtapaCreate,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_admin),
 ):
     """Crea una etapa nueva en el catálogo. Solo admin."""
-    _require_admin(usuario)
     # Validar código duplicado
     existente = (
         db.query(EtapaProyecto)
@@ -186,10 +183,9 @@ def actualizar_etapa(
     etapa_id: int,
     payload: EtapaUpdate,
     db: Session = Depends(get_db),
-    usuario: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_admin),
 ):
     """Edita una etapa existente. Solo admin."""
-    _require_admin(usuario)
     e = db.query(EtapaProyecto).filter(EtapaProyecto.id == etapa_id).first()
     if not e:
         raise HTTPException(status_code=404, detail="Etapa no encontrada.")

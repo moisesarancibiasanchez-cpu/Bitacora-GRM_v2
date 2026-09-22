@@ -645,6 +645,11 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #      catálogo se usa para renderizar las sub-bars del Gantt.
     #      Los códigos son slugs en MAYÚSCULAS que se referencian desde
     #      TicketEtapa y nunca se borran (soft-delete via `activo=0`).
+    #
+    #      ``ts_now`` se reutiliza del bloque 4.6 anterior (definido dentro
+    #      del try de 4.6). Es seguro porque su asignación no puede
+    #      fallar y refleja el momento del arranque. Si en el futuro se
+    #      reorganiza 4.6, mover la asignación aquí.
     try:
         etapas_seed = [
             # (codigo,                 nombre,                                          orden, color)

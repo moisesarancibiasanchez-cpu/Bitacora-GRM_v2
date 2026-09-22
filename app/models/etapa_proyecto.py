@@ -129,8 +129,10 @@ class TicketEtapa(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("ticket_id", "etapa_id", name="uq_ticket_etapa"),
         CheckConstraint("completado IN (0, 1)", name="ck_te_completado"),
-        Index("ix_te_ticket", "ticket_id"),
-        Index("ix_te_etapa", "etapa_id"),
+        # NOTA: los índices de las FKs ya los crea ``Column(..., index=True)``
+        # en las definiciones de ``ticket_id`` y ``etapa_id``. Evitamos
+        # duplicarlos aquí para no inflar el catálogo de Postgres con
+        # pares idénticos bajo nombres distintos.
     )
 
     def __repr__(self) -> str:

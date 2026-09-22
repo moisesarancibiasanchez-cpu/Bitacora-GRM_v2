@@ -15,8 +15,8 @@ crear un ticket nuevo, vía el hook ``asignar_etapas_iniciales``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from datetime import datetime
+from typing import List, Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -181,8 +181,33 @@ class EtapaService:
         - ``completado``: bool (True → 1, False → 0).
         - ``notas``: texto libre; ``""`` se normaliza a ``None``.
 
-        Lanza ``EtapaError`` si la asignación no existe.
+        Lanza ``EtapaError`` si la asignación no existe o si las fechas
+        son inválidas (formato o ``fecha_fin < fecha_inicio``).
         """
+        # Validación de fechas: las parseamos una sola vez y validamos
+        # que fecha_fin >= fecha_inicio. Esto evita estados ilógicos en
+        # el Gantt (flechas hacia atrás).
+        try:
+            fi = self._parse_fecha(fecha_inicio) if fecha_inicio else None
+        except ValueError as e:
+            raise EtapaError(
+                f"fecha_inicio inválida ({fecha_inicio}): {e}",
+                codigo="fecha_inicio_invalida",
+            ) from e
+        try:
+            ff = self._parse_fecha(fecha_fin) if fecha_fin else None
+        except ValueError as e:
+            raise EtapaError(
+                f"fecha_fin inválida ({fecha_fin}): {e}",
+                codigo="fecha_fin_invalida",
+            ) from e
+        if fi and ff and ff < fi:
+            raise EtapaError(
+                f"fecha_fin ({fecha_fin}) no puede ser anterior a "
+                f"fecha_inicio ({fecha_inicio}).",
+                codigo="rango_fechas_invalido",
+            )
+
         te = (
             self.db.query(TicketEtapa)
             .filter(
@@ -217,72 +242,31 @@ class EtapaService:
         self.db.refresh(te)
         return te
 
+    @staticmethod
+    def _parse_fecha(s: str) -> Optional[datetime]:
+        """Convierte ``"YYYY-MM-DD"`` a ``datetime`` (a medianoche) o
+        lanza ``ValueError`` si el formato es inválido.
+        """
+        try:
+            return datetime.strptime(s, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            raise ValueError(f"formato esperado YYYY-MM-DD, recibido {s!r}")
+
     # ------------------------------------------------------------------ #
     # DEPENDENCIAS AUTO-FS ENTRE ETAPAS DEL MISMO TICKET
     # ------------------------------------------------------------------ #
-    def crear_dependencias_auto_fs(self, ticket: Ticket) -> int:
-        """Crea N-1 dependencias FS entre las etapas del mismo ticket.
-
-        Por cada par consecutivo (etapa_i, etapa_{i+1}) crea una fila
-        en ``ticket_dependencias`` con ``tipo='fs'`` y ``nota`` que
-        identifica la relación como auto-generada.
-
-        Esta materialización en ``ticket_dependencias`` (no en una tabla
-        propia de etapas) es deliberada: reusa el render del Gantt que ya
-        sabe dibujar flechas a partir de ``TicketDependencia``. NO se
-        duplican relaciones que ya existan.
-
-        Devuelve el número de relaciones creadas (no incluye las que ya
-        existían).
-        """
-        # Import local para evitar ciclo en import graph: etapa_service
-        # → ticket_dependencia → no_cycle, pero por seguridad diferimos.
-        from app.models.ticket_dependencia import (
-            TicketDependencia, TipoDependencia,
-        )
-
-        if not ticket or not ticket.id:
-            return 0
-
-        etapas = self.listar_etapas_de_ticket(ticket.id)
-        if len(etapas) < 2:
-            return 0
-
-        # Obtener las dependencias FS ya existentes para evitar duplicados.
-        ya_existentes = {
-            (d.predecesor_id, d.sucesor_id)
-            for d in (
-                self.db.query(TicketDependencia)
-                .filter(
-                    TicketDependencia.predecesor_id == ticket.id,
-                    TicketDependencia.tipo == TipoDependencia.FS,
-                )
-                .all()
-            )
-        }
-        # NOTA: las dependencias del Gantt en este proyecto apuntan a
-        # ``tickets.id`` (FS entre tickets), no entre TicketEtapa. Aquí
-        # creamos una **representación explícita** como TicketDependencia
-        # entre el MISMO ticket con `lag_dias` calculado desde las fechas
-        # reales de las etapas. Esto permite ver las flechas aunque las
-        # etapas compartan el mismo ticket padre.
-        #
-        # Diseño: en lugar de TicketDependencia(ticket → ticket, ...),
-        # creamos registros lógicos usando IDs de TicketEtapa NEGATIVOS
-        # ofuscados como `predecesor_virtual_id = -etapa_id` y
-        # `sucesor_virtual_id = -etapa_id`. PERO esto viola la FK a
-        # tickets.id. Por ello, en esta primera versión NO creamos
-        # TicketDependencia entre etapas: documentamos que las flechas
-        # se dibujarán en el render del Gantt directamente desde
-        # TicketEtapa.fecha_inicio/fin (chain visual, no FK).
-        #
-        # Esta función queda como hook para FUTURAS integraciones donde
-        # se quiera representar la cadena como relaciones de primera
-        # clase. Devuelve 0.
-        logger.debug(
-            "[etapa_service] Hook crear_dependencias_auto_fs invocado para "
-            "ticket=%s; la cadena visual entre etapas se renderiza "
-            "directamente desde TicketEtapa (no se crean FK).",
-            ticket.id,
-        )
-        return 0
+    # NOTA DE DISEÑO: las flechas auto-FS entre etapas del mismo ticket
+    # se renderizan DIRECTAMENTE desde ``TicketEtapa.fecha_inicio/fin``
+    # en el frontend (ver ``app/templates/vistas/gantt.html``), sin
+    # materializarse como filas en ``ticket_dependencias``.
+    #
+    # Motivo: ``ticket_dependencias.predecesor_id`` y ``sucesor_id``
+    # apuntan a ``tickets.id`` (FS entre tickets, no entre etapas del
+    # mismo ticket). Crear registros ahí requeriría o bien romper la FK
+    # o bien ofuscar IDs negativos, ninguno aceptable. Por lo tanto la
+    # cadena visual se dibuja en el render del Gantt y este hook queda
+    # **explícitamente deshabilitado**.
+    #
+    # Si en el futuro se quiere modelar la cadena como relaciones de
+    # primera clase, se necesitará una tabla ``ticket_etapa_dependencias``
+    # propia con FKs a ``ticket_etapas.id``.
