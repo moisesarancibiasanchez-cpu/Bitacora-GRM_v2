@@ -1241,13 +1241,41 @@ function abrirMenuGantt(ev, ticketId, codigoEnc) {
   });
   menu.querySelector('[data-act="etapas"]').addEventListener('click', () => {
     cerrarMenuGantt();
-    // Expandir y abrir modal de la primera etapa pendiente
+    // Expandir y abrir modal de la primera etapa pendiente.
+    // FIX 2026-09-22 (regresión reportada por usuario):
+    //   ANTES, si el ticket NO tenía etapas (t.etapas ausente o []),
+    //   `firstPending` quedaba undefined y `abrirEtapaModal` nunca se
+    //   llamaba. Resultado: el menú se cerraba, la fila se expandía,
+    //   pero el modal NO aparecía y NO había ningún feedback → "no hace
+    //   nada". La validación de producción confirma que actualmente
+    //   TODOS los tickets (41/41) tienen etapas:[], por lo que el bug
+    //   es 100% reproducible.
+    //   Ahora: si no hay etapas, mostramos un toast informativo y
+    //   dejamos trazas en consola para diagnosticar. Si hay etapas,
+    //   abrimos el modal de la primera pendiente (o la primera si
+    //   todas están completas) — comportamiento original.
+    const t = TICKETS.find(x => x.id === ticketId);
+    const etapas = (t && t.etapas) || [];
+    if (etapas.length === 0) {
+      const codigo = (t && t.codigo) || `#${ticketId}`;
+      console.warn(
+        '[abrirMenuGantt>etapas] Ticket %s no tiene etapas definidas. ' +
+        'No se puede abrir modal de edición.',
+        codigo,
+      );
+      if (typeof _toastGantt === 'function') {
+        _toastGantt(
+          `Ticket ${codigo} no tiene etapas. Créalas desde su detalle.`,
+          'err',
+        );
+      }
+      return;
+    }
     if (!expandedTickets.has(ticketId)) {
       expandedTickets.add(ticketId);
       render();
     }
-    const t = TICKETS.find(x => x.id === ticketId);
-    const firstPending = (t?.etapas || []).find(e => !e.completado) || (t?.etapas || [])[0];
+    const firstPending = etapas.find(e => !e.completado) || etapas[0];
     if (firstPending) abrirEtapaModal(ticketId, firstPending.etapa_id);
   });
   menu.querySelector('[data-act="copiar"]').addEventListener('click', async (ev2) => {
