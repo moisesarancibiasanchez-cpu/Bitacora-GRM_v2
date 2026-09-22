@@ -87,6 +87,10 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
         "hu_o_caso_prueba": "VARCHAR(200)",
         "nota_observacion": "TEXT",
         "resultado_pruebas": "VARCHAR(40)",
+        # QA Tester responsable de ejecutar las pruebas del ticket.
+        # Se almacena como texto libre ``"Nombre <email>"`` para soportar
+        # el LOV cerrado de QA Testers del sistema.
+        "qa_tester": "VARCHAR(160)",
     },
 }
 
@@ -108,6 +112,8 @@ INDEXES: List[Tuple[str, str]] = [
     ("ix_te_ticket",           "CREATE INDEX IF NOT EXISTS ix_te_ticket         ON ticket_etapas(ticket_id)"),
     ("ix_te_etapa",            "CREATE INDEX IF NOT EXISTS ix_te_etapa          ON ticket_etapas(etapa_id)"),
     ("ix_te_orden",            "CREATE INDEX IF NOT EXISTS ix_te_orden          ON ticket_etapas(orden)"),
+    # QA Tester asignado al ticket
+    ("ix_tickets_qa_tester",   "CREATE INDEX IF NOT EXISTS ix_tickets_qa_tester ON tickets(qa_tester)"),
 ]
 
 # Tablas que deben existir (si el modelo está presente, ``create_all``

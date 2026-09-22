@@ -78,6 +78,45 @@ RESULTADO_PRUEBAS_LOV = (
 )
 
 
+# LOV de QA Testers.
+# Lista cerrada de personas del equipo de QA que pueden ser asignadas
+# como responsables de las pruebas de un ticket. Cada elemento es una
+# tupla ``(etiqueta_corta, nombre_completo, email)`` para mostrar en el
+# selector de la ventana de detalle y para registrar en auditoría con
+# trazabilidad completa.
+QA_TESTERS_LOV: tuple = (
+    ("storrealba",   "Sergio Daniel Torrealba Venegas",   "storrealba@bancochile.cl"),
+    ("aperaita",     "Alex Ignacio Peraita Rodriguez",    "aperaita@bancochile.cl"),
+    ("jsepulvemo",   "Jose Miguel Sepulveda Morales",     "jsepulvemo@bancochile.cl"),
+    ("jsigne",       "Jorge Andres Signe Pou",            "jsigne@bancochile.cl"),
+)
+QA_TESTER_EMAILS = tuple(t[2] for t in QA_TESTERS_LOV)
+QA_TESTER_NAMES  = tuple(t[1] for t in QA_TESTERS_LOV)
+
+
+def _format_qa_tester(nombre: str, email: str) -> str:
+    """Devuelve la representación canónica del QA Tester."""
+    return f"{nombre} <{email}>"
+
+
+def _parse_qa_tester(value: str | None) -> tuple[str | None, str | None]:
+    """Parsea un valor ``"Nombre <email>"`` a ``(nombre, email)``.
+
+    Devuelve ``(None, None)`` si el valor es vacío o None.
+    """
+    if not value:
+        return None, None
+    txt = str(value).strip()
+    if not txt:
+        return None, None
+    if "<" in txt and ">" in txt:
+        nombre = txt.split("<", 1)[0].strip()
+        email  = txt.split("<", 1)[1].split(">", 1)[0].strip()
+    else:
+        nombre, email = txt, ""
+    return nombre or None, email or None
+
+
 class Ticket(Base, TimestampMixin):
     """Incidencia del sistema (Tarjeta del Kanban)."""
     __tablename__ = "tickets"
@@ -163,6 +202,14 @@ class Ticket(Base, TimestampMixin):
     # Resultado de pruebas
     # (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)
     resultado_pruebas = Column(String(40), nullable=True, index=True)
+
+    # === QA Tester asignado ===
+    # Persona del equipo QA responsable de ejecutar las pruebas sobre el ticket.
+    # Se almacena como String(160) para soportar el formato "Nombre <email>"
+    # y permitir trazabilidad incluso si el usuario todavía no existe en la
+    # tabla ``usuarios``. La columna se indexa para acelerar los filtros
+    # del dashboard de QA.
+    qa_tester = Column(String(160), nullable=True, index=True)
 
     # Relaciones
     estado = relationship("Estado", back_populates="tickets", lazy="joined")

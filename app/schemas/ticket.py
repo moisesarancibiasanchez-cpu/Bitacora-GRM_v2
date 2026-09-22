@@ -50,6 +50,17 @@ RESULTADO_PRUEBAS_PERMITIDOS = {
     "",  # vacío permitido
 }
 
+# LOV de QA Testers (sincronizado con app.models.ticket.QA_TESTERS_LOV).
+# Se valida contra el formato canónico ``"Nombre <email>"`` para
+# preservar la trazabilidad del responsable de las pruebas.
+QA_TESTERS_PERMITIDOS = {
+    "Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>",
+    "Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>",
+    "Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>",
+    "Jorge Andres Signe Pou <jsigne@bancochile.cl>",
+    "",  # vacío permitido (no asignado)
+}
+
 
 # ============== Estado ==============
 class EstadoBase(BaseModel):
@@ -186,6 +197,12 @@ class TicketBase(BaseModel):
         default=None, max_length=40,
         description="Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)",
     )
+    # QA Tester asignado al ticket. Se almacena como texto canónico
+    # ``"Nombre <email>"`` para garantizar trazabilidad.
+    qa_tester: Optional[str] = Field(
+        default=None, max_length=160,
+        description="QA Tester responsable de las pruebas del ticket (LOV cerrado).",
+    )
 
     # NOTA: Los validadores LOV de modulo/ambiente/item/resultado_pruebas
     # vivían aquí antes, pero se ejecutaban también durante la SERIALIZACIÓN
@@ -249,6 +266,18 @@ class TicketCreate(TicketBase):
             )
         return v_norm or None
 
+    @field_validator("qa_tester")
+    @classmethod
+    def _check_qa_tester(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in QA_TESTERS_PERMITIDOS:
+            raise ValueError(
+                "qa_tester debe ser uno de los QA Testers definidos en el sistema."
+            )
+        return v_norm or None
+
 
 class TicketUpdate(BaseModel):
     titulo: Optional[str] = None
@@ -270,6 +299,10 @@ class TicketUpdate(BaseModel):
     hu_o_caso_prueba: Optional[str] = Field(default=None, max_length=200)
     nota_observacion: Optional[str] = None
     resultado_pruebas: Optional[str] = Field(default=None, max_length=40)
+    qa_tester: Optional[str] = Field(
+        default=None, max_length=160,
+        description="QA Tester responsable de las pruebas del ticket (LOV cerrado).",
+    )
 
     @field_validator("modulo")
     @classmethod
@@ -316,6 +349,18 @@ class TicketUpdate(BaseModel):
         if v_norm and v_norm not in RESULTADO_PRUEBAS_PERMITIDOS:
             raise ValueError(
                 f"resultado_pruebas debe ser uno de: {sorted(r for r in RESULTADO_PRUEBAS_PERMITIDOS if r)}"
+            )
+        return v_norm or None
+
+    @field_validator("qa_tester")
+    @classmethod
+    def _check_qa_tester(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_norm = v.strip()
+        if v_norm and v_norm not in QA_TESTERS_PERMITIDOS:
+            raise ValueError(
+                "qa_tester debe ser uno de los QA Testers definidos en el sistema."
             )
         return v_norm or None
 

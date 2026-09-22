@@ -661,7 +661,7 @@ async def guardar_ticket_campos(
         "fecha_inicio", "fecha_vencimiento",
         # === Campos extendidos del módulo de Incidencias ===
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
-        "ambiente", "item",
+        "ambiente", "item", "qa_tester",
     }
     cambios: dict = {}
     for campo in CAMPOS_ACEPTADOS:
@@ -674,7 +674,7 @@ async def guardar_ticket_campos(
     # Normalizar vacíos a None para los LOVs
     LOV_NULLABLE = {
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion",
-        "resultado_pruebas", "ambiente", "item",
+        "resultado_pruebas", "ambiente", "item", "qa_tester",
     }
     for k in list(cambios.keys()):
         if k in LOV_NULLABLE:
@@ -723,6 +723,7 @@ async def guardar_ticket_campos(
             "resultado_pruebas": "resultado_pruebas_editado",
             "ambiente": "ambiente_editado",
             "item": "item_editado",
+            "qa_tester": "qa_tester_asignado",
         }
         campos_modificados = list(valores_nuevos.keys())
         if len(campos_modificados) == 1:

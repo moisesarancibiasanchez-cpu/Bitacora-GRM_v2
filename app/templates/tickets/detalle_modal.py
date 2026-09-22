@@ -346,6 +346,59 @@ DETALLE_TEMPLATE = Template(r"""
                           oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
                           class="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 resize-y">{{ ticket.nota_observacion or '' }}</textarea>
               </div>
+
+              {# QA Tester responsable de las pruebas del ticket (LOV cerrado).
+                 Cada opción se almacena en formato canónico
+                 "Nombre <email>" para preservar la trazabilidad.
+                 Si el valor guardado no pertenece al LOV actual (por ejemplo,
+                 un valor heredado de una versión anterior), se incluye
+                 como opción "selected" para no perderlo al re-renderizar. #}
+              {% set _qa_canonicos = (
+                'Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>',
+                'Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>',
+                'Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>',
+                'Jorge Andres Signe Pou <jsigne@bancochile.cl>',
+              ) %}
+              {% set _qa_legibles = {
+                'Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>'|string: 'Sergio Daniel Torrealba Venegas',
+                'Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>'|string: 'Alex Ignacio Peraita Rodriguez',
+                'Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>'|string: 'Jose Miguel Sepulveda Morales',
+                'Jorge Andres Signe Pou <jsigne@bancochile.cl>'|string: 'Jorge Andres Signe Pou',
+              } %}
+              {% set _qa_es_canonico = (ticket.qa_tester or '') in _qa_canonicos %}
+              <div class="col-span-2">
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+                  QA Tester (responsable de pruebas)
+                  <span class="group relative inline-flex">
+                    <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                      Persona del equipo de QA responsable de ejecutar las pruebas sobre este ticket.
+                      El equipo de QA recibe notificación cuando un ticket entra a la etapa
+                      de <strong class="text-amber-300">Validación / QA</strong>.
+                    </span>
+                  </span>
+                </span>
+                <select name="valor_qa_tester"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin QA Tester asignado —</option>
+                  <option value="Sergio Daniel Torrealba Venegas &lt;storrealba@bancochile.cl&gt;" {% if ticket.qa_tester == 'Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>' %}selected{% endif %}>Sergio Daniel Torrealba Venegas</option>
+                  <option value="Alex Ignacio Peraita Rodriguez &lt;aperaita@bancochile.cl&gt;" {% if ticket.qa_tester == 'Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>' %}selected{% endif %}>Alex Ignacio Peraita Rodriguez</option>
+                  <option value="Jose Miguel Sepulveda Morales &lt;jsepulvemo@bancochile.cl&gt;" {% if ticket.qa_tester == 'Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>' %}selected{% endif %}>Jose Miguel Sepulveda Morales</option>
+                  <option value="Jorge Andres Signe Pou &lt;jsigne@bancochile.cl&gt;" {% if ticket.qa_tester == 'Jorge Andres Signe Pou <jsigne@bancochile.cl>' %}selected{% endif %}>Jorge Andrés Signe Pou</option>
+                  {# Fallback: si el QA Tester actual no está en el LOV, lo agregamos como opción seleccionada. #}
+                  {% if ticket.qa_tester and not _qa_es_canonico %}
+                    <option value="{{ ticket.qa_tester }}" selected>{{ ticket.qa_tester }} (valor heredado)</option>
+                  {% endif %}
+                </select>
+                {% if ticket.qa_tester and not _qa_es_canonico %}
+                  <p class="text-[10px] text-amber-600 mt-0.5 italic">
+                    Valor heredado de versiones anteriores. Para normalizarlo, selecciona una opción del LOV.
+                  </p>
+                {% endif %}
+              </div>
             </div>
           </div>
 

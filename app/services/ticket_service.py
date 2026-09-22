@@ -364,6 +364,16 @@ class TicketService:
             catalogo_tipo_id=datos.get("catalogo_tipo_id"),
             datos_catalogo=datos.get("datos_catalogo"),
             sla_cumplido=-1,
+            # === Campos extendidos del módulo de Incidencias (LOVs) ===
+            modulo=datos.get("modulo"),
+            ambiente=datos.get("ambiente"),
+            item=datos.get("item"),
+            vista=datos.get("vista"),
+            hu_o_caso_prueba=datos.get("hu_o_caso_prueba"),
+            nota_observacion=datos.get("nota_observacion"),
+            resultado_pruebas=datos.get("resultado_pruebas"),
+            # === QA Tester responsable de las pruebas (LOV cerrado) ===
+            qa_tester=datos.get("qa_tester"),
         )
         if estado_inicial.sla_horas:
             ticket.fecha_vencimiento_sla = datetime.utcnow() + timedelta(
@@ -585,6 +595,8 @@ class TicketService:
         # === Campos extendidos del módulo de Incidencias (LOVs) ===
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion", "resultado_pruebas",
         "ambiente", "item",
+        # === QA Tester responsable de las pruebas del ticket (LOV cerrado) ===
+        "qa_tester",
     }
 
     # Subset de CAMPOS_EDITABLES que son LOVs y por tanto pueden llegar vacíos
@@ -592,7 +604,7 @@ class TicketService:
     # coincidente con el valor heredado). Ver defensa en ``actualizar_campos``.
     LOV_NULLABLE = frozenset({
         "modulo", "vista", "hu_o_caso_prueba", "nota_observacion",
-        "resultado_pruebas", "ambiente", "item",
+        "resultado_pruebas", "ambiente", "item", "qa_tester",
     })
 
     def actualizar_campos(
