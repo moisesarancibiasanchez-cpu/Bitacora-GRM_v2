@@ -401,6 +401,12 @@ def detalle_html(
     from app.services.trello_service import CampoPersonalizadoService
     campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
 
+    # Etapas UAT del ticket (para la pestaña "Etapas UAT" del modal).
+    # FEATURE 4: sub-bars del Gantt. Se cargan vía helper compartido para
+    # que TODOS los endpoints que re-renderizan el modal pasen las mismas
+    # estructuras a la plantilla Jinja.
+    etapas, catalogo_etapas = _get_etapas_y_catalogo(db, ticket_id)
+
     # Construir resumen "Última modificación por X" para el footer
     ultima_modificacion = _formatear_ultima_modificacion(auditorias, ticket)
 
@@ -419,8 +425,74 @@ def detalle_html(
         usuarios=usuarios,
         etiquetas_disponibles=etiquetas_disponibles,
         campos_personalizados=campos_personalizados,
+        etapas=etapas,
+        catalogo_etapas=catalogo_etapas,
     )
     return HTMLResponse(content=html)
+
+
+def _serializar_ticket_etapa(te: "TicketEtapa") -> dict:
+    """Serializa una ``TicketEtapa`` a un dict apto para la plantilla Jinja.
+
+    Evita accesos perezosos a la relación ``etapa`` durante el render
+    (que en sesiones async-friendly podrían lanzar DetachedInstanceError).
+    """
+    e = te.etapa
+    return {
+        "id": te.id,
+        "ticket_id": te.ticket_id,
+        "etapa_id": te.etapa_id,
+        "etapa_codigo": e.codigo if e else "",
+        "etapa_nombre": e.nombre if e else "",
+        "etapa_color": e.color if e else "#6366f1",
+        "etapa_orden": e.orden if e else 0,
+        "fecha_inicio": te.fecha_inicio,
+        "fecha_fin": te.fecha_fin,
+        "completado": bool(te.completado),
+        "orden": te.orden,
+        "notas": te.notas,
+    }
+
+
+def _get_etapas_y_catalogo(db: Session, ticket_id: int) -> tuple[list[dict], list[dict]]:
+    """Carga las etapas UAT del ticket + el catálogo global.
+
+    Helper compartido por todos los endpoints que re-renderizan el modal
+    de detalle, para evitar duplicar la query y la serialización.
+
+    Returns
+    -------
+    tuple[list[dict], list[dict]]
+        ``(etapas, catalogo_etapas)``. ``etapas`` es la lista de
+        asignaciones del ticket (puede estar vacía). ``catalogo_etapas``
+        es el catálogo global de las 10 fases UAT (para mostrar en el
+        estado vacío).
+    """
+    from app.models.etapa_proyecto import TicketEtapa, EtapaProyecto
+    etapas_rows = (
+        db.query(TicketEtapa)
+        .filter(TicketEtapa.ticket_id == ticket_id)
+        .order_by(TicketEtapa.orden.asc())
+        .all()
+    )
+    etapas = [_serializar_ticket_etapa(te) for te in etapas_rows]
+    catalogo_rows = (
+        db.query(EtapaProyecto)
+        .filter(EtapaProyecto.activo == 1)  # noqa: E712
+        .order_by(EtapaProyecto.orden.asc())
+        .all()
+    )
+    catalogo_etapas = [
+        {
+            "id": e.id,
+            "codigo": e.codigo,
+            "nombre": e.nombre,
+            "orden": e.orden,
+            "color": e.color,
+        }
+        for e in catalogo_rows
+    ]
+    return etapas, catalogo_etapas
 
 
 # ===========================================================================
@@ -587,6 +659,7 @@ async def actualizar_ticket_campo(
     from app.services.trello_service import CampoPersonalizadoService
     campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
     ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+    etapas, catalogo_etapas = _get_etapas_y_catalogo(db, ticket_id)
     from app.templates.tickets.detalle_modal import render_detalle_modal
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
@@ -597,6 +670,8 @@ async def actualizar_ticket_campo(
         usuarios=usuarios,
         etiquetas_disponibles=etiquetas_disponibles,
         campos_personalizados=campos_personalizados,
+        etapas=etapas,
+        catalogo_etapas=catalogo_etapas,
     )
     return HTMLResponse(
         content=html,
@@ -784,6 +859,7 @@ async def guardar_ticket_campos(
     )
     campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
     ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+    etapas, catalogo_etapas = _get_etapas_y_catalogo(db, ticket_id)
 
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
@@ -794,6 +870,8 @@ async def guardar_ticket_campos(
         usuarios=usuarios,
         etiquetas_disponibles=etiquetas_disponibles,
         campos_personalizados=campos_personalizados,
+        etapas=etapas,
+        catalogo_etapas=catalogo_etapas,
     )
     return HTMLResponse(
         content=html,
@@ -971,6 +1049,7 @@ async def actualizar_campo_personalizado(
     )
     campos_personalizados = svc.obtener_campos_con_valores(ticket_id)
     ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
+    etapas, catalogo_etapas = _get_etapas_y_catalogo(db, ticket_id)
     from app.templates.tickets.detalle_modal import render_detalle_modal
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
@@ -981,6 +1060,8 @@ async def actualizar_campo_personalizado(
         usuarios=usuarios,
         etiquetas_disponibles=etiquetas_disponibles,
         campos_personalizados=campos_personalizados,
+        etapas=etapas,
+        catalogo_etapas=catalogo_etapas,
     )
     return HTMLResponse(
         content=html,

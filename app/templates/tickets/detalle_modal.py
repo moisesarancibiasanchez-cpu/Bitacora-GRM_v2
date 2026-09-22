@@ -86,6 +86,11 @@ DETALLE_TEMPLATE = Template(r"""
         Checklist
         <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ checklists|length }}</span>
       </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'etapas' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="etapas">
+        Etapas UAT
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ etapas|length }}/10</span>
+      </button>
       <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'trazabilidad' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
               data-tab="trazabilidad">
         Trazabilidad
@@ -822,6 +827,132 @@ DETALLE_TEMPLATE = Template(r"""
         </form>
       </div>
 
+      <!-- Tab: Etapas UAT (sub-bars del Gantt) -->
+      <div class="tab-panel {% if _active != 'etapas' %}hidden{% endif %} p-5 space-y-3" data-panel="etapas">
+        {# Encabezado con acción principal: auto-asignar 10 etapas si no hay ninguna #}
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Etapas del proyecto UAT</h4>
+            <p class="text-[10px] text-slate-400 mt-0.5">
+              {% if etapas %}
+                {{ etapas|length }} de 10 etapas asignadas. Edita fechas, marca como completada o agrega notas.
+              {% else %}
+                Este ticket aún no tiene etapas asignadas. Genera las 10 fases del flujo UAT para que se dibujen como sub-barras en el Gantt.
+              {% endif %}
+            </p>
+          </div>
+          {% if not etapas %}
+            <button type="button"
+                    hx-post="/api/v1/etapas/ticket/{{ ticket.id }}/auto-asignar"
+                    hx-target="#modal-root" hx-swap="innerHTML"
+                    hx-trigger="click"
+                    hx-confirm="¿Asignar las 10 etapas UAT a este ticket? Se crearán 10 filas de planificación (sin fechas, listas para editar)."
+                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1 flex-shrink-0">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              Auto-asignar 10 etapas UAT
+            </button>
+          {% endif %}
+        </div>
+
+        {# Listado de etapas: cada fila es editable inline #}
+        <div class="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
+          {% if etapas %}
+            {# Ordenar por etapa_orden ASC para que se vean siempre 1..10 #}
+            {% set _etapas_sorted = etapas|sort(attribute='etapa_orden') %}
+            {% for te in _etapas_sorted %}
+              <div class="rounded-lg border border-slate-200 bg-white p-2.5 hover:border-slate-300 transition-colors">
+                <form hx-patch="/api/v1/etapas/ticket/{{ ticket.id }}/{{ te.etapa_id }}"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      hx-trigger="change from:input, change from:select, click from:input[type='checkbox']"
+                      class="space-y-2">
+                  <input type="hidden" name="active_tab" value="etapas">
+                  <div class="flex items-center gap-2">
+                    {# Color dot + nombre + orden #}
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white flex-shrink-0"
+                          style="background-color: {{ te.etapa_color }}"
+                          title="Etapa {{ te.etapa_orden }}">{{ te.etapa_orden }}</span>
+                    <span class="text-xs font-semibold text-slate-700 flex-1 min-w-0 truncate" title="{{ te.etapa_nombre }}">
+                      {{ te.etapa_nombre }}
+                    </span>
+                    <span class="text-[10px] font-mono text-slate-400 flex-shrink-0">{{ te.etapa_codigo }}</span>
+                    {# Checkbox completado #}
+                    <label class="inline-flex items-center gap-1 cursor-pointer flex-shrink-0" title="Marcar como completada">
+                      <input type="checkbox" name="completado" value="true"
+                             {% if te.completado %}checked{% endif %}
+                             class="h-3.5 w-3.5 text-emerald-600 focus:ring-emerald-500 border-slate-300 rounded">
+                      <span class="text-[10px] text-slate-500">OK</span>
+                    </label>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 pl-8">
+                    <div>
+                      <label class="block text-[9px] uppercase tracking-wide text-slate-400 mb-0.5">Inicio</label>
+                      <input type="date" name="fecha_inicio"
+                             value="{{ te.fecha_inicio or '' }}"
+                             class="w-full text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                      <label class="block text-[9px] uppercase tracking-wide text-slate-400 mb-0.5">Fin</label>
+                      <input type="date" name="fecha_fin"
+                             value="{{ te.fecha_fin or '' }}"
+                             class="w-full text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                  </div>
+                  <div class="pl-8">
+                    <textarea name="notas" rows="1" placeholder="Notas de la etapa (PR, build, link)..."
+                              class="w-full text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 resize-none">{{ te.notas or '' }}</textarea>
+                  </div>
+                </form>
+              </div>
+            {% endfor %}
+          {% else %}
+            {# Estado vacío: no hay etapas. Mostrar ayuda + catálogo resumido para que el usuario sepa qué se va a crear. #}
+            <div class="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/30 p-4">
+              <div class="text-center mb-3">
+                <svg class="w-8 h-8 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                </svg>
+                <p class="text-xs text-slate-600 font-medium">No hay etapas asignadas</p>
+                <p class="text-[10px] text-slate-400 mt-1">Al auto-asignar, se crearán estas 10 fases:</p>
+              </div>
+              {% if catalogo_etapas %}
+                <ol class="space-y-1 text-[11px] text-slate-600 max-w-md mx-auto">
+                  {% for e in catalogo_etapas %}
+                    <li class="flex items-center gap-2">
+                      <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background-color: {{ e.color }}"></span>
+                      <span class="font-mono text-[10px] text-slate-400 w-4">{{ e.orden }}</span>
+                      <span class="flex-1 truncate">{{ e.nombre }}</span>
+                    </li>
+                  {% endfor %}
+                </ol>
+              {% else %}
+                <p class="text-[10px] text-center text-amber-600 italic">
+                  El catálogo de etapas está vacío. Contacta al administrador para inicializarlo.
+                </p>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+
+        {# Pie con totales #}
+        {% if etapas %}
+          {% set _etapas_total = etapas|length %}
+          {% set _etapas_done = etapas|selectattr('completado')|list|length %}
+          {% set _etapas_planificadas = etapas|selectattr('fecha_inicio')|list|length %}
+          {% set _etapas_pct = (100 * _etapas_done / _etapas_total)|int if _etapas_total > 0 else 0 %}
+          <div class="pt-2 border-t border-slate-100 space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>{{ _etapas_done }}/{{ _etapas_total }} etapas completadas ({{ _etapas_pct }}%)</span>
+              <span>{{ _etapas_planificadas }}/{{ _etapas_total }} con fecha planificada</span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
+              <div class="bg-emerald-500 h-1 rounded-full transition-all duration-300" style="width: {{ _etapas_pct }}%"></div>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
       <!-- Tab: Trazabilidad -->
       <div class="tab-panel {% if _active != 'trazabilidad' %}hidden{% endif %} p-5 space-y-3" data-panel="trazabilidad">
         <div class="flex items-center justify-between mb-1">
@@ -946,6 +1077,8 @@ def render_detalle_modal(
     usuarios: Iterable = (),
     etiquetas_disponibles: Iterable = (),
     campos_personalizados: Iterable = (),
+    etapas: Iterable = (),
+    catalogo_etapas: Iterable = (),
 ) -> str:
     """Renderiza el modal completo de detalle de un ticket.
 
@@ -973,12 +1106,20 @@ def render_detalle_modal(
         automáticamente a partir de ``ticket.updated_at``.
     active_tab : str
         Pestaña que debe mostrarse activa al renderizar. Una de
-        ``{"detalles", "comentarios", "adjuntos", "checklist",
+        ``{"detalles", "comentarios", "adjuntos", "checklist", "etapas",
         "trazabilidad"}``. Por defecto ``"detalles"``.
     usuarios : Iterable[Usuario]
         Lista de usuarios disponibles para el select de "Asignado".
     etiquetas_disponibles : Iterable[Etiqueta]
         Lista de todas las etiquetas del sistema (para el gestor de etiquetas).
+    etapas : Iterable[TicketEtapa]
+        Asignaciones de etapas del proyecto UAT al ticket (para el tab
+        ``Etapas``). Cada elemento debe incluir los atributos del modelo
+        ``TicketEtapa`` con la relación ``etapa`` eagerly-loaded.
+    catalogo_etapas : Iterable[EtapaProyecto]
+        Catálogo global de etapas del proyecto (10 fases UAT). Se muestra
+        en el estado vacío del tab ``Etapas`` como preview de lo que se
+        va a crear al auto-asignar.
 
     Returns
     -------
@@ -992,7 +1133,7 @@ def render_detalle_modal(
         else:
             ultima_modificacion = "—"
     # Normalizar active_tab a un valor seguro
-    _tabs_validos = {"detalles", "comentarios", "adjuntos", "checklist", "trazabilidad"}
+    _tabs_validos = {"detalles", "comentarios", "adjuntos", "checklist", "etapas", "trazabilidad"}
     if active_tab not in _tabs_validos:
         active_tab = "detalles"
     return DETALLE_TEMPLATE.render(
@@ -1008,4 +1149,6 @@ def render_detalle_modal(
         usuarios=list(usuarios),
         etiquetas_disponibles=list(etiquetas_disponibles),
         campos_personalizados=list(campos_personalizados),
+        etapas=list(etapas),
+        catalogo_etapas=list(catalogo_etapas),
     )
