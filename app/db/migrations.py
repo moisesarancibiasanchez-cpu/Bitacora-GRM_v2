@@ -103,6 +103,11 @@ INDEXES: List[Tuple[str, str]] = [
     # FEATURE 3 — Gantt: dependencias entre tickets
     ("ix_dep_pred",            "CREATE INDEX IF NOT EXISTS ix_dep_pred ON ticket_dependencias(predecesor_id)"),
     ("ix_dep_suc",             "CREATE INDEX IF NOT EXISTS ix_dep_suc  ON ticket_dependencias(sucesor_id)"),
+    # FEATURE 4 — Etapas de proyecto (sub-bars en Gantt)
+    ("ix_etapas_orden",        "CREATE INDEX IF NOT EXISTS ix_etapas_orden      ON etapas_proyecto(orden)"),
+    ("ix_te_ticket",           "CREATE INDEX IF NOT EXISTS ix_te_ticket         ON ticket_etapas(ticket_id)"),
+    ("ix_te_etapa",            "CREATE INDEX IF NOT EXISTS ix_te_etapa          ON ticket_etapas(etapa_id)"),
+    ("ix_te_orden",            "CREATE INDEX IF NOT EXISTS ix_te_orden          ON ticket_etapas(orden)"),
 ]
 
 # Tablas que deben existir (si el modelo está presente, ``create_all``
@@ -633,6 +638,82 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
         logger.warning(
             "[migrations] data: error general insertando transiciones de Producción OK: %s",
             e,
+        )
+
+    # 4.8) Asegurar que existen las 10 etapas del catálogo UAT.
+    #      Idempotente: solo inserta las que faltan (por código). El
+    #      catálogo se usa para renderizar las sub-bars del Gantt.
+    #      Los códigos son slugs en MAYÚSCULAS que se referencian desde
+    #      TicketEtapa y nunca se borran (soft-delete via `activo=0`).
+    try:
+        etapas_seed = [
+            # (codigo,                 nombre,                                          orden, color)
+            ("ESFUERZO",   "Medición de Esfuerzo",                1,  "#3b82f6"),
+            ("ANALISIS",   "Análisis, Revisión y Aprobación",     2,  "#8b5cf6"),
+            ("DESARROLLO", "Desarrollo",                          3,  "#06b6d4"),
+            ("PRUEBAS_INT","Pruebas Internas",                    4,  "#10b981"),
+            ("ENTREGA_QA", "Entrega y despliegue en QA",          5,  "#f59e0b"),
+            ("INDUCCION",  "Inducción de HU",                     6,  "#ec4899"),
+            ("PRUEBAS_C1", "Ejecución de pruebas ciclo 1",        7,  "#ef4444"),
+            ("REV_UAT",    "Reuniones de Revisión UAT",           8,  "#a855f7"),
+            ("CORRECC",    "Correcciones y despliegue",           9,  "#0ea5e9"),
+            ("PRUEBAS_C2", "Ejecución de pruebas ciclo 2",        10, "#22c55e"),
+        ]
+        if is_pg:
+            for codigo, nombre, orden, color in etapas_seed:
+                # Comprobar existencia por código (case-sensitive)
+                existe = conn.execute(text(
+                    "SELECT 1 FROM etapas_proyecto WHERE codigo = :c LIMIT 1"
+                ), {"c": codigo}).fetchone()
+                if existe:
+                    continue
+                try:
+                    conn.execute(text(
+                        "INSERT INTO etapas_proyecto "
+                        "(codigo, nombre, orden, color, activo, "
+                        " created_at, updated_at) "
+                        "VALUES (:codigo, :nombre, :orden, :color, 1, :ts, :ts)"
+                    ), {"codigo": codigo, "nombre": nombre,
+                        "orden": orden, "color": color, "ts": ts_now})
+                    logger.info(
+                        "[migrations] data: etapa '%s' insertada (orden=%d)",
+                        codigo, orden,
+                    )
+                    total += 1
+                except Exception as e_inner:
+                    logger.warning(
+                        "[migrations] data: no se pudo insertar etapa '%s': %s",
+                        codigo, e_inner,
+                    )
+        else:
+            # SQLite: misma lógica pero con lazo separado para aislar errores
+            for codigo, nombre, orden, color in etapas_seed:
+                existe = conn.execute(text(
+                    "SELECT 1 FROM etapas_proyecto WHERE codigo = :c LIMIT 1"
+                ), {"c": codigo}).fetchone()
+                if existe:
+                    continue
+                try:
+                    conn.execute(text(
+                        "INSERT INTO etapas_proyecto "
+                        "(codigo, nombre, orden, color, activo, "
+                        " created_at, updated_at) "
+                        "VALUES (:codigo, :nombre, :orden, :color, 1, :ts, :ts)"
+                    ), {"codigo": codigo, "nombre": nombre,
+                        "orden": orden, "color": color, "ts": ts_now})
+                    logger.info(
+                        "[migrations] data: etapa '%s' insertada (orden=%d, SQLite)",
+                        codigo, orden,
+                    )
+                    total += 1
+                except Exception as e_inner:
+                    logger.warning(
+                        "[migrations] data: no se pudo insertar etapa '%s' (SQLite): %s",
+                        codigo, e_inner,
+                    )
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: error general insertando etapas del proyecto: %s", e,
         )
 
     return total

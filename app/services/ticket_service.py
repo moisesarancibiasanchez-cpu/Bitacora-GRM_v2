@@ -411,6 +411,19 @@ class TicketService:
         except Exception:
             pass
 
+        # === FEATURE 4 — Auto-asignar las 10 etapas del proyecto al ticket ===
+        # Idempotente: si el catálogo está vacío o ya existen asignaciones,
+        # no hace nada. No rompe el flujo si la tabla no existe aún.
+        try:
+            from app.services.etapa_service import EtapaService
+            EtapaService(self.db).asignar_etapas_iniciales(ticket)
+            self.db.commit()
+        except Exception:
+            logger.exception(
+                "[ticket_service] No se pudieron asignar etapas iniciales al "
+                "ticket %s — el ticket se creó igual sin etapas.", ticket.id,
+            )
+
         return ticket
 
     def _generar_codigo_ticket(self) -> str:

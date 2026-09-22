@@ -8,6 +8,8 @@ from app.api.v1 import auth, usuarios, import_export, dev_inbox, admin_uat
 from app.api.v1 import migraciones
 # === FEATURE 3 — Dependencias Gantt + import .mpp/XML ===
 from app.api.v1 import dependencias
+# === FEATURE 4 — Etapas de proyecto UAT (sub-bars en Gantt) ===
+from app.api.v1 import etapas
 
 
 api_router = APIRouter()
@@ -28,3 +30,5 @@ api_router.include_router(admin_uat.router)
 api_router.include_router(migraciones.router)
 # === FEATURE 3 — Dependencias Gantt ===
 api_router.include_router(dependencias.router)
+# === FEATURE 4 — Etapas de proyecto ===
+api_router.include_router(etapas.router)

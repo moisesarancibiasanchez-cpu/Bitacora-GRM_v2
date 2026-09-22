@@ -20,6 +20,8 @@ from app.models.butler_extras import (
 from app.models.ticket_dependencia import (
     TicketDependencia, TipoDependencia, TIPO_DEPENDENCIA_NOMBRES,
 )
+# === FEATURE 4: Etapas de proyecto UAT (sub-bars en Gantt) ===
+from app.models.etapa_proyecto import EtapaProyecto, TicketEtapa
 
 __all__ = [
     "Usuario", "RolUsuario",
@@ -39,4 +41,6 @@ __all__ = [
     "BotonTarjeta", "EjecucionBoton", "ComandoProgramado", "EjecucionComando",
     # FEATURE 3
     "TicketDependencia", "TipoDependencia", "TIPO_DEPENDENCIA_NOMBRES",
+    # FEATURE 4
+    "EtapaProyecto", "TicketEtapa",
 ]

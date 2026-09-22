@@ -1926,6 +1926,37 @@ async def vista_gantt_page(
                 .all()
             )
 
+        # === FEATURE 4 — Cargar etapas (sub-bars) de los tickets del Gantt ===
+        # Un único round-trip para todos los tickets seleccionados.
+        etapas_por_ticket: dict[int, list[dict]] = {tid: [] for tid in ticket_ids}
+        try:
+            from app.services.etapa_service import EtapaService
+            svc_etapas = EtapaService(db)
+            todas_etapas = svc_etapas.listar_etapas_para_tickets(ticket_ids)
+            for te in todas_etapas:
+                e = te.etapa
+                if e is None:
+                    continue
+                etapas_por_ticket[te.ticket_id].append({
+                    "id": te.id,
+                    "etapa_id": te.etapa_id,
+                    "etapa_codigo": e.codigo,
+                    "etapa_nombre": e.nombre,
+                    "etapa_color": e.color,
+                    "etapa_orden": e.orden,
+                    "fecha_inicio": te.fecha_inicio,
+                    "fecha_fin": te.fecha_fin,
+                    "completado": bool(te.completado),
+                    "orden": te.orden,
+                    "notas": te.notas,
+                })
+        except Exception as ex:
+            # Si la tabla aún no existe (primera migración), seguir sin sub-bars.
+            logger.warning(
+                "[vista_gantt] No se pudieron cargar etapas (tabla ausente?): %s",
+                ex,
+            )
+
         # === Datos para la vista ===
         PRIORIDAD_COLOR = {
             "critica": "#ef4444",
@@ -1957,6 +1988,8 @@ async def vista_gantt_page(
                 "archivado": bool(t.archivado),
                 "progreso": 0,
                 "hu": t.hu_o_caso_prueba,
+                # === FEATURE 4 — Sub-bars (etapas) del ticket ===
+                "etapas": etapas_por_ticket.get(t.id, []),
             })
 
         links_data = []
