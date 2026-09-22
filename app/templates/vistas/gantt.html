@@ -30,83 +30,162 @@
 
 {% block extra_css %}
 <style>
-  .gantt-wrap { overflow-x: auto; overflow-y: visible; background: #fff;
-                border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  /* === Gantt — rediseño visual 2026-09-22 ===
+     Antes: el fondo del SVG dependía del bg del <body>, varios textos
+     usaban grises muy claros que desaparecían en zoom alto, y solo había
+     scroll horizontal (overflow-y: visible).
+     Ahora:
+       - Fondo blanco EXPLÍCITO tanto en el wrap como en el SVG.
+       - Borde y sombra suaves para que el Gantt destaque como bloque.
+       - Scroll horizontal Y vertical; altura máx. limitada para activar
+         el scroll vertical cuando hay muchos tickets o sub-bars.
+       - Paleta de textos con suficiente contraste WCAG AA.
+       - Scrollbars custom para que sean visibles en macOS / Linux. */
+  .gantt-wrap {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    overflow-x: auto;   /* horizontal: timeline largo */
+    overflow-y: auto;   /* vertical:   muchos tickets / sub-bars expandidas */
+    max-height: 78vh;
+    position: relative;
+  }
+  .gantt-wrap::-webkit-scrollbar { width: 12px; height: 12px; }
+  .gantt-wrap::-webkit-scrollbar-track { background: #f1f5f9; }
+  .gantt-wrap::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 6px; border: 2px solid #f1f5f9; }
+  .gantt-wrap::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+  /* SVG interno SIEMPRE blanco (independiente del zoom o paginación) */
+  #gantt-svg { background: #ffffff; display: block; }
+
+  /* Grilla de fondo del SVG (rect que cubre toda la viewBox) */
+  .gantt-svg-canvas { fill: #ffffff; }
+  .gantt-grid-bg    { fill: #f8fafc; }   /* banda del header (mes/día) */
+
+  /* Líneas verticales del timeline */
   .gantt-grid line.day-minor { stroke: #e2e8f0; stroke-width: 1; }
   .gantt-grid line.week      { stroke: #cbd5e1; stroke-width: 1; }
   .gantt-grid line.month     { stroke: #94a3b8; stroke-width: 1.5; }
   .gantt-grid line.today     { stroke: #ef4444; stroke-width: 2; stroke-dasharray: 4 2; }
-  .gantt-grid text.month     { fill: #1e293b; font-size: 11px; font-weight: 700;
-                                font-family: 'Inter', system-ui, sans-serif; }
-  /* day-num mucho más oscuro (#475569 vs #cbd5e1 anterior) para que
-     se lea sin esfuerzo sobre fondo blanco. */
-  .gantt-grid text.day-num   { fill: #475569; font-size: 10px; font-weight: 600;
-                                font-family: 'Inter', system-ui, sans-serif; }
-  /* Banda horizontal que actúa como header de la grilla (zona reservada
-     para mes/día). Si no, los textos del header se mezclan con la primera
-     fila del Gantt. */
-  .gantt-grid-bg             { fill: #f8fafc; }
   .gantt-header-divider      { stroke: #cbd5e1; stroke-width: 1; }
-  .gantt-bar { fill: #6366f1; fill-opacity: .9; cursor: pointer;
-               transition: fill-opacity .15s ease; }
-  .gantt-bar:hover { fill-opacity: 1; stroke: #4338ca; stroke-width: 2; }
+
+  /* Textos del timeline: contraste alto sobre blanco */
+  .gantt-grid text.month     { fill: #0f172a; font-size: 11px; font-weight: 700;
+                                font-family: 'Inter', system-ui, sans-serif; }
+  .gantt-grid text.day-num   { fill: #334155; font-size: 10px; font-weight: 600;
+                                font-family: 'Inter', system-ui, sans-serif; }
+  .gantt-grid text.week-lbl  { fill: #475569; font-size: 9px; font-weight: 600;
+                                font-family: 'Inter', system-ui, sans-serif; }
+
+  /* Panel izquierdo (columna fija con código/título) */
+  .gantt-left-panel-bg { fill: #f8fafc; }                  /* fondo del panel izquierdo */
+  .gantt-left-panel-divider { stroke: #cbd5e1; stroke-width: 1; }
+  .gantt-row-text-code  { fill: #0f172a; font-size: 11px; font-weight: 700;
+                          font-family: 'Inter', system-ui, sans-serif; }
+  .gantt-row-text-title { fill: #475569; font-size: 10px; font-weight: 500;
+                          font-family: 'Inter', system-ui, sans-serif; }
+  .gantt-row-text-meta  { fill: #64748b; font-size: 9px; font-weight: 500;
+                          font-family: 'Inter', system-ui, sans-serif; }
+
+  /* Filas alternadas — mejoran lectura sobre blanco puro */
+  .gantt-row-bg       { fill: #ffffff; }
+  .gantt-row-bg:nth-of-type(even) { fill: #f8fafc; }
+  .gantt-row-bg:hover { fill: #eef2ff; }
+
+  .gantt-row-sub        { fill: #f1f5f9; }
+  .gantt-row-sub:nth-of-type(even) { fill: #e2e8f0; }
+  .gantt-row-sub:hover  { fill: #e0e7ff; }
+
+  /* Barra principal del ticket */
+  .gantt-bar { fill: #6366f1; fill-opacity: .92; cursor: pointer;
+               transition: fill-opacity .15s ease, stroke-width .15s ease; }
+  .gantt-bar:hover { fill-opacity: 1; stroke: #312e81; stroke-width: 2; }
   .gantt-bar.is-overdue { fill: #ef4444; }
   .gantt-bar.is-done    { fill: #10b981; }
   .gantt-bar.is-summary { fill: #475569; fill-opacity: .4; }
-  .gantt-bar-label { fill: white; font-size: 11px; font-weight: 600;
-                     pointer-events: none; }
-  /* === FEATURE 4: sub-bars de etapas ===
-     Notas (fix bug "click en sub-etapa no abre modal"):
-     - .gantt-subbar: lleva `pointer-events: auto` EXPLÍCITO. Aunque el
-       default de SVG es `visiblePainted`, fijar `auto` garantiza que
-       siempre reciba el click, incluso si una regla CSS externa cambiara
-       el default. El `:hover` aumenta el grosor del borde para feedback
-       visual claro.
-     - .gantt-subbar-hit: rectángulo TRANSPARENTE (fill-opacity:0) que
-       actúa como "hit area" invisible, MÁS ALTO que el sub-bar visible.
-       En modo COMPACT los sub-bars son de sólo 6px de alto (4-30px de
-       ancho en month/zoom), lo que hacía que el usuario clickeara fuera
-       del sub-bar y el evento cayera en la barra padre (abrirDetalle).
-       El hit-area de 14px de alto resuelve ese problema sin cambiar la
-       estética visual. */
-  .gantt-subbar { cursor: pointer; fill-opacity: .85;
+  .gantt-bar-label { fill: #ffffff; font-size: 11px; font-weight: 600;
+                     pointer-events: none; font-family: 'Inter', system-ui, sans-serif; }
+
+  /* === FEATURE 4: sub-bars de etapas (fix click) ===
+     Ver también las notas del commit c4dcd4b + 5644826:
+     - .gantt-subbar: pointer-events:auto EXPLICÍTO.
+     - .gantt-subbar-hit: hit-area invisible MÁS ALTA para clicks seguros. */
+  .gantt-subbar { cursor: pointer; fill-opacity: .9;
                   pointer-events: auto;
                   transition: fill-opacity .15s ease, stroke-width .15s ease; }
   .gantt-subbar:hover { fill-opacity: 1; stroke: #0f172a; stroke-width: 2; }
-  .gantt-subbar.is-empty { fill-opacity: .15; stroke-dasharray: 3 2; }
-  /* Hit-area invisible: captura clicks en un área mayor, sin afectar
-     la apariencia. Aparece *antes* del sub-bar en el DOM para que el
-     pseudo-selector `+` (hermano adyacente) aplique hover al sub-bar. */
+  .gantt-subbar.is-empty { fill-opacity: .2; stroke-dasharray: 3 2; }
   .gantt-subbar-hit { fill: transparent; fill-opacity: 0; stroke: none;
                       cursor: pointer; pointer-events: auto; }
-  .gantt-subbar-hit:hover + .gantt-subbar { fill-opacity: 1;
-                                              stroke: #0f172a;
-                                              stroke-width: 2; }
-  .gantt-subbar-label { fill: white; font-size: 9px; font-weight: 600;
-                        pointer-events: none;
-                        text-shadow: 0 1px 1px rgba(0,0,0,.35); }
+  .gantt-subbar-hit:hover + .gantt-subbar { fill-opacity: 1; stroke: #0f172a; stroke-width: 2; }
+  .gantt-subbar-label { fill: #ffffff; font-size: 9px; font-weight: 600;
+                        pointer-events: none; font-family: 'Inter', system-ui, sans-serif;
+                        text-shadow: 0 1px 2px rgba(15, 23, 42, .55); }
+
+  /* Dot etapa del panel izquierdo (modo COMPACT) */
   .gantt-stage-dot { cursor: pointer; }
   .gantt-stage-dot:hover rect { stroke: #0f172a; stroke-width: 1.5; }
-  .gantt-auto-fs { fill: none; stroke: #0ea5e9; stroke-width: 1;
-                   stroke-dasharray: 2 2; opacity: .55; }
-  .gantt-link path { fill: none; stroke: #475569; stroke-width: 1.5;
-                     marker-end: url(#arrow-head); opacity: .85; }
+
+  /* Flechas: dependencias inter-ticket y auto-FS intra-ticket */
+  .gantt-auto-fs { fill: none; stroke: #0ea5e9; stroke-width: 1.2;
+                   stroke-dasharray: 3 3; opacity: .65; }
+
+  .gantt-link path { fill: none; stroke: #475569; stroke-width: 1.6;
+                     marker-end: url(#arrow-head); opacity: .9; }
   .gantt-link path.fs { stroke: #6366f1; }
   .gantt-link path.ss { stroke: #f59e0b; }
   .gantt-link path.ff { stroke: #10b981; }
   .gantt-link path.sf { stroke: #ec4899; }
-  .gantt-row-bg:nth-child(even) { fill: #f8fafc; }
-  .gantt-row-bg:hover { fill: #eef2ff; }
-  /* Fila de sub-etapa: fondo más sutil para distinguirla del header */
-  .gantt-row-sub { fill: #fafafa; }
-  .gantt-row-sub:nth-child(even) { fill: #f1f5f9; }
-  .gantt-row-sub:hover { fill: #e0e7ff; }
-  .gantt-section-header { fill: #1e293b; font-size: 12px; font-weight: 700;
-                          text-transform: uppercase; letter-spacing: .04em; }
+
   /* Botón de toggle expand/collapse de sub-bars */
-  .gantt-toggle { cursor: pointer; fill: #475569; font-size: 11px;
-                  font-weight: 700; user-select: none; }
+  .gantt-toggle { cursor: pointer; fill: #475569; font-size: 12px;
+                  font-weight: 700; user-select: none;
+                  font-family: 'Inter', system-ui, sans-serif; }
   .gantt-toggle:hover { fill: #1e293b; }
+
+  .gantt-section-header { fill: #1e293b; font-size: 12px; font-weight: 700;
+                          text-transform: uppercase; letter-spacing: .04em;
+                          font-family: 'Inter', system-ui, sans-serif; }
+
+  /* Leyenda de tipos de dependencia — rediseñada */
+  .gantt-legend-card {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .gantt-legend-card .legend-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: #475569;
+  }
+  .gantt-legend-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border-radius: 999px;
+    background: #ffffff; border: 1px solid #e2e8f0;
+    font-size: 11px; font-weight: 600; color: #1e293b;
+  }
+  .gantt-legend-chip .legend-swatch { width: 18px; height: 4px; border-radius: 2px; }
+  .gantt-legend-chip .legend-swatch.dashed { background: repeating-linear-gradient(
+      to right, #0ea5e9 0 4px, transparent 4px 7px); }
+  .gantt-legend-hint { font-size: 10.5px; color: #64748b; }
+  .gantt-legend-hint kbd {
+    background: #f1f5f9; border: 1px solid #cbd5e1; border-bottom-width: 2px;
+    padding: 0 4px; border-radius: 4px; font-family: ui-monospace, monospace;
+    font-size: 10px; color: #0f172a;
+  }
+
+  /* Helper: leyenda de etapas (los chips de color por etapa) */
+  #etapas-legend .legend-stage-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+  }
+  #etapas-legend .legend-stage-dot {
+    width: 10px; height: 10px; border-radius: 999px; display: inline-block;
+  }
 
   /* HTMX indicator: oculto por defecto, visible durante el request */
   .htmx-indicator { display: none; }
@@ -173,14 +252,42 @@
   </header>
 
   {# ============ Leyenda ============ #}
-  <div class="bg-white rounded-lg px-3 py-2 mb-2 shadow-sm flex flex-wrap items-center gap-3 text-xs">
-    <span class="font-semibold text-slate-700">Tipos de dependencia:</span>
-    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-indigo-500"></span> FS (Fin → Inicio)</span>
-    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-amber-500"></span> SS (Inicio → Inicio)</span>
-    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-emerald-500"></span> FF (Fin → Fin)</span>
-    <span class="inline-flex items-center gap-1"><span class="w-6 h-0.5 bg-pink-500"></span> SF (Inicio → Fin)</span>
-    <span class="inline-flex items-center gap-1 ml-2"><span class="w-6 h-0.5 bg-sky-500" style="border-top: 1px dashed #0ea5e9; background: none"></span> Auto-FS etapas (intra-ticket)</span>
-    <span class="ml-auto text-slate-500">Click en una barra → abre el detalle · Click en sub-etapa → edita fechas</span>
+  {# === Leyenda rediseñada 2026-09-22 ===
+       Antes: mezcla de texto plano sin swatches claros, sin card visible,
+       y el "Auto-FS" se representaba con un span con style inline en
+       border-top que se rompía en algunos browsers.
+       Ahora: card con título, chips tipo pill, swatches explícitos y
+       hint con <kbd> para interacciones. Layout responsive (flex-wrap). #}
+  <div class="gantt-legend-card flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+    <span class="legend-title mr-1">Tipos de dependencia</span>
+    <span class="gantt-legend-chip">
+      <span class="legend-swatch" style="background:#6366f1"></span>
+      <span>FS · Fin → Inicio</span>
+    </span>
+    <span class="gantt-legend-chip">
+      <span class="legend-swatch" style="background:#f59e0b"></span>
+      <span>SS · Inicio → Inicio</span>
+    </span>
+    <span class="gantt-legend-chip">
+      <span class="legend-swatch" style="background:#10b981"></span>
+      <span>FF · Fin → Fin</span>
+    </span>
+    <span class="gantt-legend-chip">
+      <span class="legend-swatch" style="background:#ec4899"></span>
+      <span>SF · Inicio → Fin</span>
+    </span>
+    <span class="gantt-legend-chip">
+      <span class="legend-swatch dashed"></span>
+      <span>Auto-FS etapas (intra-ticket)</span>
+    </span>
+
+    {# Hint de interacción, empujado al final con ml-auto #}
+    <span class="gantt-legend-hint ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span><kbd>Click</kbd> en barra → detalle del ticket</span>
+      <span><kbd>Click</kbd> en sub-etapa → editar fechas</span>
+      <span><kbd>Doble-click</kbd> → detalle rápido</span>
+      <span><kbd>Click-der</kbd> → menú contextual</span>
+    </span>
   </div>
 
   {# ============ SVG Gantt ============ #}
@@ -556,8 +663,15 @@ function render() {
   svg.setAttribute('viewBox', `0 0 ${totalW} ${totalHeight}`);
 
   // ---- Banda de fondo del header (no más superposiciones) ----
+  // Capa 0: lienzo blanco que ocupa todo el viewBox (evita "fondo negro"
+  // cuando el body del navegador proyecta cualquier color oscuro detrás del SVG).
   const grid = document.getElementById('gantt-grid');
   grid.innerHTML = '';
+  grid.innerHTML += `<rect class="gantt-svg-canvas" x="0" y="0" width="${totalW}" height="${totalHeight}"/>`;
+  // Capa 1: fondo del panel izquierdo (columna de etiquetas), para
+  // distinguirlo visualmente del área del timeline.
+  grid.innerHTML += `<rect class="gantt-left-panel-bg" x="0" y="0" width="${LEFT_PANEL}" height="${totalHeight}"/>`;
+  // Capa 2: banda del header (encima de las anteriores, sobre la zona del timeline)
   grid.innerHTML += `<rect class="gantt-grid-bg" x="0" y="0" width="${totalW}" height="${HEADER_HEIGHT}"/>`;
   grid.innerHTML += `<line class="gantt-header-divider" x1="0" y1="${HEADER_HEIGHT}" x2="${totalW}" y2="${HEADER_HEIGHT}"/>`;
 
@@ -614,10 +728,10 @@ function render() {
 
     // Código truncado
     const codigoCorto = truncateText(t.codigo || '', 10);
-    rows.innerHTML += `<text x="16" y="${row.headerY + 22}" font-size="11" fill="#0f172a" font-weight="600">${escapeHtml(codigoCorto)}</text>`;
+    rows.innerHTML += `<text class="gantt-row-text-code" x="16" y="${row.headerY + 22}">${escapeHtml(codigoCorto)}</text>`;
     // Título truncado
     const tituloCorto = truncateText(t.titulo || '', 22);
-    rows.innerHTML += `<text x="100" y="${row.headerY + 22}" font-size="10" fill="#475569">${escapeHtml(tituloCorto)}</text>`;
+    rows.innerHTML += `<text class="gantt-row-text-title" x="100" y="${row.headerY + 22}">${escapeHtml(tituloCorto)}</text>`;
 
     // En modo COMPACT: tira de dots de etapas en el panel izquierdo
     if (!isExpanded && hasEtapas) {
@@ -640,7 +754,7 @@ function render() {
     }
   });
   // Separador vertical del panel izquierdo
-  rows.innerHTML += `<line x1="${LEFT_PANEL}" y1="0" x2="${LEFT_PANEL}" y2="${totalHeight}" stroke="#cbd5e1" stroke-width="1"/>`;
+  rows.innerHTML += `<line class="gantt-left-panel-divider" x1="${LEFT_PANEL}" y1="0" x2="${LEFT_PANEL}" y2="${totalHeight}"/>`;
 
   // ---- Barras de tickets (solo en filas header, NO en sub-rows) ----
   const bars = document.getElementById('gantt-bars');
