@@ -55,11 +55,33 @@
   .gantt-bar.is-summary { fill: #475569; fill-opacity: .4; }
   .gantt-bar-label { fill: white; font-size: 11px; font-weight: 600;
                      pointer-events: none; }
-  /* === FEATURE 4: sub-bars de etapas === */
+  /* === FEATURE 4: sub-bars de etapas ===
+     Notas (fix bug "click en sub-etapa no abre modal"):
+     - .gantt-subbar: lleva `pointer-events: auto` EXPLÍCITO. Aunque el
+       default de SVG es `visiblePainted`, fijar `auto` garantiza que
+       siempre reciba el click, incluso si una regla CSS externa cambiara
+       el default. El `:hover` aumenta el grosor del borde para feedback
+       visual claro.
+     - .gantt-subbar-hit: rectángulo TRANSPARENTE (fill-opacity:0) que
+       actúa como "hit area" invisible, MÁS ALTO que el sub-bar visible.
+       En modo COMPACT los sub-bars son de sólo 6px de alto (4-30px de
+       ancho en month/zoom), lo que hacía que el usuario clickeara fuera
+       del sub-bar y el evento cayera en la barra padre (abrirDetalle).
+       El hit-area de 14px de alto resuelve ese problema sin cambiar la
+       estética visual. */
   .gantt-subbar { cursor: pointer; fill-opacity: .85;
+                  pointer-events: auto;
                   transition: fill-opacity .15s ease, stroke-width .15s ease; }
-  .gantt-subbar:hover { fill-opacity: 1; stroke: #0f172a; stroke-width: 1.5; }
+  .gantt-subbar:hover { fill-opacity: 1; stroke: #0f172a; stroke-width: 2; }
   .gantt-subbar.is-empty { fill-opacity: .15; stroke-dasharray: 3 2; }
+  /* Hit-area invisible: captura clicks en un área mayor, sin afectar
+     la apariencia. Aparece *antes* del sub-bar en el DOM para que el
+     pseudo-selector `+` (hermano adyacente) aplique hover al sub-bar. */
+  .gantt-subbar-hit { fill: transparent; fill-opacity: 0; stroke: none;
+                      cursor: pointer; pointer-events: auto; }
+  .gantt-subbar-hit:hover + .gantt-subbar { fill-opacity: 1;
+                                              stroke: #0f172a;
+                                              stroke-width: 2; }
   .gantt-subbar-label { fill: white; font-size: 9px; font-weight: 600;
                         pointer-events: none;
                         text-shadow: 0 1px 1px rgba(0,0,0,.35); }
@@ -678,12 +700,19 @@ function render() {
           const dFin = e.fecha_fin ? new Date(e.fecha_fin) : dIni;
           const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
           const w = Math.max(6, daysBetween(dIni, dFin) * cellW);
+          // Hit-area invisible (16px de alto) — captura clicks aunque el
+          // sub-bar visible sea más pequeño. Va ANTES del sub-bar para
+          // que el selector CSS `+` aplique el :hover al hermano siguiente.
+          subG.innerHTML += `<rect class="gantt-subbar-hit"
+                              x="${x - 2}" y="${subY - 1}" width="${w + 4}" height="${SUBBAR_HEIGHT + 2}"
+                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
+                              <title>${escapeHtml(tooltip)}</title>
+                             </rect>`;
           subG.innerHTML += `<rect class="gantt-subbar ${e.completado ? '' : ''}"
                               x="${x}" y="${subY}" width="${w}" height="${SUBBAR_HEIGHT}" rx="2"
                               fill="${e.etapa_color}" fill-opacity="0.9"
                               stroke="${e.etapa_color}"
                               data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              onclick="abrirEtapaModal(${t.id}, ${e.etapa_id})"
                               style="cursor: pointer;">
                               <title>${escapeHtml(tooltip)}</title>
                              </rect>`;
@@ -695,11 +724,15 @@ function render() {
         } else {
           // Sin planificar: dot pequeño en x = LEFT_PANEL o alineado con la barra padre
           const parentStartX = LEFT_PANEL; // no tenemos el start del ticket, usamos origen del rango
+          subG.innerHTML += `<rect class="gantt-subbar-hit"
+                              x="${parentStartX - 2}" y="${subY - 1}" width="10" height="${SUBBAR_HEIGHT + 2}"
+                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
+                              <title>${escapeHtml(tooltip)}\nClick para planificar</title>
+                             </rect>`;
           subG.innerHTML += `<rect class="gantt-subbar is-empty"
                               x="${parentStartX}" y="${subY}" width="6" height="${SUBBAR_HEIGHT}" rx="1"
                               fill="${e.etapa_color}"
                               data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              onclick="abrirEtapaModal(${t.id}, ${e.etapa_id})"
                               style="cursor: pointer;">
                               <title>${escapeHtml(tooltip)}\nClick para planificar</title>
                              </rect>`;
@@ -707,11 +740,18 @@ function render() {
         }
       });
     } else {
-      // Modo COMPACT: mini-bars dentro de la barra padre (mitad superior)
+      // Modo COMPACT: mini-bars dentro de la barra padre (mitad superior).
+      // Los mini-bars aquí son DIMINUTOS (4-30px de ancho × 6px de alto
+      // en zoom day/week/month). Por eso añadimos SIEMPRE un rect invisible
+      // "hit-area" de ~14px de alto *delante* de cada sub-bar para que el
+      // click SIEMPRE impacte al sub-bar y NO a la barra padre (gantt-bar),
+      // que abriría el detalle del ticket en lugar del modal de etapa.
       const parentX = LEFT_PANEL + (t.inicio ? daysBetween(range.start, new Date(t.inicio)) * cellW : 0);
       const parentW = Math.max(8, daysBetween(new Date(t.inicio), new Date(t.fin)) * cellW);
       const innerY = row.headerY + (ROW_HEIGHT - BAR_HEIGHT) / 2 + 1;
       const innerH = 6;
+      const hitH = 14;          // hit-area: 14px de alto (≈ 2.3× el sub-bar)
+      const hitY = innerY - 4;  // centrado vertical sobre innerY
       const startX = LEFT_PANEL;
       // Banda de fondo sutil sobre la barra padre
       subG.innerHTML += `<rect x="${parentX + 1}" y="${innerY}" width="${Math.max(2, parentW - 2)}" height="${BAR_HEIGHT - 2}" rx="2"
@@ -725,22 +765,31 @@ function render() {
           const dFin = e.fecha_fin ? new Date(e.fecha_fin) : dIni;
           const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
           const w = Math.max(4, daysBetween(dIni, dFin) * cellW);
+          // Hit-area invisible (va ANTES del sub-bar visible)
+          subG.innerHTML += `<rect class="gantt-subbar-hit"
+                              x="${x - 2}" y="${hitY}" width="${w + 4}" height="${hitH}"
+                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
+                              <title>${escapeHtml(tooltip)}\nClick para editar</title>
+                             </rect>`;
           subG.innerHTML += `<rect class="gantt-subbar"
                               x="${x}" y="${innerY}" width="${w}" height="${innerH}" rx="1"
                               fill="${e.etapa_color}" fill-opacity="0.95"
                               stroke="${e.etapa_color}"
                               data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              onclick="abrirEtapaModal(${t.id}, ${e.etapa_id})"
                               style="cursor: pointer;">
                               <title>${escapeHtml(tooltip)}\nClick para editar</title>
                              </rect>`;
         } else {
           // Marcador vacío en el inicio del rango (queda sobre la barra padre si overlap)
+          subG.innerHTML += `<rect class="gantt-subbar-hit"
+                              x="${startX - 2}" y="${hitY}" width="10" height="${hitH}"
+                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
+                              <title>${escapeHtml(tooltip)}\nClick para planificar</title>
+                             </rect>`;
           subG.innerHTML += `<rect class="gantt-subbar is-empty"
                               x="${startX}" y="${innerY}" width="4" height="${innerH}" rx="1"
                               fill="${e.etapa_color}"
                               data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              onclick="abrirEtapaModal(${t.id}, ${e.etapa_id})"
                               style="cursor: pointer;">
                               <title>${escapeHtml(tooltip)}\nClick para planificar</title>
                              </rect>`;
@@ -829,10 +878,38 @@ function updateToggleAllButton() {
 // FEATURE 4: Modal para editar fechas / notas de una etapa
 // ============================================================
 function abrirEtapaModal(ticketId, etapaId) {
+  // === FEATURE 4 — Fix bug "click en sub-etapa no abre modal" ===
+  // Antes: si el ticket o la etapa no se encontraban en TICKETS, la
+  // función retornaba SILENCIOSAMENTE (sin log, sin UI), por lo que el
+  // usuario no tenía forma de saber por qué el click no abría el modal.
+  // Ahora: validamos cada paso, dejamos trazas en consola y mostramos
+  // un toast (que reutiliza `_toastGantt`) para que la falla sea visible.
   const t = TICKETS.find(x => x.id === ticketId);
-  if (!t) return;
+  if (!t) {
+    console.error(
+      '[abrirEtapaModal] Ticket %s no encontrado en TICKETS. ' +
+      'TICKETS.length=%s, primeros IDs=%s',
+      ticketId, TICKETS.length,
+      TICKETS.slice(0, 5).map(x => x.id).join(','),
+    );
+    if (typeof _toastGantt === 'function') {
+      _toastGantt(`Ticket #${ticketId} no encontrado en el Gantt`, 'err');
+    }
+    return;
+  }
   const e = (t.etapas || []).find(x => x.etapa_id === etapaId);
-  if (!e) return;
+  if (!e) {
+    console.error(
+      '[abrirEtapaModal] Etapa %s no encontrada en ticket %s. ' +
+      'Etapas disponibles: %s',
+      etapaId, ticketId,
+      (t.etapas || []).map(x => `${x.etapa_id}(${x.etapa_nombre || '?'})`).join(', '),
+    );
+    if (typeof _toastGantt === 'function') {
+      _toastGantt(`Sub-etapa #${etapaId} no encontrada en el ticket`, 'err');
+    }
+    return;
+  }
   document.getElementById('etapa-edit-ticket-id').value = ticketId;
   document.getElementById('etapa-edit-etapa-id').value  = etapaId;
   document.getElementById('etapa-edit-title').textContent = `${e.etapa_orden}. ${e.etapa_nombre}`;
@@ -845,7 +922,28 @@ function abrirEtapaModal(ticketId, etapaId) {
   document.getElementById('etapa-edit-notas').value  = e.notas || '';
   document.getElementById('etapa-edit-result').innerHTML = '';
   const m = document.getElementById('etapa-edit-modal');
-  if (m && typeof m.showModal === 'function') m.showModal();
+  if (!m) {
+    console.error('[abrirEtapaModal] #etapa-edit-modal no existe en el DOM');
+    if (typeof _toastGantt === 'function') {
+      _toastGantt('Modal de edición de etapa no disponible', 'err');
+    }
+    return;
+  }
+  if (typeof m.showModal !== 'function') {
+    console.error('[abrirEtapaModal] dialog.showModal no soportado por el navegador');
+    if (typeof _toastGantt === 'function') {
+      _toastGantt('Tu navegador no soporta <dialog> modal', 'err');
+    }
+    return;
+  }
+  try {
+    m.showModal();
+  } catch (err) {
+    console.error('[abrirEtapaModal] showModal() lanzó excepción:', err);
+    if (typeof _toastGantt === 'function') {
+      _toastGantt(`No se pudo abrir el modal: ${err.message || err}`, 'err');
+    }
+  }
 }
 function cerrarEtapaModal() {
   const m = document.getElementById('etapa-edit-modal');
@@ -1121,9 +1219,44 @@ document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
 document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
   const target = ev.target.closest('[data-etapa-id]');
   if (!target) return;
+  // Evitamos doble-trigger: si el click burbujea desde un sub-bar del
+  // panel derecho (gantt-subbars), ya lo maneja el listener de abajo.
+  if (target.closest('#gantt-subbars')) return;
   const tid = parseInt(target.dataset.ticketId, 10);
   const eid = parseInt(target.dataset.etapa_id, 10);
   if (Number.isFinite(tid) && Number.isFinite(eid)) abrirEtapaModal(tid, eid);
+});
+
+// === FEATURE 4 — Fix bug "click en sub-etapa no abre modal" ===
+// ANTES: los sub-bars usaban `onclick="abrirEtapaModal(...)"` inline sobre
+// el rect generado con innerHTML. Esto tenía varios problemas:
+//   1. Si el evento fallaba (CSP, race condition, etc.) no había fallback.
+//   2. En modo COMPACT los sub-bars son diminutos (4-30px × 6px) y muchos
+//      clicks caían en la barra padre (gantt-bar.onclick=abrirDetalle),
+//      abriendo el detalle del ticket en lugar del modal de etapa.
+//   3. Sin hit-area grande, el usuario clickeaba "fuera" del sub-bar.
+//
+// FIX: event delegation sobre el grupo #gantt-subbars. Capturamos TODOS
+// los clicks en cualquier elemento con [data-etapa-id] dentro del grupo,
+// paramos la propagación para no abrir el detalle del ticket padre, y
+// llamamos a abrirEtapaModal con los IDs parseados de los data-attrs.
+// Combinado con las hit-areas invisibles (.gantt-subbar-hit) que se
+// renderizan DELANTE de cada sub-bar visible, ahora SIEMPRE se impacta
+// el sub-bar primero, no la barra padre.
+document.getElementById('gantt-subbars')?.addEventListener('click', (ev) => {
+  const target = ev.target.closest('[data-etapa-id]');
+  if (!target) return;
+  // CRÍTICO: stopPropagation evita que el click "atraviese" el sub-bar y
+  // active el onclick de la gantt-bar padre (abrirDetalle).
+  ev.stopPropagation();
+  ev.preventDefault();
+  const tid = parseInt(target.dataset.ticketId, 10);
+  const eid = parseInt(target.dataset.etapa_id, 10);
+  if (Number.isFinite(tid) && Number.isFinite(eid)) {
+    abrirEtapaModal(tid, eid);
+  } else {
+    console.warn('[gantt-subbars] data-attrs inválidos en click', target);
+  }
 });
 
 // Recargar Gantt tras crear dependencia
