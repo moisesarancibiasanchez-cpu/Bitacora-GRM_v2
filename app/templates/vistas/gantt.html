@@ -1216,14 +1216,31 @@ document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
 });
 
 // Click en dot del panel izquierdo (modo compact) → abrir modal de etapa
+// === FIX 2026-09-22: usar getAttribute('data-etapa-id') en vez de
+// `dataset.etapa_id` (que es `undefined` porque `data-etapa-id` se mapea
+// a `dataset.etapaId`, NO a `dataset.etapa_id`). Con el nombre mal
+// mapeado, parseInt devolvía NaN, Number.isFinite() era false y el
+// click se ignoraba silenciosamente. Este bug rompía tanto el click
+// en sub-etapa como el menú contextual "Editar etapas" que llama a
+// la misma función. Aplicamos la misma corrección al listener del
+// grupo #gantt-subbars (abajo).
+function _etapaIdFromTarget(target) {
+  // getAttribute es robusto: no depende de la conversión camelCase
+  // del dataset API. Acepta tanto el ID como string numérico.
+  const tidRaw = target.getAttribute('data-ticket-id');
+  const eidRaw = target.getAttribute('data-etapa-id');
+  const tid = parseInt(tidRaw, 10);
+  const eid = parseInt(eidRaw, 10);
+  return { tid, eid };
+}
+
 document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
   const target = ev.target.closest('[data-etapa-id]');
   if (!target) return;
   // Evitamos doble-trigger: si el click burbujea desde un sub-bar del
   // panel derecho (gantt-subbars), ya lo maneja el listener de abajo.
   if (target.closest('#gantt-subbars')) return;
-  const tid = parseInt(target.dataset.ticketId, 10);
-  const eid = parseInt(target.dataset.etapa_id, 10);
+  const { tid, eid } = _etapaIdFromTarget(target);
   if (Number.isFinite(tid) && Number.isFinite(eid)) abrirEtapaModal(tid, eid);
 });
 
@@ -1243,6 +1260,11 @@ document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
 // Combinado con las hit-areas invisibles (.gantt-subbar-hit) que se
 // renderizan DELANTE de cada sub-bar visible, ahora SIEMPRE se impacta
 // el sub-bar primero, no la barra padre.
+//
+// === FIX 2026-09-22 (regresión): usar getAttribute para leer los
+// data-attrs. `dataset.etapa_id` es undefined (el nombre correcto es
+// `dataset.etapaId`); por eso el handler nunca abría el modal. Lo
+// reemplazamos por una helper robusta.
 document.getElementById('gantt-subbars')?.addEventListener('click', (ev) => {
   const target = ev.target.closest('[data-etapa-id]');
   if (!target) return;
@@ -1250,8 +1272,7 @@ document.getElementById('gantt-subbars')?.addEventListener('click', (ev) => {
   // active el onclick de la gantt-bar padre (abrirDetalle).
   ev.stopPropagation();
   ev.preventDefault();
-  const tid = parseInt(target.dataset.ticketId, 10);
-  const eid = parseInt(target.dataset.etapa_id, 10);
+  const { tid, eid } = _etapaIdFromTarget(target);
   if (Number.isFinite(tid) && Number.isFinite(eid)) {
     abrirEtapaModal(tid, eid);
   } else {
