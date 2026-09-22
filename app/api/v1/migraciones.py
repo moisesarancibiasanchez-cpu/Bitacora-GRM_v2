@@ -94,3 +94,83 @@ def preview_migracion_gar(
         "serian_actualizados": total - ya_en_destino,
         "distribucion_actual": por_tipo,
     }
+
+
+# ----------------------------------------------------------------------- #
+# Bulk update de fechas para tarjetas ``GAR_RI_*`` en BACKLOG
+# ----------------------------------------------------------------------- #
+@router.post("/gar-ri-fechas-backlog")
+def ejecutar_bulk_update_gar_ri_fechas(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Aplica bulk update de ``fecha_inicio`` (2026-10-02) y
+    ``fecha_vencimiento_sla`` (2026-11-19) a todas las tarjetas cuyo
+    ``codigo`` empieza con ``GAR_RI_`` y están en estado ``BACKLOG``.
+
+    - **Idempotente**: tickets que ya tienen esas dos fechas exactas se
+      saltan (no se actualiza ni se insiere auditoría duplicada).
+    - **Auditado**: cada cambio inserta un registro en ``auditoria`` con
+      acción ``bulk_update_fechas_backlog`` y etiqueta
+      ``bulk_update_fechas_backlog:v1`` para trazabilidad y reversión.
+    - **Admin only**: requiere rol ``administrador``.
+    - **No recalcula SLA en background**: si en el futuro se requiere,
+      integrar con la tarea Celery ``recalcular_sla_ticket.delay``.
+
+    Returns
+    -------
+    dict
+        Resumen con conteos y los IDs tocados. Ver
+        ``scripts.bulk_update_fechas_gar_ri_backlog.ejecutar_bulk_update``.
+    """
+    try:
+        from scripts.bulk_update_fechas_gar_ri_backlog import ejecutar_bulk_update
+
+        resumen = ejecutar_bulk_update(apply_changes=True)
+        logger.info(
+            "[migracion/gar-ri-fechas] admin ejecutó bulk update: actualizados=%d",
+            resumen.get("actualizados", 0),
+        )
+        if resumen.get("errores"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "msg": "Errores durante el bulk update",
+                    "errores": resumen["errores"],
+                },
+            )
+        return resumen
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("[migracion/gar-ri-fechas] Error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al ejecutar el bulk update: {exc}",
+        )
+
+
+@router.get("/gar-ri-fechas-backlog/preview")
+def preview_bulk_update_gar_ri_fechas(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Devuelve cuántos tickets ``GAR_RI_*`` en BACKLOG serían modificados,
+    SIN modificarlos. Útil para revisar antes de ejecutar.
+
+    Returns
+    -------
+    dict
+        Conteos: ``total_encontrados``, ``ya_con_fechas``,
+        ``serian_actualizados``, ``estado_usado``, ``estado_id``.
+    """
+    try:
+        from scripts.bulk_update_fechas_gar_ri_backlog import ejecutar_bulk_update
+
+        return ejecutar_bulk_update(apply_changes=False)
+    except Exception as exc:
+        logger.exception("[migracion/gar-ri-fechas-preview] Error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error en preview: {exc}",
+        )
