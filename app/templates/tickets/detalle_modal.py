@@ -99,7 +99,7 @@ DETALLE_TEMPLATE = Template(r"""
     </div>
 
     <!-- ============== BODY ============== -->
-    <div class="flex-1 overflow-y-auto">
+    <div class="flex-1 overflow-y-auto overflow-x-auto">
 
       <!-- Tab: Detalles -->
       <div class="tab-panel {% if _active != 'detalles' %}hidden{% endif %} p-5 space-y-4" data-panel="detalles">
@@ -856,13 +856,15 @@ DETALLE_TEMPLATE = Template(r"""
           {% endif %}
         </div>
 
-        {# Listado de etapas: cada fila es editable inline #}
-        <div class="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
+        {# Listado de etapas: cada fila es editable inline.
+           SIN max-h interno: el scroll vertical del BODY del modal (línea 102)
+           debe cubrir las 10 tarjetas + footer sin clipping. #}
+        <div class="space-y-1.5 pr-1 overflow-x-auto">
           {% if etapas %}
             {# Ordenar por etapa_orden ASC para que se vean siempre 1..10 #}
             {% set _etapas_sorted = etapas|sort(attribute='etapa_orden') %}
             {% for te in _etapas_sorted %}
-              <div class="rounded-lg border border-slate-200 bg-white p-2.5 hover:border-slate-300 transition-colors">
+              <div class="rounded-lg border border-slate-200 bg-white p-2.5 hover:border-slate-300 transition-colors overflow-x-auto">
                 <form hx-patch="/api/v1/etapas/ticket/{{ ticket.id }}/{{ te.etapa_id }}"
                       hx-target="#modal-root" hx-swap="innerHTML"
                       hx-trigger="change from:input, change from:select, click from:input[type='checkbox']"

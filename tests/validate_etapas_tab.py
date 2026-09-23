@@ -191,6 +191,40 @@ def main() -> int:
         "Color dot usa te.etapa_color inline",
     )
 
+    # --- 1d-bis) SCROLL: vertical cubre TODO + horizontal disponible -----
+    # El scroll vertical debe ser del BODY del modal (línea 102), no de un
+    # contenedor anidado. Verificamos que NO exista el max-h-[60vh] que
+    # recortaba las etapas en el scroll anidado anterior.
+    assert_(
+        "max-h-[60vh]" not in panel_body,
+        "Panel 'etapas' NO tiene max-h-[60vh] anidado (scroll vertical del body cubre todo)",
+    )
+    # El contenedor de la lista debe permitir scroll horizontal
+    assert_(
+        re.search(
+            r'<div[^>]*class="space-y-1\.5[^"]*overflow-x-auto[^"]*"',
+            panel_body,
+        ) is not None,
+        "Lista de etapas tiene overflow-x-auto (scroll horizontal disponible)",
+    )
+    # Cada tarjeta de etapa debe permitir scroll horizontal
+    assert_(
+        re.search(
+            r'<div[^>]*class="rounded-lg[^"]*overflow-x-auto[^"]*"',
+            panel_body,
+        ) is not None,
+        "Cada tarjeta de etapa tiene overflow-x-auto (scroll horizontal interno)",
+    )
+    # El BODY del modal debe soportar ambos scrolls (vertical y horizontal)
+    body_match = re.search(
+        r'<div[^>]*class="flex-1 overflow-y-auto overflow-x-auto"[^>]*>',
+        detalle_text,
+    )
+    assert_(
+        body_match is not None,
+        "BODY del modal tiene flex-1 overflow-y-auto overflow-x-auto (scroll V+H)",
+    )
+
     # --- 1e) Footer / progreso ------------------------------------------
     assert_(
         "_etapas_done" in panel_body and "_etapas_pct" in panel_body,
