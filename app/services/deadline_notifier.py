@@ -134,7 +134,7 @@ def _crear_notificacion(
         ticket_id=ticket.id,
         tipo=trigger,
         titulo=f"[{TRIGGER_DESCRIPCIONES.get(trigger, trigger)}] {ticket.codigo}",
-        cuerpo=_cuerpo_notificacion(ticket, trigger),
+        mensaje=_cuerpo_notificacion(ticket, trigger),
         leida=False,
     )
     db.add(notif)

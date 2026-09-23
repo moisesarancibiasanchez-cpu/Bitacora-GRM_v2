@@ -26,9 +26,11 @@ class Auditoria(Base, TimestampMixin):
         Integer, ForeignKey("tickets.id", ondelete="CASCADE"),
         nullable=True, index=True
     )
+    # ``usuario_id`` es NULL para eventos del sistema (deadline_notifier,
+    # triggers automáticos). Ver scripts/migrar_auditoria_usuario_id_nullable.py.
     usuario_id = Column(
         Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"),
-        nullable=False, index=True
+        nullable=True, index=True
     )
     accion = Column(String(80), nullable=False, index=True)
     valor_anterior = Column(JSON, nullable=True)

@@ -285,6 +285,17 @@ def validate_no_regression() -> None:
         "Servicio notificar_responsable_columna() sin cambios",
     )
 
+    # BUG-3 (2026-09-24): Notificacion requiere campo 'mensaje', no 'cuerpo'.
+    # Si alguien vuelve a usar 'cuerpo=', los 4 triggers rompen al commit().
+    check(
+        "cuerpo=" not in dn_text,
+        "BUG-3: _crear_notificacion() NO usa 'cuerpo=' (campo inexistente)",
+    )
+    check(
+        "mensaje=_cuerpo_notificacion(ticket, trigger)" in dn_text,
+        "BUG-3: _crear_notificacion() usa 'mensaje=' correctamente",
+    )
+
     # Email service — las 3 plantillas
     es_path = Path("/workspace/app/services/email_service.py")
     es_text = es_path.read_text(encoding="utf-8")
@@ -512,6 +523,50 @@ def smoke_test_end_to_end() -> None:
                 f"_enviar_email() devuelve {'OK' if err is None else f'error: {err}'} "
                 "(antes lanzaba excepción por get_email_service inexistente)",
             )
+
+            # 7) BUG-3 (2026-09-24): ejecutar trigger_deadline_today() REAL
+            #    con commit, para detectar bug de campo inexistente.
+            from datetime import datetime, timedelta
+            from app.services.deadline_notifier import trigger_deadline_today
+            from app.models.watch import Notificacion
+
+            # Crear ticket que vence HOY (cumple condición del trigger)
+            ticket_hoy = Ticket(
+                codigo="TEST-HOY-001", titulo="Vence hoy",
+                descripcion="Para BUG-3", tipo=TipoIncidencia.INCIDENCIA,
+                prioridad=Prioridad.ALTA,
+                estado_id=estado.id, creador_id=agente.id,
+                asignado_id=agente.id,
+                fecha_inicio=datetime.utcnow(),
+                fecha_vencimiento_sla=datetime.utcnow(),
+                resultado_pruebas=None,
+            )
+            db.add(ticket_hoy)
+            db.flush()
+
+            # Ejecutar el trigger y DEJAR que commitee
+            try:
+                res_trigger = trigger_deadline_today(db)
+                db.commit()
+                # Verificar que la Notificación se creó (no se quedó en limbo)
+                notif_creada = db.query(Notificacion).filter(
+                    Notificacion.ticket_id == ticket_hoy.id,
+                    Notificacion.tipo == "deadline_today",
+                ).first()
+                check(
+                    notif_creada is not None,
+                    f"BUG-3: trigger_deadline_today() COMMIT OK y creó Notificacion "
+                    f"(mensaje='{notif_creada.mensaje[:50] if notif_creada else None}...')",
+                )
+            except Exception as exc:
+                # Si falla el commit, REVERTIR el state
+                db.rollback()
+                check(
+                    False,
+                    f"BUG-3: trigger_deadline_today() FALLA en commit: "
+                    f"{type(exc).__name__}: {str(exc)[:120]} "
+                    f"(probable uso de campo inexistente en Notificacion)",
+                )
         finally:
             db.close()
     except Exception as exc:
