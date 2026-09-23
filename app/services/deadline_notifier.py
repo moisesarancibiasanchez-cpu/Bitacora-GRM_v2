@@ -155,32 +155,61 @@ def _cuerpo_notificacion(ticket: Ticket, trigger: str) -> str:
 
 
 def _enviar_email(db: Session, usuario: Usuario, ticket: Ticket, trigger: str) -> Optional[str]:
-    """Envía un email al usuario. Retorna mensaje de error si falló, None si OK.
+    """Envía un email de alerta de SLA al usuario.
 
-    Importación LAZY para evitar ciclos con email_service.
+    Retorna ``None`` si el email se entregó correctamente, o un mensaje
+    breve de error si falló (registrado en ``ResultadoTrigger.errores``).
+
+    Notas de implementación
+    -----------------------
+    - Importación LAZY de ``email_service`` para evitar ciclos de import.
+    - Reusa la plantilla ``email_ticket_en_columna()`` (ya validada por
+      el flujo "responsable al mover tarjeta") inyectando el nombre del
+      trigger como ``estado_destino`` para que el asunto y el cuerpo
+      reflejen el tipo de alerta (``"Alerta de SLA: Vencen hoy"`` etc.).
+    - Pasa por la cadena completa de ``send_email()``:
+      Resend HTTP API → SMTP → log + Dev Inbox (fallback).
+    - Si el usuario no tiene email configurado, se omite silenciosamente.
     """
+    if not getattr(usuario, "email", None):
+        return "destinatario_sin_email"
+
     try:
-        from app.services.email_service import get_email_service
-        svc = get_email_service()
-        if svc is None:
-            return "EmailService no disponible"
-        from app.services.email_service import email_ticket_en_columna
-        # Reusamos el template existente; en producción se podría crear
-        # uno específico, pero el contenido es similar (alerta de SLA).
-        ok, err = email_ticket_en_columna(
-            db=db,
-            destinatario=usuario,
-            ticket=ticket,
-            columna_origen=None,
-            columna_destino=None,
-            tipo_plantilla=f"deadline_{trigger}",
+        from app.services.email_service import email_ticket_en_columna, send_email
+
+        trigger_label = TRIGGER_DESCRIPCIONES.get(trigger, trigger)
+        url_ticket = f"/tickets#{ticket.id}"
+        # Reusamos plantilla existente con semántica adaptada:
+        # - estado_origen: irrelevante para alertas de SLA → "(sistema)"
+        # - estado_destino: nombre legible del trigger para que el
+        #   asunto del email quede autoexplicativo
+        # - actor_nombre: el "remitente" es el sistema, no un humano
+        subject, body, html = email_ticket_en_columna(
+            ticket_codigo=ticket.codigo,
+            ticket_titulo=ticket.titulo or "(sin título)",
+            estado_origen="(sistema)",
+            estado_destino=f"Alerta de SLA: {trigger_label}",
+            responsable_nombre=usuario.nombre_completo or usuario.username,
+            actor_nombre="Sistema (Deadline Notifier)",
+            url_ticket=url_ticket,
         )
-        if not ok:
-            return f"Email: {err}"
+        # Prefijamos el asunto con [SLA] para que el destinatario
+        # reconozca el email como alerta automática (no movimiento manual).
+        result = send_email(
+            to=usuario.email,
+            subject=f"[SLA] {subject}",
+            body=body,
+            html_body=html,
+        )
+        if not result.sent:
+            return f"email_no_entregado: {result.transport} ({result.detail or 'sin detalle'})"
         return None
-    except Exception as e:
-        logger.warning("[deadline] Error enviando email a %s: %s", usuario.email, e)
-        return str(e)
+    except Exception as exc:
+        logger.warning(
+            "[deadline] Error enviando email a %s: %s",
+            getattr(usuario, "email", "?"), exc,
+        )
+        return f"excepcion: {exc}"
 
 
 def _auditar(db: Session, ticket: Ticket, trigger: str, n_notifs: int, n_emails: int) -> None:

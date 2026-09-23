@@ -516,6 +516,72 @@ def email_ticket_en_columna(
     return subject, body, html
 
 
+def email_resultado_pruebas_modificado(
+    *,
+    ticket_codigo: str,
+    ticket_titulo: str,
+    valor_anterior: Optional[str],
+    valor_nuevo: Optional[str],
+    actor_nombre: str,
+    url_ticket: str,
+) -> tuple:
+    """Devuelve ``(asunto, body_texto, body_html)`` para el email que se
+    envía a los administradores del sistema cuando un usuario modifica
+    el campo ``Resultado Pruebas`` en el detalle de un ticket.
+
+    Parameters
+    ----------
+    ticket_codigo : str
+        Código legible del ticket (ej: ``"INC-042"``).
+    ticket_titulo : str
+        Título del ticket (puede truncarse a 200 chars en la plantilla).
+    valor_anterior : str | None
+        Valor previo del campo Resultado Pruebas. ``None`` si estaba vacío.
+    valor_nuevo : str | None
+        Valor nuevo del campo. ``None`` si se dejó vacío.
+    actor_nombre : str
+        Nombre del usuario que realizó el cambio.
+    url_ticket : str
+        URL absoluta o relativa al detalle del ticket.
+
+    Returns
+    -------
+    ``(subject, body, html)`` listos para ``send_email()``.
+    """
+    ant = valor_anterior if valor_anterior else "(vacío)"
+    nue = valor_nuevo if valor_nuevo else "(vacío)"
+    subject = f"[{ticket_codigo}] Resultado de Pruebas actualizado a «{nue}»"
+    body = (
+        f"Hola,\n\n"
+        f"El usuario {actor_nombre} actualizó el campo 'Resultado de Pruebas' "
+        f"del ticket {ticket_codigo} «{ticket_titulo}».\n\n"
+        f"  - Valor anterior: {ant}\n"
+        f"  - Valor nuevo:    {nue}\n\n"
+        f"Puedes revisar el detalle completo del ticket en:\n"
+        f"  {url_ticket}\n\n"
+        f"- Bitácora GRM\n"
+    )
+    html = (
+        f"<p>Hola,</p>"
+        f"<p>El usuario <b>{actor_nombre}</b> actualizó el campo "
+        f"<b>Resultado de Pruebas</b> del ticket "
+        f"<b>{ticket_codigo}</b> «<i>{ticket_titulo}</i>».</p>"
+        f"<table style='border-collapse:collapse;margin:8px 0;'>"
+        f"<tr><td style='padding:4px 10px;color:#64748b'>Valor anterior:</td>"
+        f"<td style='padding:4px 10px'><b>{ant}</b></td></tr>"
+        f"<tr><td style='padding:4px 10px;color:#64748b'>Valor nuevo:</td>"
+        f"<td style='padding:4px 10px;background:#fef3c7;border-radius:4px'>"
+        f"<b>{nue}</b></td></tr>"
+        f"</table>"
+        f'<p><a href="{url_ticket}" '
+        f'style="display:inline-block;background:#4f46e5;color:#fff;'
+        f'padding:8px 14px;border-radius:6px;text-decoration:none">'
+        f"Abrir ticket</a></p>"
+        f'<p style="color:#64748b;font-size:12px">- Bitácora GRM</p>'
+    )
+    return subject, body, html
+
+
 # === Descripciones de alcance por rol (para el email de credenciales) ======
 # Estas descripciones son las que se muestran en el correo de bienvenida
 # bajo la sección "Alcance de tu perfil:". Se basan en los roles

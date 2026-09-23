@@ -816,6 +816,43 @@ async def guardar_ticket_campos(
             comentario=f"Campos modificados: {', '.join(campos_modificados)}",
         )
 
+        # Notificar a los administradores si se modificó Resultado Pruebas
+        # (best-effort: no rompe el flujo principal del endpoint).
+        if "resultado_pruebas" in valores_nuevos:
+            try:
+                from app.services.notificacion_admin_resultado_pruebas_service import (
+                    notificar_admin_resultado_pruebas,
+                )
+                notif_result = notificar_admin_resultado_pruebas(
+                    db,
+                    ticket=ticket,
+                    valor_anterior=valores_anteriores.get("resultado_pruebas"),
+                    valor_nuevo=valores_nuevos.get("resultado_pruebas"),
+                    actor=usuario,
+                )
+                logger.info(
+                    "[tickets:guardar] Notif admin Resultado Pruebas: "
+                    "destinatarios=%d enviados=%d errores=%d",
+                    notif_result.get("destinatarios", 0),
+                    notif_result.get("emails_enviados", 0),
+                    len(notif_result.get("errores", [])),
+                )
+                # Commit la auditoría generada por el servicio
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+            except Exception as exc:
+                # Nunca debe romper /guardar: el cambio ya está persistido
+                logger.exception(
+                    "[tickets:guardar] Error notificando admin por Resultado Pruebas: %s",
+                    exc,
+                )
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+
     # Re-renderizar el modal completo
     db.refresh(ticket)
     estados = db.query(Estado).order_by(Estado.orden).all()
