@@ -1193,6 +1193,13 @@
     root.innerHTML = '';
   }
 
+  // Exponer al scope global: el modal es inyectado vía HTMX desde
+  // ``app/api/v1/metricas.py`` con ``onclick="cerrarModalCuentaResultado()"``
+  // inline, por lo que el handler de cierre necesita estar en ``window``.
+  // (ESC funciona porque su listener está dentro del IIFE; el botón X
+  // fallaba con ``ReferenceError`` antes de este fix.)
+  window.cerrarModalCuentaResultado = cerrarModalCuentaResultado;
+
   function _mostrarSpinnerDrillCr() {
     const root = document.getElementById('modal-cuenta-resultado-root');
     if (!root) return;
