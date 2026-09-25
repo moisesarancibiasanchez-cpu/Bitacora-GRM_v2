@@ -281,6 +281,7 @@ class TicketService:
         #      misma transacción lógica. Se omite en no-op (mismo estado).
         if not mismo_estado:
             try:
+                from app.core.config import settings as _settings
                 from app.services.notificacion_responsable_service import (
                     notificar_responsable_columna,
                 )
@@ -290,6 +291,7 @@ class TicketService:
                     estado_destino=estado_destino,
                     estado_origen_nombre=estado_origen.nombre,
                     actor=usuario,
+                    base_url=_settings.PUBLIC_BASE_URL,
                 )
                 self.db.commit()
             except Exception as exc:

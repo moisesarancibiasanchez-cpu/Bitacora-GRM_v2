@@ -35,6 +35,7 @@ from typing import Dict, List, Optional, Set
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.auditoria import Auditoria
 from app.models.ticket import Ticket
@@ -178,7 +179,12 @@ def _enviar_email(db: Session, usuario: Usuario, ticket: Ticket, trigger: str) -
         from app.services.email_service import email_ticket_en_columna, send_email
 
         trigger_label = TRIGGER_DESCRIPCIONES.get(trigger, trigger)
-        url_ticket = f"/tickets#{ticket.id}"
+        # URL absoluta del ticket (los clientes de correo NO resuelven rutas
+        # relativas; si pasáramos "/tickets#ID" lo interpretarían como
+        # "http:///tickets#ID" → link roto). Usamos PUBLIC_BASE_URL como
+        # fuente única de verdad para el host, igual que credenciales_service.
+        base = (settings.PUBLIC_BASE_URL or "http://localhost:8000").rstrip("/")
+        url_ticket = f"{base}/tickets#{ticket.id}"
         # Reusamos plantilla existente con semántica adaptada:
         # - estado_origen: irrelevante para alertas de SLA → "(sistema)"
         # - estado_destino: nombre legible del trigger para que el

@@ -18,6 +18,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.estado import Estado
 from app.models.ticket import Ticket
 from app.models.usuario import Usuario
@@ -90,8 +91,11 @@ def notificar_responsable_columna(
             "skipped_reason": "actor_es_responsable",
         }
 
-    url = f"{base_url}/tickets" if base_url else "/tickets"
-    url = f"{url}#ticket-{ticket.id}"
+    # La URL debe ser ABSOLUTA: los clientes de correo NO resuelven rutas
+    # relativas (interpretarían "/tickets#ID" como "http:///tickets#ID").
+    # Prioridad: ``base_url`` explícito > ``settings.PUBLIC_BASE_URL`` > dev.
+    base = (base_url or settings.PUBLIC_BASE_URL or "http://localhost:8000").rstrip("/")
+    url = f"{base}/tickets#ticket-{ticket.id}"
 
     # 1) Crear notificación in-app
     notif = Notificacion(

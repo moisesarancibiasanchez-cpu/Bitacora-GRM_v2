@@ -820,6 +820,7 @@ async def guardar_ticket_campos(
         # (best-effort: no rompe el flujo principal del endpoint).
         if "resultado_pruebas" in valores_nuevos:
             try:
+                from app.core.config import settings as _settings
                 from app.services.notificacion_admin_resultado_pruebas_service import (
                     notificar_admin_resultado_pruebas,
                 )
@@ -829,6 +830,7 @@ async def guardar_ticket_campos(
                     valor_anterior=valores_anteriores.get("resultado_pruebas"),
                     valor_nuevo=valores_nuevos.get("resultado_pruebas"),
                     actor=usuario,
+                    base_url=_settings.PUBLIC_BASE_URL,
                 )
                 logger.info(
                     "[tickets:guardar] Notif admin Resultado Pruebas: "

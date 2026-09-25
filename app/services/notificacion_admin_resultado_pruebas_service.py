@@ -28,6 +28,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.ticket import Ticket
 from app.models.usuario import Usuario, RolUsuario
 from app.services.email_service import (
@@ -109,8 +110,11 @@ def notificar_admin_resultado_pruebas(
         }
 
     # 3) Construir contenido del email (una sola vez, se reutiliza)
-    url = f"{base_url}/tickets" if base_url else "/tickets"
-    url = f"{url}#ticket-{ticket.id}"
+    # La URL debe ser ABSOLUTA porque los clientes de correo no resuelven
+    # rutas relativas (interpretarían "/tickets#ID" como "http:///tickets#ID").
+    # Prioridad: ``base_url`` explícito > ``settings.PUBLIC_BASE_URL`` > dev.
+    base = (base_url or settings.PUBLIC_BASE_URL or "http://localhost:8000").rstrip("/")
+    url = f"{base}/tickets#ticket-{ticket.id}"
 
     subject, body, html = email_resultado_pruebas_modificado(
         ticket_codigo=ticket.codigo,
