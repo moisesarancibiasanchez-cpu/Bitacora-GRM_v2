@@ -96,6 +96,12 @@ DETALLE_TEMPLATE = Template(r"""
         Trazabilidad
         <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ auditorias|length }}</span>
       </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'referencias' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="referencias">
+        Referencias
+        <span id="referencias-count-{{ ticket.id }}"
+              class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ referencias|length }}</span>
+      </button>
     </div>
 
     <!-- ============== BODY ============== -->
@@ -1035,6 +1041,146 @@ DETALLE_TEMPLATE = Template(r"""
         </div>
       </div>
 
+      <!-- Tab: Referencias (FEATURE 5 — issue links) -->
+      <div class="tab-panel {% if _active != 'referencias' %}hidden{% endif %} p-5 space-y-4" data-panel="referencias">
+
+        <div class="flex items-center justify-between">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 015.656 0l1.415 1.415a4 4 0 010 5.656l-3 3a4 4 0 01-5.656 0M10.172 13.828a4 4 0 01-5.656 0l-1.415-1.415a4 4 0 010-5.656l3-3a4 4 0 015.656 0"/></svg>
+            Referencias internas
+          </h4>
+          <span class="text-[10px] text-slate-400">Total: {{ referencias|length }}</span>
+        </div>
+
+        {# ----- Form para agregar referencia ----- #}
+        <form id="form-add-referencia-{{ ticket.id }}"
+              hx-post="/api/v1/tickets/{{ ticket.id }}/referencias"
+              hx-target="#referencias-list-{{ ticket.id }}"
+              hx-swap="innerHTML"
+              hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ref-search-result-{{ ticket.id }}').classList.add('hidden');}"
+              class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+          <div class="grid grid-cols-12 gap-2 items-end">
+            <div class="col-span-3">
+              <label class="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-0.5">Tipo</label>
+              <select name="tipo" required
+                      class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                {% for t in tipos_referencia %}
+                  <option value="{{ t.value }}">{{ t.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-span-7 relative">
+              <label class="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-0.5">Ticket a vincular</label>
+              <input type="text"
+                     id="ref-search-input-{{ ticket.id }}"
+                     placeholder="Buscar por código, título o HU..."
+                     autocomplete="off"
+                     hx-get="/api/v1/tickets/buscar"
+                     hx-trigger="keyup changed delay:250ms"
+                     hx-vals='{"excluir": "{{ ticket.id }}"}'
+                     hx-target="#ref-search-result-{{ ticket.id }}"
+                     hx-swap="innerHTML"
+                     hx-indicator="#ref-search-spinner-{{ ticket.id }}"
+                     class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <input type="hidden" name="ticket_referenciado_id" id="ref-ticket-id-{{ ticket.id }}" required>
+              <div id="ref-search-result-{{ ticket.id }}" class="hidden absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-300 rounded shadow-lg max-h-48 overflow-y-auto"></div>
+              <span id="ref-search-spinner-{{ ticket.id }}" class="htmx-indicator absolute right-2 top-7 text-slate-400 text-[10px]">buscando...</span>
+            </div>
+            <div class="col-span-2">
+              <button type="submit"
+                      class="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                      onclick="return !!document.getElementById('ref-ticket-id-{{ ticket.id }}').value;">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Agregar
+              </button>
+            </div>
+          </div>
+          <div>
+            <input type="text" name="nota" maxlength="500"
+                   placeholder="Nota opcional (ej: 'mismo bug reportado en QA y PROD')"
+                   class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          </div>
+        </form>
+
+        {# ----- Lista de referencias (salientes + entrantes) — renderizada inline ----- #}
+        <div id="referencias-list-{{ ticket.id }}" class="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
+          {% if referencias %}
+            {# Agrupamos por dirección para presentar la lista en 2 secciones #}
+            {% set _salientes = referencias|selectattr('direccion', 'equalto', 'saliente')|list %}
+            {% set _entrantes = referencias|selectattr('direccion', 'equalto', 'entrante')|list %}
+            {% if _salientes %}
+              <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mt-2 mb-1 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                Este ticket referencia a ({{ _salientes|length }})
+              </div>
+              {% for r in _salientes %}
+                <div class="rounded-lg border border-slate-200 bg-white p-2.5 hover:border-indigo-300 transition-colors flex items-start gap-2">
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 mt-0.5
+                               {% if r.tipo == 'relacionado' %}bg-sky-100 text-sky-800
+                               {% elif r.tipo == 'duplicado' %}bg-amber-100 text-amber-800
+                               {% elif r.tipo == 'padre' or r.tipo == 'hijo' %}bg-violet-100 text-violet-800
+                               {% elif r.tipo == 'bloquea' or r.tipo == 'bloqueado_por' %}bg-rose-100 text-rose-800
+                               {% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.tipo_nombre }}</span>
+                  <div class="flex-1 min-w-0">
+                    <a href="/tickets#ticket-{{ r.ticket_id }}"
+                       hx-get="/api/v1/tickets/{{ r.ticket_id }}/detalle-html"
+                       hx-target="#modal-root" hx-swap="innerHTML"
+                       class="block text-xs font-mono font-semibold text-indigo-700 hover:underline truncate"
+                       title="Abrir ticket {{ r.ticket_codigo }}">
+                      {{ r.ticket_codigo }}
+                    </a>
+                    <div class="text-[11px] text-slate-600 truncate" title="{{ r.ticket_titulo }}">{{ r.ticket_titulo }}</div>
+                    {% if r.nota %}
+                      <div class="text-[10px] italic text-slate-500 mt-0.5 truncate" title="{{ r.nota }}">"{{ r.nota }}"</div>
+                    {% endif %}
+                  </div>
+                  <button type="button"
+                          hx-delete="/api/v1/referencias/{{ r.id }}"
+                          hx-target="#referencias-list-{{ ticket.id }}"
+                          hx-swap="innerHTML"
+                          hx-confirm="¿Eliminar la referencia '{{ r.tipo_nombre }}' hacia {{ r.ticket_codigo }}?"
+                          class="flex-shrink-0 text-slate-400 hover:text-rose-600 p-1"
+                          title="Eliminar referencia">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 3h6a1 1 0 011 1v3H8V4a1 1 0 011-1z"/></svg>
+                  </button>
+                </div>
+              {% endfor %}
+            {% endif %}
+            {% if _entrantes %}
+              <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mt-3 mb-1 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"/></svg>
+                Referenciado por ({{ _entrantes|length }})
+              </div>
+              {% for r in _entrantes %}
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-2.5 hover:border-indigo-300 transition-colors flex items-start gap-2">
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 mt-0.5
+                               {% if r.tipo == 'relacionado' %}bg-sky-100 text-sky-800
+                               {% elif r.tipo == 'duplicado' %}bg-amber-100 text-amber-800
+                               {% elif r.tipo == 'padre' or r.tipo == 'hijo' %}bg-violet-100 text-violet-800
+                               {% elif r.tipo == 'bloquea' or r.tipo == 'bloqueado_por' %}bg-rose-100 text-rose-800
+                               {% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.tipo_nombre }}</span>
+                  <div class="flex-1 min-w-0">
+                    <a href="/tickets#ticket-{{ r.ticket_id }}"
+                       hx-get="/api/v1/tickets/{{ r.ticket_id }}/detalle-html"
+                       hx-target="#modal-root" hx-swap="innerHTML"
+                       class="block text-xs font-mono font-semibold text-indigo-700 hover:underline truncate"
+                       title="Abrir ticket {{ r.ticket_codigo }}">
+                      {{ r.ticket_codigo }}
+                    </a>
+                    <div class="text-[11px] text-slate-600 truncate" title="{{ r.ticket_titulo }}">{{ r.ticket_titulo }}</div>
+                  </div>
+                </div>
+              {% endfor %}
+            {% endif %}
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-4">
+              Sin referencias todavía. Usa el formulario arriba para vincular este ticket a otro.
+            </div>
+          {% endif %}
+        </div>
+
+      </div>
+
     </div>
 
     <!-- ============== FOOTER ============== -->
@@ -1081,6 +1227,8 @@ def render_detalle_modal(
     campos_personalizados: Iterable = (),
     etapas: Iterable = (),
     catalogo_etapas: Iterable = (),
+    referencias: Iterable = (),
+    tipos_referencia: Iterable = (),
 ) -> str:
     """Renderiza el modal completo de detalle de un ticket.
 
@@ -1135,7 +1283,7 @@ def render_detalle_modal(
         else:
             ultima_modificacion = "—"
     # Normalizar active_tab a un valor seguro
-    _tabs_validos = {"detalles", "comentarios", "adjuntos", "checklist", "etapas", "trazabilidad"}
+    _tabs_validos = {"detalles", "comentarios", "adjuntos", "checklist", "etapas", "trazabilidad", "referencias"}
     if active_tab not in _tabs_validos:
         active_tab = "detalles"
     return DETALLE_TEMPLATE.render(
@@ -1153,4 +1301,6 @@ def render_detalle_modal(
         campos_personalizados=list(campos_personalizados),
         etapas=list(etapas),
         catalogo_etapas=list(catalogo_etapas),
+        referencias=list(referencias),
+        tipos_referencia=list(tipos_referencia),
     )

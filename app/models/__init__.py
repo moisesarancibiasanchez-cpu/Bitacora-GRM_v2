@@ -22,6 +22,10 @@ from app.models.ticket_dependencia import (
 )
 # === FEATURE 4: Etapas de proyecto UAT (sub-bars en Gantt) ===
 from app.models.etapa_proyecto import EtapaProyecto, TicketEtapa
+# === FEATURE 5: Referencias internas entre tickets (issue links) ===
+from app.models.ticket_referencia import (
+    TicketReferencia, TipoReferencia, TIPO_INVERSO,
+)
 
 __all__ = [
     "Usuario", "RolUsuario",
@@ -43,4 +47,6 @@ __all__ = [
     "TicketDependencia", "TipoDependencia", "TIPO_DEPENDENCIA_NOMBRES",
     # FEATURE 4
     "EtapaProyecto", "TicketEtapa",
+    # FEATURE 5
+    "TicketReferencia", "TipoReferencia", "TIPO_INVERSO",
 ]

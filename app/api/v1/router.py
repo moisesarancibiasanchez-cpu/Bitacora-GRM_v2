@@ -10,6 +10,8 @@ from app.api.v1 import migraciones
 from app.api.v1 import dependencias
 # === FEATURE 4 — Etapas de proyecto UAT (sub-bars en Gantt) ===
 from app.api.v1 import etapas
+# === FEATURE 5 — Referencias internas entre tickets (issue links) ===
+from app.api.v1 import referencias
 
 
 api_router = APIRouter()
@@ -32,3 +34,6 @@ api_router.include_router(migraciones.router)
 api_router.include_router(dependencias.router)
 # === FEATURE 4 — Etapas de proyecto ===
 api_router.include_router(etapas.router)
+# === FEATURE 5 — Referencias internas ===
+api_router.include_router(referencias.router)
+api_router.include_router(referencias.router_tickets)

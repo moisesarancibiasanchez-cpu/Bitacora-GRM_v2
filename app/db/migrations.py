@@ -114,6 +114,12 @@ INDEXES: List[Tuple[str, str]] = [
     ("ix_te_orden",            "CREATE INDEX IF NOT EXISTS ix_te_orden          ON ticket_etapas(orden)"),
     # QA Tester asignado al ticket
     ("ix_tickets_qa_tester",   "CREATE INDEX IF NOT EXISTS ix_tickets_qa_tester ON tickets(qa_tester)"),
+    # FEATURE 5 — Referencias internas entre tickets (issue links)
+    ("ix_ref_origen",          "CREATE INDEX IF NOT EXISTS ix_ticket_referencias_ticket_origen_id ON ticket_referencias(ticket_origen_id)"),
+    ("ix_ref_destino",         "CREATE INDEX IF NOT EXISTS ix_ticket_referencias_ticket_referenciado_id ON ticket_referencias(ticket_referenciado_id)"),
+    ("ix_ref_created_at",      "CREATE INDEX IF NOT EXISTS ix_ticket_referencias_created_at ON ticket_referencias(created_at)"),
+    ("ix_ref_origen_tipo",     "CREATE INDEX IF NOT EXISTS ix_ref_origen_tipo ON ticket_referencias(ticket_origen_id, tipo)"),
+    ("ix_ref_destino_tipo",    "CREATE INDEX IF NOT EXISTS ix_ref_destino_tipo ON ticket_referencias(ticket_referenciado_id, tipo)"),
 ]
 
 # Tablas que deben existir (si el modelo está presente, ``create_all``
@@ -121,6 +127,7 @@ INDEXES: List[Tuple[str, str]] = [
 # sirve para verificar manualmente o para tooling externo.
 TABLES_REQUIRED: List[str] = [
     "ticket_dependencias",
+    "ticket_referencias",
 ]
 
 

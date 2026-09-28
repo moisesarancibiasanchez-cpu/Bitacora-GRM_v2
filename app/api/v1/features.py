@@ -64,7 +64,8 @@ def _render_detalle_modal_response(
     """Re-renderiza el modal de detalle del ticket y devuelve un HTMLResponse.
 
     ``active_tab`` define qué pestaña quedará visible al volver a pintar
-    el modal (detalles, comentarios, adjuntos, checklist, trazabilidad).
+    el modal (detalles, comentarios, adjuntos, checklist, trazabilidad,
+    referencias).
     """
     from app.models.estado import Estado
     from app.models.comentario import Comentario
@@ -75,6 +76,7 @@ def _render_detalle_modal_response(
     from app.models.etiqueta import Etiqueta
     from app.api.v1.tickets import _formatear_ultima_modificacion
     from app.services.trello_service import CampoPersonalizadoService
+    from app.services.referencia_service import TicketReferenciaService
     from app.templates.tickets.detalle_modal import render_detalle_modal
 
     ticket_id = ticket.id
@@ -118,6 +120,12 @@ def _render_detalle_modal_response(
         .all()
     )
     campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
+
+    # === FEATURE 5 — Referencias internas ===
+    referencias_svc = TicketReferenciaService(db)
+    referencias = referencias_svc.listar_para_ticket(ticket_id)
+    tipos_referencia = TicketReferenciaService.tipos_validos()
+
     ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
@@ -128,6 +136,8 @@ def _render_detalle_modal_response(
         usuarios=usuarios,
         etiquetas_disponibles=etiquetas_disponibles,
         campos_personalizados=campos_personalizados,
+        referencias=referencias,
+        tipos_referencia=tipos_referencia,
     )
     return html
 

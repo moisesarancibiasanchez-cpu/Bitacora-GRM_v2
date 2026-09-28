@@ -407,6 +407,11 @@ def detalle_html(
     # estructuras a la plantilla Jinja.
     etapas, catalogo_etapas = _get_etapas_y_catalogo(db, ticket_id)
 
+    # === FEATURE 5 — Referencias internas ===
+    from app.services.referencia_service import TicketReferenciaService
+    referencias = TicketReferenciaService(db).listar_para_ticket(ticket_id)
+    tipos_referencia = TicketReferenciaService.tipos_validos()
+
     # Construir resumen "Última modificación por X" para el footer
     ultima_modificacion = _formatear_ultima_modificacion(auditorias, ticket)
 
@@ -427,6 +432,8 @@ def detalle_html(
         campos_personalizados=campos_personalizados,
         etapas=etapas,
         catalogo_etapas=catalogo_etapas,
+        referencias=referencias,
+        tipos_referencia=tipos_referencia,
     )
     return HTMLResponse(content=html)
 
@@ -660,6 +667,11 @@ async def actualizar_ticket_campo(
     campos_personalizados = CampoPersonalizadoService(db).obtener_campos_con_valores(ticket_id)
     ultima_mod = _formatear_ultima_modificacion(auditorias, ticket)
     etapas, catalogo_etapas = _get_etapas_y_catalogo(db, ticket_id)
+    # FEATURE 5: referencias (se pasan aunque HX-Swap=none impida el render
+    # visible — el helper mantiene la firma completa para evitar AttributeError).
+    from app.services.referencia_service import TicketReferenciaService
+    referencias = TicketReferenciaService(db).listar_para_ticket(ticket_id)
+    tipos_referencia = TicketReferenciaService.tipos_validos()
     from app.templates.tickets.detalle_modal import render_detalle_modal
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
@@ -672,6 +684,8 @@ async def actualizar_ticket_campo(
         campos_personalizados=campos_personalizados,
         etapas=etapas,
         catalogo_etapas=catalogo_etapas,
+        referencias=referencias,
+        tipos_referencia=tipos_referencia,
     )
     return HTMLResponse(
         content=html,
