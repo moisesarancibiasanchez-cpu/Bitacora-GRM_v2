@@ -297,7 +297,7 @@
   });
 
   // ============================================================================
-  // Drag & drop de archivos + preview
+  // Drag & drop de archivos + preview + COPY-PASTE de imágenes (Ctrl+V)
   // ============================================================================
   function formatBytes(n) {
     if (n < 1024) return n + ' B';
@@ -311,7 +311,205 @@
     });
   }
 
+  // -------------------------------------------------------------------------
+  // COPY-PASTE: estado y handlers globales (instalados UNA sola vez)
+  // -------------------------------------------------------------------------
+  // Mapa ticketId -> [{id, file, url}]  (object URLs hay que revocarlos)
+  const _pastedFiles = new Map();
+  const MAX_PASTE_BYTES = 25 * 1024 * 1024; // mismo límite que backend (AdjuntoService)
+
+  function _getPastedFiles(ticketId) {
+    if (!_pastedFiles.has(ticketId)) _pastedFiles.set(ticketId, []);
+    return _pastedFiles.get(ticketId);
+  }
+
+  // Detecta qué dropzone está visible (tab "Adjuntos" activo del modal abierto)
+  function _activeAdjuntosTicketId() {
+    const drops = document.querySelectorAll('.adjuntos-dropzone');
+    for (const d of drops) {
+      const panel = d.closest('.tab-panel');
+      if (panel && !panel.classList.contains('hidden')) {
+        return d.getAttribute('data-ticket-id');
+      }
+    }
+    return null;
+  }
+
+  function _revokeAllPastedUrls(ticketId) {
+    const arr = _pastedFiles.get(ticketId);
+    if (!arr) return;
+    arr.forEach(p => { try { URL.revokeObjectURL(p.url); } catch (e) {} });
+    _pastedFiles.set(ticketId, []);
+  }
+
+  // Listener global de paste (se instala UNA vez por carga de la página)
+  let _pasteGlobalInstalled = false;
+  function _installGlobalPasteHandler() {
+    if (_pasteGlobalInstalled) return;
+    _pasteGlobalInstalled = true;
+    document.addEventListener('paste', function (e) {
+      // No interceptar paste dentro de inputs de texto o textareas: dejar
+      // que el navegador haga su trabajo normal (pegar texto donde el usuario
+      // está escribiendo).
+      const t = e.target;
+      if (t) {
+        const tag = (t.tagName || '').toUpperCase();
+        if (tag === 'TEXTAREA') return;
+        if (tag === 'INPUT') {
+          const type = ((t.type || '') + '').toLowerCase();
+          const texty = ['text','password','email','search','tel','url','number',
+                         'date','datetime-local','month','week','time'].includes(type);
+          if (texty) return;
+        }
+        if (t.isContentEditable) return;
+      }
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items || items.length === 0) return;
+
+      const ticketId = _activeAdjuntosTicketId();
+      if (!ticketId) return; // no hay tab de adjuntos activo
+
+      let added = 0;
+      let rejectedSize = 0;
+      const arr = _getPastedFiles(ticketId);
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind !== 'file' || !item.type || !item.type.startsWith('image/')) continue;
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        if (blob.size > MAX_PASTE_BYTES) {
+          rejectedSize++;
+          continue;
+        }
+        const ext = (item.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+        const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+        const fname = 'paste-' + ts + '-' + (arr.length + added + 1) + '.' + ext;
+        const file = new File([blob], fname, { type: item.type });
+        const url = URL.createObjectURL(blob);
+        const id = 'p' + Date.now().toString(36) + added;
+        arr.push({ id: id, file: file, url: url });
+        added++;
+      }
+      if (added === 0) {
+        if (rejectedSize > 0 && typeof showToast === 'function') {
+          showToast(rejectedSize + ' imagen(es) rechazada(s): exceden 25 MB', 'error');
+        }
+        return;
+      }
+      // Solo prevenimos default si consumimos imágenes (no rompemos
+      // paste de texto en otros lugares).
+      e.preventDefault();
+      _renderPasteList(ticketId);
+      _refreshCombinedFiles(ticketId);
+      if (typeof showToast === 'function') {
+        const msg = added === 1
+          ? '1 imagen pegada — descripción opcional antes de subir'
+          : added + ' imágenes pegadas — descripción opcional antes de subir';
+        showToast(msg, 'success');
+      }
+    });
+  }
+
+  function _renderPasteList(ticketId) {
+    const list = document.getElementById('adjuntos-paste-list-' + ticketId);
+    if (!list) return;
+    // Solo renderizamos los archivos NO marcados como removed.
+    const all = _getPastedFiles(ticketId);
+    const items = all.filter(function (p) { return !p.removed; });
+    if (items.length === 0) {
+      list.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+    list.classList.remove('hidden');
+    const rows = items.map(function (p) {
+      return (
+        '<div class="flex items-center gap-2 p-1.5 bg-indigo-50 border border-indigo-200 rounded">' +
+          '<img src="' + p.url + '" alt="preview" class="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0" />' +
+          '<span class="text-[11px] text-slate-700 truncate flex-1" title="' + escapeHtml(p.file.name) + '">' + escapeHtml(p.file.name) + '</span>' +
+          '<span class="text-[10px] text-slate-400 flex-shrink-0">' + formatBytes(p.file.size) + '</span>' +
+          '<button type="button" data-remove-paste="' + p.id + '" class="text-rose-500 hover:text-rose-700 flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded hover:bg-rose-100" title="Quitar">' +
+            '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>' +
+          '</button>' +
+        '</div>'
+      );
+    });
+    list.innerHTML = rows.join('');
+    list.querySelectorAll('[data-remove-paste]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const id = btn.getAttribute('data-remove-paste');
+        const arr = _getPastedFiles(ticketId);
+        const p = arr.find(function (x) { return x.id === id; });
+        if (p) {
+          // Marcar como removed en vez de splice: necesitamos mantener la
+          // referencia al File object para que _refreshCombinedFiles pueda
+          // distinguir "original" de "pegado" (los pegados removidos NO deben
+          // volver a la sección de originales en el próximo merge).
+          p.removed = true;
+        }
+        _renderPasteList(ticketId);
+        _refreshCombinedFiles(ticketId);
+      });
+    });
+  }
+
+  // Mezcla archivos de fileInput (drag/click) + pastedFiles y re-asigna
+  // fileInput.files. Como el form ya tiene name="archivos" multiple, el submit
+  // envía todo en una sola request multipart.
+  function _refreshCombinedFiles(ticketId) {
+    const fileInput = document.getElementById('adjunto-file-' + ticketId);
+    if (!fileInput) return;
+    // fileInput.files puede contener (en cualquier orden):
+    //   a) archivos drag/drop/click originales
+    //   b) archivos pegados (que YA inyectamos previamente), incluyendo los
+    //      marcados como removed (porque siguen referenciados en _pastedFiles)
+    // Para distinguir, filtramos por referencia (===) contra TODOS los Files
+    // que alguna vez fueron pegados (activos o removidos). Los removed no
+    // deben volver a la lista de originales.
+    const currentFiles = fileInput.files ? Array.from(fileInput.files) : [];
+    const allPasted = _getPastedFiles(ticketId);
+    const activePasted = allPasted.filter(function (p) { return !p.removed; });
+    const allPastedFileSet = new Set(allPasted.map(function (p) { return p.file; }));
+    const originalFiles = currentFiles.filter(function (f) { return !allPastedFileSet.has(f); });
+    try {
+      const dt = new DataTransfer();
+      originalFiles.forEach(function (f) { dt.items.add(f); });
+      activePasted.forEach(function (p) { dt.items.add(p.file); });
+      fileInput.files = dt.files;
+    } catch (err) {
+      // Navegadores antiguos sin DataTransfer ctor: no se puede combinar.
+      if (typeof showToast === 'function') {
+        showToast('Tu navegador no soporta combinar archivos pegados con seleccionados.', 'info');
+      }
+    }
+    // Disparar 'change' para que updatePreview() existente re-pinte.
+    fileInput.dispatchEvent(new Event('change'));
+
+    // Mostrar/ocultar textarea de descripción según haya archivos pegados
+    const desc = document.getElementById('adjuntos-paste-desc-' + ticketId);
+    if (desc) {
+      if (activePasted.length > 0) {
+        desc.classList.remove('hidden');
+      } else if (originalFiles.length === 0) {
+        desc.classList.add('hidden');
+      }
+    }
+  }
+
+  // Tras submit OK, limpiamos estado del ticket (lo llama el listener
+  // global de htmx:afterRequest del form, ver abajo).
+  function _clearPastedAfterUpload(ticketId) {
+    _revokeAllPastedUrls(ticketId);
+    const list = document.getElementById('adjuntos-paste-list-' + ticketId);
+    if (list) { list.classList.add('hidden'); list.innerHTML = ''; }
+    const desc = document.getElementById('adjuntos-paste-desc-' + ticketId);
+    if (desc) { desc.value = ''; desc.classList.add('hidden'); }
+  }
+
   function setupAdjuntosDropzone() {
+    // El listener de paste se instala UNA sola vez por página, no por dropzone.
+    _installGlobalPasteHandler();
+
     document.querySelectorAll('.adjuntos-dropzone').forEach(function (drop) {
       if (drop.dataset.dzInit === '1') return;
       drop.dataset.dzInit = '1';
@@ -319,7 +517,29 @@
       const fileInput = document.getElementById('adjunto-file-' + ticketId);
       const preview = document.getElementById('adjuntos-preview-' + ticketId);
       const info = document.getElementById('adjuntos-info-' + ticketId);
+      const form = document.getElementById('adjuntos-form-' + ticketId);
       if (!fileInput) return;
+
+      // Si el modal se re-renderiza con archivos pegados en estado (raro,
+      // pero defensivo), los repintamos.
+      _renderPasteList(ticketId);
+      _refreshCombinedFiles(ticketId);
+
+      // Limpieza al cerrar el modal (vía htmx:beforeSwap o evento de cierre)
+      document.body.addEventListener('modal-cerrado', function (ev) {
+        if (!ticketId || (ev && ev.detail && String(ev.detail.ticketId) === String(ticketId))) {
+          _clearPastedAfterUpload(ticketId);
+        }
+      });
+
+      // Tras submit exitoso del form, limpiar estado de pegados.
+      if (form) {
+        form.addEventListener('htmx:afterRequest', function (ev) {
+          if (ev.detail && ev.detail.successful) {
+            _clearPastedAfterUpload(ticketId);
+          }
+        });
+      }
 
       // Click en el dropzone abre el file picker (pero no si ya se hizo click en el input)
       drop.addEventListener('click', function (e) {
@@ -348,13 +568,15 @@
         const files = e.dataTransfer && e.dataTransfer.files;
         if (!files || !files.length) return;
         try {
+          // Mezclar con lo que ya haya en fileInput (caso normal: vacío)
           const dt = new DataTransfer();
           for (let i = 0; i < files.length; i++) dt.items.add(files[i]);
           fileInput.files = dt.files;
         } catch (err) {
           showToast('Tu navegador no soporta multi-drop. Selecciona manualmente.', 'info');
         }
-        updatePreview();
+        // Re-aplicar merge con pegados (no pierden)
+        _refreshCombinedFiles(ticketId);
       });
 
       fileInput.addEventListener('change', updatePreview);

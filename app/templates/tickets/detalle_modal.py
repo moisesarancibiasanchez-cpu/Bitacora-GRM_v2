@@ -744,9 +744,26 @@ DETALLE_TEMPLATE = Template(r"""
             </svg>
             <span class="text-xs text-slate-500">Click para seleccionar o arrastra y suelta aquí</span>
             <span class="text-[10px] text-slate-400 mt-0.5">Múltiples archivos permitidos</span>
+            {# ---- NUEVO: hint de copy-paste (Ctrl+V) ---- #}
+            <span class="text-[10px] text-indigo-600 font-medium mt-1 inline-flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+              También puedes pegar imágenes con
+              <kbd class="px-1 py-0.5 bg-white border border-slate-300 rounded text-[9px] font-mono">Ctrl</kbd>+<kbd class="px-1 py-0.5 bg-white border border-slate-300 rounded text-[9px] font-mono">V</kbd>
+            </span>
             <input id="adjunto-file-{{ ticket.id }}" name="archivos" type="file" multiple class="hidden">
           </div>
+          {# ---- Preview existente (drag/drop/click) ---- #}
           <div id="adjuntos-preview-{{ ticket.id }}" class="hidden flex flex-wrap gap-1.5 text-xs text-slate-600"></div>
+          {# ---- NUEVO: preview específico de archivos pegados (con thumbnail + X) ---- #}
+          <div id="adjuntos-paste-list-{{ ticket.id }}" class="hidden space-y-1"></div>
+          {# ---- NUEVO: descripción batch (opcional, se aplica a todos los archivos) ---- #}
+          <textarea id="adjuntos-paste-desc-{{ ticket.id }}"
+                    name="descripcion"
+                    rows="2"
+                    maxlength="500"
+                    placeholder="Descripción opcional para los archivos pegados (se aplica a todos)…"
+                    class="hidden w-full text-xs border border-slate-200 rounded p-2 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300 resize-y"
+                    data-paste-desc></textarea>
           <div class="flex items-center justify-between">
             <span id="adjuntos-info-{{ ticket.id }}" class="text-[11px] text-slate-500"></span>
             <button type="submit"
