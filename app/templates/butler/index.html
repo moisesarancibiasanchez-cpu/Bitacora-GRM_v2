@@ -24,6 +24,9 @@
       <button onclick="cambiarTab('comandos')" id="tab-comandos" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
         Comandos programados ({{ comandos|length }})
       </button>
+      <button onclick="cambiarTab('backups')" id="tab-backups" class="px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 border-b-2 border-transparent hover:border-slate-300">
+        Respaldos de BD
+      </button>
     </div>
 
     <!-- Reglas -->
@@ -147,6 +150,58 @@
         </div>
         {% endfor %}
       </div>
+    </div>
+
+    <!-- Respaldos de Base de Datos -->
+    <div id="panel-backups" class="panel-tab hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-700">Respaldos de Base de Datos</h2>
+        <div class="flex items-center gap-2">
+          <button onclick="recargarBackups()" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Refrescar</button>
+          <button id="btn-backup-run" onclick="ejecutarBackupManual()" class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">+ Ejecutar respaldo ahora</button>
+        </div>
+      </div>
+
+      <!-- Tarjeta de estado -->
+      <div id="backup-status-card" class="bg-white border border-slate-200 rounded-lg p-4 mb-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div>
+          <div class="text-slate-500">Motor</div>
+          <div id="backup-stat-engine" class="font-semibold text-slate-800 mt-1">—</div>
+        </div>
+        <div>
+          <div class="text-slate-500">Programación</div>
+          <div id="backup-stat-schedule" class="font-semibold text-slate-800 mt-1">—</div>
+        </div>
+        <div>
+          <div class="text-slate-500">Retención</div>
+          <div id="backup-stat-retention" class="font-semibold text-slate-800 mt-1">—</div>
+        </div>
+        <div>
+          <div class="text-slate-500">Total</div>
+          <div id="backup-stat-total" class="font-semibold text-slate-800 mt-1">—</div>
+        </div>
+      </div>
+
+      <!-- Acciones de mantenimiento -->
+      <div class="bg-white border border-slate-200 rounded-lg p-3 mb-3 flex items-center justify-between text-xs">
+        <div class="text-slate-600">
+          <span class="font-medium">Último respaldo:</span>
+          <span id="backup-stat-last">—</span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="ejecutarCleanup()" class="px-3 py-1.5 text-xs font-medium rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100">Purgar antiguos</button>
+        </div>
+      </div>
+
+      <!-- Listado de backups -->
+      <div id="backup-list" class="space-y-2">
+        <div class="bg-white border border-dashed border-slate-300 rounded-lg p-8 text-center">
+          <p class="text-sm text-slate-500">Cargando respaldos…</p>
+        </div>
+      </div>
+
+      <!-- Mensaje / toast -->
+      <div id="backup-toast" class="hidden fixed bottom-4 right-4 px-4 py-2.5 rounded-md shadow-lg text-sm font-medium z-[70]"></div>
     </div>
   </div>
 </div>
@@ -427,5 +482,201 @@ function abrirModalComando(){
     } catch (err) { alert('Error: ' + err.message); }
   });
 }
+
+// ============================================================
+// RESPALDOS DE BASE DE DATOS
+// ============================================================
+function fmtBytes(n) {
+  if (n == null) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1024*1024*1024) return (n/1024/1024).toFixed(2) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+  } catch (e) { return iso; }
+}
+
+function toast(msg, tipo) {
+  const el = document.getElementById('backup-toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'fixed bottom-4 right-4 px-4 py-2.5 rounded-md shadow-lg text-sm font-medium z-[70]';
+  if (tipo === 'ok') el.classList.add('bg-emerald-600', 'text-white');
+  else if (tipo === 'err') el.classList.add('bg-red-600', 'text-white');
+  else el.classList.add('bg-slate-800', 'text-white');
+  setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
+async function recargarBackups() {
+  try {
+    const [rStatus, rList] = await Promise.all([
+      fetch('/api/v1/butler/backup/status', { credentials: 'same-origin' }),
+      fetch('/api/v1/butler/backup/list', { credentials: 'same-origin' }),
+    ]);
+    if (rStatus.status === 403) {
+      renderBackupsNoPermiso();
+      return;
+    }
+    if (!rStatus.ok || !rList.ok) {
+      const err = await (rStatus.json().catch(() => ({})));
+      toast('Error: ' + (err.detail || rStatus.status), 'err');
+      return;
+    }
+    const status = await rStatus.json();
+    const items = await rList.json();
+    renderStatus(status);
+    renderList(items);
+  } catch (e) {
+    toast('Error al cargar: ' + e.message, 'err');
+  }
+}
+
+function renderStatus(s) {
+  const e = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  e('backup-stat-engine',
+    (s.engine || 'unknown') + (s.pg_dump_available ? ' · pg_dump OK' : ' · fallback'));
+  const h = String(s.schedule?.daily_hour ?? 0).padStart(2, '0');
+  const m = String(s.schedule?.daily_minute ?? 0).padStart(2, '0');
+  e('backup-stat-schedule', 'Diario ' + h + ':' + m);
+  e('backup-stat-retention', s.retention_days + ' días');
+  e('backup-stat-total', (s.total_backups || 0) + ' archivos · ' + fmtBytes(s.total_size_bytes));
+  if (s.last_backup) {
+    e('backup-stat-last',
+      (s.last_backup.filename || '') + ' (' + fmtBytes(s.last_backup.size_bytes) + ', ' + fmtDate(s.last_backup.modified_at) + ')');
+  } else {
+    e('backup-stat-last', '— (aún no hay respaldos)');
+  }
+}
+
+function renderList(items) {
+  const root = document.getElementById('backup-list');
+  if (!root) return;
+  if (!items || items.length === 0) {
+    root.innerHTML = `
+      <div class="bg-white border border-dashed border-slate-300 rounded-lg p-8 text-center">
+        <p class="text-sm text-slate-500">Aún no hay respaldos. Usa <b>Ejecutar respaldo ahora</b> para crear el primero.</p>
+      </div>`;
+    return;
+  }
+  root.innerHTML = items.map(b => `
+    <div class="bg-white border border-slate-200 rounded-lg p-3 flex items-center justify-between">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-mono text-xs text-slate-800 truncate">${b.filename}</span>
+          <span class="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">${b.engine || ''}</span>
+          ${b.notes ? `<span class="px-1.5 py-0.5 text-[10px] rounded bg-indigo-50 text-indigo-700">${b.notes}</span>` : ''}
+        </div>
+        <div class="text-[11px] text-slate-500 mt-1">
+          ${fmtBytes(b.size_bytes)} ·
+          ${fmtDate(b.modified_at)}
+          ${b.duration_seconds != null ? ' · ' + b.duration_seconds.toFixed(2) + 's' : ''}
+          ${b.schema_version ? ' · v' + b.schema_version : ''}
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <a href="/api/v1/butler/backup/download/${encodeURIComponent(b.filename)}"
+           class="px-2.5 py-1 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+          Descargar
+        </a>
+        <button onclick="eliminarBackup('${b.filename.replace(/'/g, "\\'")}')"
+                class="px-2.5 py-1 text-xs font-medium rounded-md border border-red-300 bg-white text-red-700 hover:bg-red-50">
+          Eliminar
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderBackupsNoPermiso() {
+  const root = document.getElementById('backup-list');
+  if (root) {
+    root.innerHTML = `
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        No tienes permisos para acceder al sistema de respaldos.
+        Se requiere rol <b>administrador</b> o <b>agente_senior</b>.
+      </div>`;
+  }
+  const btn = document.getElementById('btn-backup-run');
+  if (btn) btn.disabled = true;
+}
+
+async function ejecutarBackupManual() {
+  const btn = document.getElementById('btn-backup-run');
+  if (btn) { btn.disabled = true; btn.textContent = 'Ejecutando…'; }
+  try {
+    const r = await fetch('/api/v1/butler/backup/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ note: 'manual_ui', async_task: false }),
+    });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      const m = data.metadata || {};
+      toast('Respaldo OK: ' + (m.filename || ''), 'ok');
+      recargarBackups();
+    } else {
+      toast('Error: ' + (data.error || data.skipped_reason || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '+ Ejecutar respaldo ahora'; }
+  }
+}
+
+async function eliminarBackup(filename) {
+  if (!confirm('¿Eliminar el respaldo "' + filename + '"?\nEsta acción no se puede deshacer.')) return;
+  try {
+    const r = await fetch('/api/v1/butler/backup/' + encodeURIComponent(filename), {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    if (r.ok) {
+      toast('Respaldo eliminado', 'ok');
+      recargarBackups();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast('Error: ' + (d.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function ejecutarCleanup() {
+  if (!confirm('¿Purgar respaldos antiguos según la política de retención configurada?')) return;
+  try {
+    const r = await fetch('/api/v1/butler/backup/cleanup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({}),
+    });
+    const data = await r.json();
+    if (r.ok) {
+      const n = (data.purged || []).length;
+      toast('Purgados: ' + n + ' archivo(s)', n > 0 ? 'ok' : 'info');
+      recargarBackups();
+    } else {
+      toast('Error: ' + (data.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+// Cargar la lista automáticamente cuando el usuario abre el tab
+const _origCambiarTab = window.cambiarTab;
+window.cambiarTab = function(tab) {
+  if (_origCambiarTab) _origCambiarTab(tab);
+  if (tab === 'backups') recargarBackups();
+};
 </script>
 {% endblock %}

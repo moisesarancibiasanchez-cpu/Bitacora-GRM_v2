@@ -243,6 +243,36 @@ def _ejecutar_accion(db: Session, ticket: Ticket, accion: Dict[str, Any],
         ticket.descripcion = nuevo[:5000]
         return "descripcion actualizada"
 
+    if tipo == "backup_database" or tipo == "respaldar_bd":
+        # Acción Butler: dispara un backup manual de la BD.  No afecta al ticket;
+        # se registra como acción informativa para trazabilidad.
+        nota = (params.get("nota") or "butler").strip()[:64] or "butler"
+        try:
+            from app.tasks.backup_tasks import run_backup_sync
+            payload = run_backup_sync(note=f"butler:{nota}")
+            if payload.get("ok"):
+                meta = (payload.get("metadata") or {}).get("filename", "?")
+                return f"backup OK -> {meta}"
+            err = payload.get("error") or payload.get("skipped_reason") or "error"
+            return f"backup FAIL: {str(err)[:120]}"
+        except Exception as e:
+            logger.exception("Butler: error ejecutando backup")
+            return f"backup FAIL: {e}"
+
+    if tipo == "backup_cleanup" or tipo == "purgar_backups":
+        # Acción Butler: purga backups antiguos según la política de retención.
+        try:
+            from app.services.backup_service import get_backup_service
+            service = get_backup_service()
+            dias = params.get("dias")
+            res = service.cleanup_old_backups(
+                retention_days=int(dias) if dias else None
+            )
+            return f"purga OK: {len(res.get('purged', []))} archivos eliminados"
+        except Exception as e:
+            logger.exception("Butler: error purgando backups")
+            return f"purga FAIL: {e}"
+
     return f"tipo de acción '{tipo}' no reconocido"
 
 

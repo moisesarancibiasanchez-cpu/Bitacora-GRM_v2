@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     # === URL pública del sistema (para los correos) ===
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
+    # === Backups de Base de Datos ===
+    # Directorio donde se almacenan los archivos de backup (se crea si no existe).
+    # En Railway es filesystem efímero, por lo que se recomienda apuntar a un
+    # volumen persistente o a un servicio externo (S3, GCS) en producción.
+    BACKUP_DIR: str = "backups"
+    # Política de retención: cantidad de días que se conservan los backups.
+    # Los backups más antiguos se eliminan automáticamente al finalizar el job diario.
+    BACKUP_RETENTION_DAYS: int = 30
+    # Hora del backup diario programado (formato 24h, hora local del Beat worker).
+    # Por defecto 00:00 como pidió el usuario.
+    BACKUP_DAILY_HOUR: int = 0
+    BACKUP_DAILY_MINUTE: int = 0
+    # Tamaño máximo permitido por archivo de backup en MB (protección anti-OOM).
+    BACKUP_MAX_SIZE_MB: int = 2048
+
     def get_database_url(self) -> str:
         """Devuelve la URL de BD; si no se configuró, construye la de PostgreSQL."""
         if self.DATABASE_URL and self.DATABASE_URL != "sqlite:///./bitacora_grm.db":

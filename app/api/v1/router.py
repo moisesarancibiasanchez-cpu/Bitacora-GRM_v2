@@ -12,6 +12,8 @@ from app.api.v1 import dependencias
 from app.api.v1 import etapas
 # === FEATURE 5 — Referencias internas entre tickets (issue links) ===
 from app.api.v1 import referencias
+# === Sistema de Backups de Base de Datos ===
+from app.api.v1 import backups
 
 
 api_router = APIRouter()
@@ -37,3 +39,5 @@ api_router.include_router(etapas.router)
 # === FEATURE 5 — Referencias internas ===
 api_router.include_router(referencias.router)
 api_router.include_router(referencias.router_tickets)
+# === Sistema de Backups de Base de Datos ===
+api_router.include_router(backups.router)

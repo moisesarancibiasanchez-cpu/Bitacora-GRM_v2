@@ -21,6 +21,8 @@ def make_celery() -> Celery:
             "app.tasks.notification_tasks",
             # === FEATURE 2 — Triggers deadline ===
             "app.tasks.deadline_tasks",
+            # === Sistema de Backups de Base de Datos ===
+            "app.tasks.backup_tasks",
         ],
     )
 
@@ -65,6 +67,17 @@ def make_celery() -> Celery:
         "deadline-triggers-diario": {
             "task": "app.tasks.deadline_tasks.revisar_deadlines_diario",
             "schedule": crontab(hour=8, minute=0),
+        },
+        # === Sistema de Backups de Base de Datos ===
+        # Diario a la hora configurada (BACKUP_DAILY_HOUR:BACKUP_DAILY_MINUTE).
+        # Por defecto 00:00 (medianoche) como pidió el usuario.
+        "backup-diario": {
+            "task": "app.tasks.backup_tasks.backup_database_diario",
+            "schedule": crontab(
+                hour=int(settings.BACKUP_DAILY_HOUR),
+                minute=int(settings.BACKUP_DAILY_MINUTE),
+            ),
+            "kwargs": {"note": "scheduled"},
         },
     }
 

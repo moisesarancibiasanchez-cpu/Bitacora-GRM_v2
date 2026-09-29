@@ -24,7 +24,7 @@ router = APIRouter(prefix="/butler", tags=["Butler"])
 # REGLAS DE AUTOMATIZACION
 # ==========================================
 class ReglaAccion(BaseModel):
-    tipo: str = Field(..., description="set_estado | add_etiqueta | remove_etiqueta | set_asignado | add_comentario | notify | archive")
+    tipo: str = Field(..., description="set_estado | add_etiqueta | remove_etiqueta | set_asignado | add_comentario | notify | archive | backup_database | backup_cleanup")
     parametros: dict = Field(default_factory=dict)
 
 
@@ -104,6 +104,8 @@ def crear_regla(
     acciones_validas = {
         "set_estado", "add_etiqueta", "remove_etiqueta",
         "set_asignado", "add_comentario", "notify", "archive",
+        "backup_database", "respaldar_bd",
+        "backup_cleanup", "purgar_backups",
     }
     for a in datos.acciones:
         if a.get("tipo") not in acciones_validas:
