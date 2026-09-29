@@ -2,7 +2,7 @@
 Modelo Adjunto: archivos subidos a un ticket (evidencia, logs, screenshots).
 """
 import os
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, BigInteger, LargeBinary
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base, TimestampMixin
@@ -10,8 +10,14 @@ from app.db.base import Base, TimestampMixin
 
 class Adjunto(Base, TimestampMixin):
     """
-    Archivo adjunto a un ticket. Almacena metadatos;
-    el archivo en sí vive en disco (uploads/).
+    Archivo adjunto a un ticket.
+
+    Almacenamiento dual para sobrevivir al filesystem efímero de Railway:
+    * ``ruta``     → ruta en disco (rápido, fuente principal).
+    * ``contenido``→ copia del archivo como ``BYTEA`` en la propia BD (respaldo
+                     persistente que sobrevive a redeploys y reinicios del
+                     contenedor). Si la fila se subió ANTES de esta columna
+                     puede estar ``NULL`` → solo disco.
     """
     __tablename__ = "adjuntos"
 
@@ -30,6 +36,10 @@ class Adjunto(Base, TimestampMixin):
     mime_type = Column(String(100), nullable=True)
     tamano_bytes = Column(BigInteger, default=0, nullable=False)
     descripcion = Column(Text, nullable=True)
+    # Respaldo binario en BD (NULL en registros antiguos; se rellena en cada
+    # subida nueva). En SQLite se persiste como ``BLOB`` y en PostgreSQL como
+    # ``BYTEA`` (columna ``oid`` evitada para mantener updates por registro).
+    contenido = Column(LargeBinary, nullable=True)
 
     ticket = relationship("Ticket", back_populates="adjuntos", foreign_keys=[ticket_id])
     usuario = relationship("Usuario")
@@ -47,6 +57,16 @@ class Adjunto(Base, TimestampMixin):
     @property
     def es_imagen(self) -> bool:
         return (self.mime_type or "").startswith("image/")
+
+    @property
+    def disponible(self) -> bool:
+        """True si el archivo físico está en disco O tiene respaldo en BD."""
+        if self.contenido:
+            return True
+        try:
+            return bool(self.ruta) and os.path.exists(self.ruta)
+        except Exception:
+            return False
 
     def __repr__(self) -> str:
         return f"<Adjunto {self.nombre_original} ticket={self.ticket_id}>"

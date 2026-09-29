@@ -847,15 +847,55 @@ def descargar_adjunto(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ):
+    """Descarga un adjunto.
+
+    Estrategia de resolución (orden de preferencia):
+    1. Disco físico (``adj.ruta``) — más rápido, sirve vía ``FileResponse``.
+    2. Respaldo binario en BD (``adj.contenido``) — persiste entre redeploys
+       de Railway aunque el filesystem se haya borrado.
+    3. Si ninguno está disponible: 410 con detalle accionable.
+    """
+    from urllib.parse import quote
+
     adj = AdjuntoService(db).obtener(adjunto_id)
     if not adj:
         raise HTTPException(status_code=404, detail="Adjunto no encontrado")
-    if not os.path.exists(adj.ruta):
-        raise HTTPException(status_code=410, detail="Archivo físico no disponible")
-    return FileResponse(
-        path=adj.ruta,
-        filename=adj.nombre_original,
-        media_type=adj.mime_type or "application/octet-stream",
+
+    filename = adj.nombre_original or f"adjunto_{adjunto_id}"
+    media_type = adj.mime_type or "application/octet-stream"
+
+    # --- 1) Disco físico --------------------------------------------------
+    ruta = adj.ruta or ""
+    if ruta and not ruta.startswith("(db-only)") and os.path.exists(ruta):
+        return FileResponse(
+            path=ruta,
+            filename=filename,
+            media_type=media_type,
+        )
+
+    # --- 2) Respaldo en BD ------------------------------------------------
+    if adj.contenido:
+        # Content-Disposition con UTF-8 RFC 5987 para preservar acentos/ñ.
+        fallback = filename.encode("ascii", "replace").decode("ascii") or "adjunto"
+        quoted = quote(filename, safe="")
+        content_disp = (
+            f'attachment; filename="{fallback}"; '
+            f"filename*=UTF-8''{quoted}"
+        )
+        return Response(
+            content=adj.contenido,
+            media_type=media_type,
+            headers={"Content-Disposition": content_disp},
+        )
+
+    # --- 3) Sin fuente disponible ----------------------------------------
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Archivo no disponible. Fue subido en una versión anterior del "
+            "sistema y la copia física fue purgada del contenedor. "
+            "Vuelve a subirlo para conservarlo."
+        ),
     )
 
 

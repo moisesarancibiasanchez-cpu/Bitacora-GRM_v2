@@ -157,6 +157,7 @@ class AdjuntoRead(BaseModel):
     descripcion: Optional[str] = None
     tamano_legible: Optional[str] = None
     es_imagen: Optional[bool] = None
+    disponible: Optional[bool] = None
     created_at: datetime
 
 

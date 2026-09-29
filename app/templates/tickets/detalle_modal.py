@@ -677,9 +677,11 @@ DETALLE_TEMPLATE = Template(r"""
               {% set _mime = (a.mime_type or '') %}
               {% set _ext = (a.nombre_original or a.filename or a.nombre or '').split('.')[-1].lower() if (a.nombre_original or a.filename or a.nombre) else '' %}
               {% set es_imagen = a.es_imagen if a.es_imagen is defined else (_mime.startswith('image/') or _ext in ['png','jpg','jpeg','gif','webp','bmp','svg','avif']) %}
-              <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/40 p-2.5">
+              {# Disponible: propiedad del modelo OR fallback por existencia de ruta. #}
+              {% set _disponible = (a.disponible if a.disponible is defined else None) %}
+              <div class="flex items-center justify-between rounded-lg border {% if _disponible is sameas false %}border-amber-300 bg-amber-50/40{% else %}border-slate-200 bg-slate-50/40{% endif %} p-2.5">
                 <div class="flex items-center gap-2 min-w-0">
-                  {% if es_imagen %}
+                  {% if es_imagen and _disponible is not sameas false %}
                     {# data-preview-image activa el lightbox de app/static/js/image-preview.js #}
                     <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
                        data-preview-image
@@ -691,17 +693,32 @@ DETALLE_TEMPLATE = Template(r"""
                            loading="lazy"
                            class="w-12 h-12 object-cover rounded border border-slate-200 hover:ring-2 hover:ring-indigo-400 transition-shadow cursor-zoom-in" />
                     </a>
+                  {% elif es_imagen %}
+                    <div class="w-12 h-12 rounded border border-amber-200 bg-amber-50 flex items-center justify-center flex-shrink-0" title="Archivo no disponible">
+                      <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"></path>
+                      </svg>
+                    </div>
                   {% else %}
                     <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
                     </svg>
                   {% endif %}
-                  <span class="text-xs text-slate-700 truncate">{{ a.nombre_original or a.filename or a.nombre }}</span>
+                  <div class="min-w-0">
+                    <span class="text-xs text-slate-700 truncate block">{{ a.nombre_original or a.filename or a.nombre }}</span>
+                    {% if _disponible is sameas false %}
+                      <span class="text-[10px] text-amber-700">Archivo no disponible — vuelve a subirlo</span>
+                    {% endif %}
+                  </div>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                   <span class="text-[10px] text-slate-400">{{ a.tamano_legible }}</span>
-                  <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
-                     class="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium">Descargar</a>
+                  {% if _disponible is sameas false %}
+                    <span class="text-[11px] text-amber-600 font-medium italic" title="El archivo físico fue purgado. Vuelve a subirlo.">No disponible</span>
+                  {% else %}
+                    <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
+                       class="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium">Descargar</a>
+                  {% endif %}
                 </div>
               </div>
             {% endfor %}

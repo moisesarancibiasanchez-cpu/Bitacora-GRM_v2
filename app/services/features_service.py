@@ -242,7 +242,19 @@ class ComentarioService:
 # ==========================================
 # ADJUNTOS
 # ==========================================
-UPLOAD_ROOT = os.environ.get("UPLOAD_DIR", "uploads")
+# Raíz de uploads: SIEMPRE absoluta, anclada al project root. Railway tiene
+# filesystem efímero (cada redeploy borra /app/uploads), por eso guardamos
+# también una copia binaria en PostgreSQL (BYTEA) como respaldo persistente.
+_UPLOAD_ROOT_RAW = os.environ.get("UPLOAD_DIR", "uploads")
+if os.path.isabs(_UPLOAD_ROOT_RAW):
+    UPLOAD_ROOT = _UPLOAD_ROOT_RAW
+else:
+    # Anclar al directorio raíz del proyecto (no al CWD del gunicorn,
+    # que en Railway puede variar y romper rutas relativas guardadas en BD).
+    _PROJECT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
+    )
+    UPLOAD_ROOT = os.path.join(_PROJECT_ROOT, _UPLOAD_ROOT_RAW)
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
 ALLOWED_EXT = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
@@ -266,7 +278,12 @@ class AdjuntoService:
         nombre_original: str, mime_type: Optional[str] = None,
         descripcion: Optional[str] = None,
     ) -> Tuple[Optional[Adjunto], Optional[str]]:
-        """Guarda el archivo en disco y registra el adjunto. Retorna (adjunto, error)."""
+        """Guarda el archivo en disco y en BD (respaldo) y registra el adjunto.
+
+        Retorna (adjunto, error). El archivo binario siempre queda persistido
+        en PostgreSQL/SQLite (``Adjunto.contenido``) de modo que sobreviva a
+        reinicios del contenedor (Railway borra el filesystem en cada redeploy).
+        """
         if not file_bytes:
             return None, "Archivo vacío"
         if len(file_bytes) > MAX_FILE_SIZE:
@@ -276,23 +293,40 @@ class AdjuntoService:
         if ext and ext not in ALLOWED_EXT:
             return None, f"Extensión no permitida: {ext}"
 
-        # Crear estructura de carpetas
+        # Crear estructura de carpetas (raíz siempre absoluta)
         dir_destino = os.path.join(UPLOAD_ROOT, f"ticket_{ticket.id}")
-        os.makedirs(dir_destino, exist_ok=True)
+        try:
+            os.makedirs(dir_destino, exist_ok=True)
+        except OSError as e:
+            # Si el filesystem está en modo read-only (caso típico Railway
+            # sin volumen), seguimos: la copia en BD es la fuente de verdad.
+            logger.warning(f"No se pudo crear {dir_destino}: {e}. Se omite copia en disco.")
+            dir_destino = None
+
         nombre_storage = f"{uuid.uuid4().hex}{ext}"
-        ruta_abs = os.path.join(dir_destino, nombre_storage)
-        with open(ruta_abs, "wb") as f:
-            f.write(file_bytes)
+        ruta_abs = (
+            os.path.join(dir_destino, nombre_storage)
+            if dir_destino else os.path.join(UPLOAD_ROOT, f"ticket_{ticket.id}", nombre_storage)
+        )
+        if dir_destino:
+            try:
+                with open(ruta_abs, "wb") as f:
+                    f.write(file_bytes)
+            except OSError as e:
+                logger.warning(f"No se pudo escribir {ruta_abs}: {e}. Se usará respaldo en BD.")
+                ruta_abs = ""
 
         adj = Adjunto(
             ticket_id=ticket.id,
             usuario_id=usuario.id,
             nombre_original=nombre_original,
             nombre_storage=nombre_storage,
-            ruta=ruta_abs,
+            ruta=ruta_abs or f"(db-only)ticket_{ticket.id}/{nombre_storage}",
             mime_type=mime_type,
             tamano_bytes=len(file_bytes),
             descripcion=descripcion,
+            # Respaldo persistente en BD (sobrevive a redeploys).
+            contenido=file_bytes,
         )
         self.db.add(adj)
         self.db.commit()
@@ -314,8 +348,9 @@ class AdjuntoService:
         adj = self.obtener(adjunto_id)
         if not adj:
             return False
+        # Intentar borrar el archivo físico si existe (best-effort).
         try:
-            if os.path.exists(adj.ruta):
+            if adj.ruta and not adj.ruta.startswith("(db-only)") and os.path.exists(adj.ruta):
                 os.remove(adj.ruta)
         except OSError as e:
             logger.warning(f"No se pudo borrar archivo físico {adj.ruta}: {e}")

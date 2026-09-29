@@ -92,6 +92,13 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
         # el LOV cerrado de QA Testers del sistema.
         "qa_tester": "VARCHAR(160)",
     },
+    "adjuntos": {
+        # Respaldo binario persistente: Railway tiene filesystem efímero y los
+        # archivos en ``/app/uploads`` se borran en cada redeploy. Esta columna
+        # (BYTEA en PG, BLOB en SQLite) garantiza que la descarga siga
+        # funcionando aunque el archivo físico haya desaparecido.
+        "contenido": ("BYTEA", "BLOB"),
+    },
 }
 
 
