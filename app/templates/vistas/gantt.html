@@ -126,6 +126,31 @@
   .gantt-stage-dot { cursor: pointer; }
   .gantt-stage-dot:hover rect { stroke: #0f172a; stroke-width: 1.5; }
 
+  /* === OPTIMIZACIÓN FEATURE 4+ (perf-2026-09-30) ===
+     Cada ticket se renderiza UNA sola vez dentro de un
+     <g class="gantt-ticket" data-ticket-id="X" transform="translate(0, headerY)">
+     que contiene AMBAS representaciones (compact y expanded). El toggle
+     expand/collapse solo cambia la clase .is-expanded del grupo + traslada
+     los tickets debajo con transform. NO se re-renderiza el SVG.
+
+     - .gantt-compact-only: visible en modo compact, oculto en expanded
+     - .gantt-expanded-only: oculto en compact, visible en expanded
+     - .gantt-toggle-collapsed: ▶, oculto cuando is-expanded
+     - .gantt-toggle-expanded:  ▼, visible cuando is-expanded */
+  .gantt-ticket .gantt-compact-only { display: inline; }
+  .gantt-ticket .gantt-expanded-only { display: none; }
+  .gantt-ticket.is-expanded .gantt-compact-only { display: none; }
+  .gantt-ticket.is-expanded .gantt-expanded-only { display: inline; }
+  .gantt-ticket .gantt-toggle-collapsed { display: inline; }
+  .gantt-ticket .gantt-toggle-expanded { display: none; }
+  .gantt-ticket.is-expanded .gantt-toggle-collapsed { display: none; }
+  .gantt-ticket.is-expanded .gantt-toggle-expanded { display: inline; }
+  /* Animación suave al trasladar tickets (150ms ease-out). Desactivada
+     durante el render inicial (clase .no-anim en <svg>) para evitar
+     transiciones visibles al cargar. */
+  .gantt-ticket { transition: transform 0.15s ease-out; }
+  #gantt-svg.no-anim .gantt-ticket { transition: none; }
+
   /* Flechas: dependencias inter-ticket y auto-FS intra-ticket */
   .gantt-auto-fs { fill: none; stroke: #0ea5e9; stroke-width: 1.2;
                    stroke-dasharray: 3 3; opacity: .65; }
@@ -312,20 +337,20 @@
       {# Header del Gantt: mes/semana actual, día de hoy #}
       <g class="gantt-grid" id="gantt-grid"></g>
 
-      {# Filas (background) #}
-      <g class="gantt-rows" id="gantt-rows"></g>
+      {# === OPTIMIZACIÓN FEATURE 4+ (perf-2026-09-30) ===
+         Contenedor único de tickets. Cada ticket se renderiza DENTRO de
+         su propio <g class="gantt-ticket" data-ticket-id="X"> con translate
+         propio. Dentro contiene AMBAS representaciones (compact y expanded)
+         que se muestran/ocultan vía CSS (.gantt-compact-only / .gantt-expanded-only).
+         Esto permite que el toggle expand/collapse SOLO cambie una clase
+         + traslade los tickets siguientes, sin re-renderizar el SVG. #}
+      <g class="gantt-tickets" id="gantt-tickets"></g>
 
-      {# Barras de tickets #}
-      <g class="gantt-bars" id="gantt-bars"></g>
-
-      {# === FEATURE 4: Sub-bars de etapas (mismo SVG, otro grupo) === #}
-      <g class="gantt-subbars" id="gantt-subbars"></g>
+      {# === FEATURE 4: Flechas auto-FS intra-ticket ===}
+      <g class="gantt-auto-fs-layer" id="gantt-auto-fs"></g>
 
       {# Flechas de dependencias (inter-ticket) #}
       <g class="gantt-link" id="gantt-links"></g>
-
-      {# === FEATURE 4: Flechas auto-FS intra-ticket === #}
-      <g class="gantt-auto-fs-layer" id="gantt-auto-fs"></g>
     </svg>
     {% endif %}
   </div>
@@ -647,34 +672,37 @@ function computeTicketLayout() {
 }
 
 // ============================================================
-// Render principal
+// Render principal — OPTIMIZADO (perf-2026-09-30)
 // ============================================================
+// Cada ticket se pinta UNA sola vez dentro de su propio
+// <g class="gantt-ticket" data-ticket-id="X" transform="translate(0, headerY)">,
+// conteniendo AMBAS representaciones (compact + expanded). El toggle
+// expand/collapse solo cambia la clase .is-expanded y traslada los
+// tickets siguientes con transform — sin re-renderizar el SVG.
+
 function render() {
   const svg = document.getElementById('gantt-svg');
   if (!svg) return;
+  // Desactivar transiciones durante el render inicial (evita parpadeos).
+  svg.classList.add('no-anim');
+  setTimeout(() => svg.classList.remove('no-anim'), 50);
+
   const cellW = CELL_WIDTH[currentZoom];
   const range = computeRange();
   const totalDays = daysBetween(range.start, range.end);
   const totalW = LEFT_PANEL + totalDays * cellW;
   const { layout, totalHeight } = computeTicketLayout();
+  const layoutMap = new Map(layout.map(r => [r.ticketId, r]));
   svg.setAttribute('width',  totalW);
   svg.setAttribute('height', totalHeight);
   svg.setAttribute('viewBox', `0 0 ${totalW} ${totalHeight}`);
 
-  // ---- Banda de fondo del header (no más superposiciones) ----
-  // Capa 0: lienzo blanco que ocupa todo el viewBox (evita "fondo negro"
-  // cuando el body del navegador proyecta cualquier color oscuro detrás del SVG).
+  // ---- Layer 1: grid (lienzo + panel izquierdo + header + líneas verticales) ----
   const grid = document.getElementById('gantt-grid');
-  grid.innerHTML = '';
-  grid.innerHTML += `<rect class="gantt-svg-canvas" x="0" y="0" width="${totalW}" height="${totalHeight}"/>`;
-  // Capa 1: fondo del panel izquierdo (columna de etiquetas), para
-  // distinguirlo visualmente del área del timeline.
-  grid.innerHTML += `<rect class="gantt-left-panel-bg" x="0" y="0" width="${LEFT_PANEL}" height="${totalHeight}"/>`;
-  // Capa 2: banda del header (encima de las anteriores, sobre la zona del timeline)
-  grid.innerHTML += `<rect class="gantt-grid-bg" x="0" y="0" width="${totalW}" height="${HEADER_HEIGHT}"/>`;
-  grid.innerHTML += `<line class="gantt-header-divider" x1="0" y1="${HEADER_HEIGHT}" x2="${totalW}" y2="${HEADER_HEIGHT}"/>`;
-
-  // ---- Grid (líneas verticales y etiquetas de tiempo) ----
+  let gridHtml = `<rect class="gantt-svg-canvas" x="0" y="0" width="${totalW}" height="${totalHeight}"/>`
+    + `<rect class="gantt-left-panel-bg" x="0" y="0" width="${LEFT_PANEL}" height="${totalHeight}"/>`
+    + `<rect class="gantt-grid-bg" x="0" y="0" width="${totalW}" height="${HEADER_HEIGHT}"/>`
+    + `<line class="gantt-header-divider" x1="0" y1="${HEADER_HEIGHT}" x2="${totalW}" y2="${HEADER_HEIGHT}"/>`;
   for (let i = 0; i <= totalDays; i++) {
     const d = addDays(range.start, i);
     const x = LEFT_PANEL + i * cellW;
@@ -685,238 +713,183 @@ function render() {
     if (isToday) cls = 'today';
     else if (isMonth) cls = 'month';
     else if (isWeek) cls = 'week';
-    grid.innerHTML += `<line class="${cls}" x1="${x}" y1="${HEADER_HEIGHT}" x2="${x}" y2="${totalHeight}"/>`;
+    gridHtml += `<line class="${cls}" x1="${x}" y1="${HEADER_HEIGHT}" x2="${x}" y2="${totalHeight}"/>`;
     if (isMonth) {
       const mes = d.toLocaleDateString('es', { month: 'short', year: '2-digit' });
-      grid.innerHTML += `<text class="month" x="${x + 4}" y="16">${escapeHtml(mes)}</text>`;
+      gridHtml += `<text class="month" x="${x + 4}" y="16">${escapeHtml(mes)}</text>`;
     }
     if (currentZoom === 'day' || (currentZoom === 'week' && isWeek)) {
       const dn = d.getDate();
-      grid.innerHTML += `<text class="day-num" x="${x + 2}" y="32">${dn}</text>`;
+      gridHtml += `<text class="day-num" x="${x + 2}" y="32">${dn}</text>`;
     }
   }
+  grid.innerHTML = gridHtml;
 
-  // ---- Filas: backgrounds + labels del panel izquierdo ----
-  const rows = document.getElementById('gantt-rows');
-  rows.innerHTML = '';
-  layout.forEach((row) => {
-    const t = TICKETS.find(x => x.id === row.ticketId);
-    if (!t) return;
-    const isExpanded = row.mode === 'expanded';
-
-    // Background del header row
-    rows.innerHTML += `<rect class="gantt-row-bg" x="0" y="${row.headerY}" width="${totalW}" height="${ROW_HEIGHT}"/>`;
-    // Background de las sub-rows (si está expandido)
-    if (isExpanded) {
-      (t.etapas || []).forEach((e, subIdx) => {
-        const subY = row.subY + subIdx * ROW_HEIGHT_SUB;
-        rows.innerHTML += `<rect class="gantt-row-sub" x="0" y="${subY}" width="${totalW}" height="${ROW_HEIGHT_SUB}"/>`;
-      });
-    }
-
-    // Tooltip con código + título del ticket
-    const fullTooltip = `${t.codigo || ''}${t.titulo ? ' — ' + t.titulo : ''}`;
-    rows.innerHTML += `<title>${escapeHtml(fullTooltip)}</title>`;
-
-    // Botón ▶/▼ toggle (solo si hay etapas)
-    const hasEtapas = (t.etapas || []).length > 0;
-    if (hasEtapas) {
-      const tog = isExpanded ? '▼' : '▶';
-      rows.innerHTML += `<text class="gantt-toggle" x="2" y="${row.headerY + 23}" data-ticket-id="${t.id}" data-toggle-etapas="1">${tog}</text>`;
-    }
-
-    // Código truncado
-    const codigoCorto = truncateText(t.codigo || '', 10);
-    rows.innerHTML += `<text class="gantt-row-text-code" x="16" y="${row.headerY + 22}">${escapeHtml(codigoCorto)}</text>`;
-    // Título truncado
-    const tituloCorto = truncateText(t.titulo || '', 22);
-    rows.innerHTML += `<text class="gantt-row-text-title" x="100" y="${row.headerY + 22}">${escapeHtml(tituloCorto)}</text>`;
-
-    // En modo COMPACT: tira de dots de etapas en el panel izquierdo
-    if (!isExpanded && hasEtapas) {
-      const etapasSorted = [...(t.etapas || [])].sort((a,b) => a.etapa_orden - b.etapa_orden);
-      const dotSize = 8;
-      const dotGap = 2;
-      const dotY = row.headerY + ROW_HEIGHT - dotSize - 2;
-      const dotX0 = 16;
-      etapasSorted.forEach((e, i) => {
-        const dx = dotX0 + i * (dotSize + dotGap);
-        if (dx + dotSize > LEFT_PANEL - 4) return; // no desbordar el panel
-        const stageLabel = `${e.etapa_orden}. ${e.etapa_nombre}`;
-        rows.innerHTML += `<g class="gantt-stage-dot" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
-          <rect x="${dx}" y="${dotY}" width="${dotSize}" height="${dotSize}" rx="2"
-                fill="${e.etapa_color}" fill-opacity="${e.fecha_inicio ? 0.95 : 0.25}"
-                stroke="${e.etapa_color}" stroke-width="1"/>
-          <title>${escapeHtml(stageLabel)}${e.fecha_inicio ? ' · ' + e.fecha_inicio + (e.fecha_fin ? ' → ' + e.fecha_fin : '') : ' · sin planificar'}${e.completado ? ' · ✓' : ''}</title>
-        </g>`;
-      });
-    }
+  // ---- Layer 2: tickets (cada uno en su propio <g>, ambos modos a la vez) ----
+  // Separador vertical del panel izquierdo (atraviesa todas las filas).
+  const ticketsG = document.getElementById('gantt-tickets');
+  ticketsG.innerHTML = `<line class="gantt-left-panel-divider" x1="${LEFT_PANEL}" y1="0" x2="${LEFT_PANEL}" y2="${totalHeight}"/>`;
+  TICKETS.forEach((t) => {
+    const row = layoutMap.get(t.id);
+    if (!row) return;
+    const cls = row.mode === 'expanded' ? 'gantt-ticket is-expanded' : 'gantt-ticket';
+    const ticketG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    ticketG.setAttribute('class', cls);
+    ticketG.setAttribute('data-ticket-id', String(t.id));
+    ticketG.setAttribute('transform', `translate(0, ${row.headerY})`);
+    ticketG.innerHTML = _renderTicketInner(t, range, cellW, totalW);
+    ticketsG.appendChild(ticketG);
   });
-  // Separador vertical del panel izquierdo
-  rows.innerHTML += `<line class="gantt-left-panel-divider" x1="${LEFT_PANEL}" y1="0" x2="${LEFT_PANEL}" y2="${totalHeight}"/>`;
 
-  // ---- Barras de tickets (solo en filas header, NO en sub-rows) ----
-  const bars = document.getElementById('gantt-bars');
-  bars.innerHTML = '';
-  layout.forEach((row) => {
-    const t = TICKETS.find(x => x.id === row.ticketId);
-    if (!t || !t.inicio || !t.fin) return;
+  // ---- Layer 3: flechas auto-FS intra-ticket (solo en expanded) ----
+  renderAutoFs(layout, range, cellW);
+
+  // ---- Layer 4: flechas de dependencias inter-ticket ----
+  renderLinks(layout, range, cellW);
+}
+
+// Helper: renderiza el contenido de UN ticket. Se emite SIEMPRE con AMBAS
+// representaciones (compact + expanded) y la visibilidad se controla por CSS.
+function _renderTicketInner(t, range, cellW, totalW) {
+  const hasEtapas = (t.etapas || []).length > 0;
+  const etapasSorted = [...(t.etapas || [])].sort((a,b) => a.etapa_orden - b.etapa_orden);
+
+  // Backgrounds con visibility classes — así al toggle no hay que repintar.
+  // compact-only: cubre solo la fila header (alto = ROW_HEIGHT).
+  // expanded-only: cubre header + sub-rows (alto = ROW_HEIGHT + N * ROW_HEIGHT_SUB).
+  let bg = `<rect class="gantt-row-bg gantt-compact-only" x="0" y="0" width="${totalW}" height="${ROW_HEIGHT}"/>`;
+  if (hasEtapas) {
+    const totalH = ROW_HEIGHT + etapasSorted.length * ROW_HEIGHT_SUB;
+    bg += `<rect class="gantt-row-bg gantt-expanded-only" x="0" y="0" width="${totalW}" height="${totalH}"/>`;
+    etapasSorted.forEach((_, subIdx) => {
+      const subY = ROW_HEIGHT + subIdx * ROW_HEIGHT_SUB;
+      bg += `<rect class="gantt-row-sub gantt-expanded-only" x="0" y="${subY}" width="${totalW}" height="${ROW_HEIGHT_SUB}"/>`;
+    });
+  }
+
+  // Tooltip con código + título del ticket
+  const fullTooltip = `${t.codigo || ''}${t.titulo ? ' — ' + t.titulo : ''}`;
+  let tt = `<title>${escapeHtml(fullTooltip)}</title>`;
+
+  // Toggle button ▶/▼ — visibility classes
+  let tog = '';
+  if (hasEtapas) {
+    tog = `<text class="gantt-toggle gantt-toggle-collapsed gantt-compact-only" x="2" y="${ROW_HEIGHT / 2 + 8}" data-ticket-id="${t.id}" data-toggle-etapas="1">▶</text>`
+         + `<text class="gantt-toggle gantt-toggle-expanded gantt-expanded-only" x="2" y="${ROW_HEIGHT / 2 + 8}" data-ticket-id="${t.id}" data-toggle-etapas="1">▼</text>`;
+  }
+
+  // Código + título (siempre visibles)
+  const codigoCorto = truncateText(t.codigo || '', 10);
+  const tituloCorto = truncateText(t.titulo || '', 22);
+  let text = `<text class="gantt-row-text-code" x="16" y="${ROW_HEIGHT / 2 + 6}">${escapeHtml(codigoCorto)}</text>`
+            + `<text class="gantt-row-text-title" x="100" y="${ROW_HEIGHT / 2 + 6}">${escapeHtml(tituloCorto)}</text>`;
+
+  // Stage dots en el panel izquierdo (COMPACT only)
+  let dots = '';
+  if (hasEtapas) {
+    const dotSize = 8;
+    const dotGap = 2;
+    const dotY = ROW_HEIGHT - dotSize - 2;
+    const dotX0 = 16;
+    etapasSorted.forEach((e, i) => {
+      const dx = dotX0 + i * (dotSize + dotGap);
+      if (dx + dotSize > LEFT_PANEL - 4) return;
+      const stageLabel = `${e.etapa_orden}. ${e.etapa_nombre}`;
+      dots += `<g class="gantt-stage-dot gantt-compact-only" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
+        <rect x="${dx}" y="${dotY}" width="${dotSize}" height="${dotSize}" rx="2"
+              fill="${e.etapa_color}" fill-opacity="${e.fecha_inicio ? 0.95 : 0.25}"
+              stroke="${e.etapa_color}" stroke-width="1"/>
+        <title>${escapeHtml(stageLabel)}${e.fecha_inicio ? ' · ' + e.fecha_inicio + (e.fecha_fin ? ' → ' + e.fecha_fin : '') : ' · sin planificar'}${e.completado ? ' · ✓' : ''}</title>
+      </g>`;
+    });
+  }
+
+  // Main gantt-bar (siempre visible, centrada en la fila header)
+  let bar = '';
+  if (t.inicio && t.fin) {
     const dIni = new Date(t.inicio);
     const dFin = new Date(t.fin);
     const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
     const w = Math.max(8, daysBetween(dIni, dFin) * cellW);
-    const y = row.headerY + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+    const y = (ROW_HEIGHT - BAR_HEIGHT) / 2;
     let cls = 'gantt-bar';
     if (t.sla_cumplido === 0) cls += ' is-overdue';
     else if (t.archivado)     cls += ' is-done';
     const codigoSafe = encodeURIComponent(t.codigo || '');
-    bars.innerHTML += `<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${BAR_HEIGHT}" rx="3"
-                       data-ticket-id="${t.id}"
-                       data-ticket-codigo="${codigoSafe}"
-                       onclick="abrirDetalle(${t.id})"
-                       ondblclick="abrirDetalle(${t.id})"
-                       oncontextmenu="abrirMenuGantt(event, ${t.id}, '${codigoSafe}'); return false;"
-                       style="cursor: pointer;"/>`;
+    bar = `<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${BAR_HEIGHT}" rx="3"
+                  data-ticket-id="${t.id}"
+                  data-ticket-codigo="${codigoSafe}"
+                  onclick="abrirDetalle(${t.id})"
+                  ondblclick="abrirDetalle(${t.id})"
+                  oncontextmenu="abrirMenuGantt(event, ${t.id}, '${codigoSafe}'); return false;"
+                  style="cursor: pointer;"><title>${escapeHtml(fullTooltip)}</title></rect>`;
     if (w > 60) {
       const charsMax = Math.max(6, Math.floor((w - 12) / 5.5));
       const codigoEnBarra = truncateText(t.codigo || '', charsMax);
-      const barTooltip = `${t.codigo || ''}${t.titulo ? ' — ' + t.titulo : ''}`;
-      bars.innerHTML += `<title>${escapeHtml(barTooltip)}</title>`;
-      bars.innerHTML += `<text class="gantt-bar-label" x="${x + 6}" y="${y + 15}">${escapeHtml(codigoEnBarra)}</text>`;
-    } else {
-      const barTooltip = `${t.codigo || ''}${t.titulo ? ' — ' + t.titulo : ''}`;
-      bars.innerHTML += `<title>${escapeHtml(barTooltip)}</title>`;
+      bar += `<text class="gantt-bar-label" x="${x + 6}" y="${y + 15}">${escapeHtml(codigoEnBarra)}</text>`;
     }
-  });
+  }
 
-  // ---- FEATURE 4: Sub-bars DENTRO del panel del tiempo ----
-  // Modo COMPACT: cada etapa se pinta como un rectángulo muy fino (8px) en
-  // la mitad superior de la barra del ticket, alineado por fecha.
-  // Modo EXPANDED: cada etapa es una sub-bar propia en su sub-row.
-  const subG = document.getElementById('gantt-subbars');
-  subG.innerHTML = '';
-  layout.forEach((row) => {
-    const t = TICKETS.find(x => x.id === row.ticketId);
-    if (!t) return;
-    const etapasSorted = [...(t.etapas || [])].sort((a,b) => a.etapa_orden - b.etapa_orden);
-    if (etapasSorted.length === 0) return;
+  // Sub-bars: COMPACT (mini-bars sobre la barra padre) + EXPANDED (sub-rows)
+  let subs = '';
+  if (hasEtapas) {
+    // ---- COMPACT mode: sub-bars diminutos sobre la barra padre ----
+    const parentX = LEFT_PANEL + (t.inicio ? daysBetween(range.start, new Date(t.inicio)) * cellW : 0);
+    const parentW = Math.max(8, daysBetween(new Date(t.inicio), new Date(t.fin)) * cellW);
+    const innerY = (ROW_HEIGHT - BAR_HEIGHT) / 2 + 1;
+    const innerH = 6;
+    const hitH = 14;
+    const hitY = innerY - 4;
+    const startX = LEFT_PANEL;
+    subs += `<rect class="gantt-compact-only" x="${parentX + 1}" y="${innerY}" width="${Math.max(2, parentW - 2)}" height="${BAR_HEIGHT - 2}" rx="2" fill="white" fill-opacity="0.25" pointer-events="none"/>`;
+    etapasSorted.forEach((e) => {
+      const tooltip = `${e.etapa_orden}. ${e.etapa_nombre}${e.fecha_inicio ? '\n' + e.fecha_inicio + (e.fecha_fin ? ' → ' + e.fecha_fin : '') : '\n(sin planificar)'}`;
+      if (e.fecha_inicio) {
+        const dIni = new Date(e.fecha_inicio);
+        const dFin = e.fecha_fin ? new Date(e.fecha_fin) : dIni;
+        const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
+        const w = Math.max(4, daysBetween(dIni, dFin) * cellW);
+        subs += `<rect class="gantt-subbar-hit gantt-compact-only" x="${x - 2}" y="${hitY}" width="${w + 4}" height="${hitH}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"><title>${escapeHtml(tooltip)}\nClick para editar</title></rect>`;
+        subs += `<rect class="gantt-subbar gantt-compact-only" x="${x}" y="${innerY}" width="${w}" height="${innerH}" rx="1" fill="${e.etapa_color}" fill-opacity="0.95" stroke="${e.etapa_color}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}" style="cursor: pointer;"><title>${escapeHtml(tooltip)}\nClick para editar</title></rect>`;
+      } else {
+        subs += `<rect class="gantt-subbar-hit gantt-compact-only" x="${startX - 2}" y="${hitY}" width="10" height="${hitH}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"><title>${escapeHtml(tooltip)}\nClick para planificar</title></rect>`;
+        subs += `<rect class="gantt-subbar is-empty gantt-compact-only" x="${startX}" y="${innerY}" width="4" height="${innerH}" rx="1" fill="${e.etapa_color}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}" style="cursor: pointer;"><title>${escapeHtml(tooltip)}\nClick para planificar</title></rect>`;
+      }
+    });
 
-    if (row.mode === 'expanded') {
-      // Una sub-row por etapa
-      etapasSorted.forEach((e, subIdx) => {
-        const subY = row.subY + subIdx * ROW_HEIGHT_SUB + (ROW_HEIGHT_SUB - SUBBAR_HEIGHT) / 2;
-        const labelTxt = `${e.etapa_orden}. ${e.etapa_nombre}`;
-        const labelSafe = escapeHtml(labelTxt);
-        const tooltip = `${labelTxt}${e.fecha_inicio ? '\n' + e.fecha_inicio + (e.fecha_fin ? ' → ' + e.fecha_fin : '') : '\n(sin planificar)'}${e.completado ? '\n✓ Completada' : ''}${e.notas ? '\nNotas: ' + e.notas : ''}`;
-        if (e.fecha_inicio) {
-          const dIni = new Date(e.fecha_inicio);
-          const dFin = e.fecha_fin ? new Date(e.fecha_fin) : dIni;
-          const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
-          const w = Math.max(6, daysBetween(dIni, dFin) * cellW);
-          // Hit-area invisible (16px de alto) — captura clicks aunque el
-          // sub-bar visible sea más pequeño. Va ANTES del sub-bar para
-          // que el selector CSS `+` aplique el :hover al hermano siguiente.
-          subG.innerHTML += `<rect class="gantt-subbar-hit"
-                              x="${x - 2}" y="${subY - 1}" width="${w + 4}" height="${SUBBAR_HEIGHT + 2}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
-                              <title>${escapeHtml(tooltip)}</title>
-                             </rect>`;
-          subG.innerHTML += `<rect class="gantt-subbar ${e.completado ? '' : ''}"
-                              x="${x}" y="${subY}" width="${w}" height="${SUBBAR_HEIGHT}" rx="2"
-                              fill="${e.etapa_color}" fill-opacity="0.9"
-                              stroke="${e.etapa_color}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              style="cursor: pointer;">
-                              <title>${escapeHtml(tooltip)}</title>
-                             </rect>`;
-          if (w > 30) {
-            const charsMax = Math.max(4, Math.floor((w - 8) / 4.5));
-            const lbl = truncateText(labelTxt, charsMax);
-            subG.innerHTML += `<text class="gantt-subbar-label" x="${x + 4}" y="${subY + 10}">${escapeHtml(lbl)}</text>`;
-          }
-        } else {
-          // Sin planificar: dot pequeño en x = LEFT_PANEL o alineado con la barra padre
-          const parentStartX = LEFT_PANEL; // no tenemos el start del ticket, usamos origen del rango
-          subG.innerHTML += `<rect class="gantt-subbar-hit"
-                              x="${parentStartX - 2}" y="${subY - 1}" width="10" height="${SUBBAR_HEIGHT + 2}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
-                              <title>${escapeHtml(tooltip)}\nClick para planificar</title>
-                             </rect>`;
-          subG.innerHTML += `<rect class="gantt-subbar is-empty"
-                              x="${parentStartX}" y="${subY}" width="6" height="${SUBBAR_HEIGHT}" rx="1"
-                              fill="${e.etapa_color}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              style="cursor: pointer;">
-                              <title>${escapeHtml(tooltip)}\nClick para planificar</title>
-                             </rect>`;
-          subG.innerHTML += `<text class="gantt-subbar-label" x="${parentStartX + 10}" y="${subY + 10}" fill="#475569" style="text-shadow:none">${labelSafe}</text>`;
+    // ---- EXPANDED mode: cada etapa en su propia sub-row ----
+    etapasSorted.forEach((e, subIdx) => {
+      const subY = ROW_HEIGHT + subIdx * ROW_HEIGHT_SUB + (ROW_HEIGHT_SUB - SUBBAR_HEIGHT) / 2;
+      const labelTxt = `${e.etapa_orden}. ${e.etapa_nombre}`;
+      const tooltip = `${labelTxt}${e.fecha_inicio ? '\n' + e.fecha_inicio + (e.fecha_fin ? ' → ' + e.fecha_fin : '') : '\n(sin planificar)'}${e.completado ? '\n✓ Completada' : ''}${e.notas ? '\nNotas: ' + e.notas : ''}`;
+      if (e.fecha_inicio) {
+        const dIni = new Date(e.fecha_inicio);
+        const dFin = e.fecha_fin ? new Date(e.fecha_fin) : dIni;
+        const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
+        const w = Math.max(6, daysBetween(dIni, dFin) * cellW);
+        subs += `<rect class="gantt-subbar-hit gantt-expanded-only" x="${x - 2}" y="${subY - 1}" width="${w + 4}" height="${SUBBAR_HEIGHT + 2}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"><title>${escapeHtml(tooltip)}</title></rect>`;
+        subs += `<rect class="gantt-subbar gantt-expanded-only" x="${x}" y="${subY}" width="${w}" height="${SUBBAR_HEIGHT}" rx="2" fill="${e.etapa_color}" fill-opacity="0.9" stroke="${e.etapa_color}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}" style="cursor: pointer;"><title>${escapeHtml(tooltip)}</title></rect>`;
+        if (w > 30) {
+          const charsMax = Math.max(4, Math.floor((w - 8) / 4.5));
+          const lbl = truncateText(labelTxt, charsMax);
+          subs += `<text class="gantt-subbar-label gantt-expanded-only" x="${x + 4}" y="${subY + 10}">${escapeHtml(lbl)}</text>`;
         }
-      });
-    } else {
-      // Modo COMPACT: mini-bars dentro de la barra padre (mitad superior).
-      // Los mini-bars aquí son DIMINUTOS (4-30px de ancho × 6px de alto
-      // en zoom day/week/month). Por eso añadimos SIEMPRE un rect invisible
-      // "hit-area" de ~14px de alto *delante* de cada sub-bar para que el
-      // click SIEMPRE impacte al sub-bar y NO a la barra padre (gantt-bar),
-      // que abriría el detalle del ticket en lugar del modal de etapa.
-      const parentX = LEFT_PANEL + (t.inicio ? daysBetween(range.start, new Date(t.inicio)) * cellW : 0);
-      const parentW = Math.max(8, daysBetween(new Date(t.inicio), new Date(t.fin)) * cellW);
-      const innerY = row.headerY + (ROW_HEIGHT - BAR_HEIGHT) / 2 + 1;
-      const innerH = 6;
-      const hitH = 14;          // hit-area: 14px de alto (≈ 2.3× el sub-bar)
-      const hitY = innerY - 4;  // centrado vertical sobre innerY
-      const startX = LEFT_PANEL;
-      // Banda de fondo sutil sobre la barra padre
-      subG.innerHTML += `<rect x="${parentX + 1}" y="${innerY}" width="${Math.max(2, parentW - 2)}" height="${BAR_HEIGHT - 2}" rx="2"
-                          fill="white" fill-opacity="0.25"
-                          pointer-events="none"/>`;
-      etapasSorted.forEach((e) => {
-        const labelTxt = `${e.etapa_orden}`;
-        const tooltip = `${e.etapa_orden}. ${e.etapa_nombre}${e.fecha_inicio ? '\n' + e.fecha_inicio + (e.fecha_fin ? ' → ' + e.fecha_fin : '') : '\n(sin planificar)'}`;
-        if (e.fecha_inicio) {
-          const dIni = new Date(e.fecha_inicio);
-          const dFin = e.fecha_fin ? new Date(e.fecha_fin) : dIni;
-          const x = LEFT_PANEL + daysBetween(range.start, dIni) * cellW;
-          const w = Math.max(4, daysBetween(dIni, dFin) * cellW);
-          // Hit-area invisible (va ANTES del sub-bar visible)
-          subG.innerHTML += `<rect class="gantt-subbar-hit"
-                              x="${x - 2}" y="${hitY}" width="${w + 4}" height="${hitH}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
-                              <title>${escapeHtml(tooltip)}\nClick para editar</title>
-                             </rect>`;
-          subG.innerHTML += `<rect class="gantt-subbar"
-                              x="${x}" y="${innerY}" width="${w}" height="${innerH}" rx="1"
-                              fill="${e.etapa_color}" fill-opacity="0.95"
-                              stroke="${e.etapa_color}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              style="cursor: pointer;">
-                              <title>${escapeHtml(tooltip)}\nClick para editar</title>
-                             </rect>`;
-        } else {
-          // Marcador vacío en el inicio del rango (queda sobre la barra padre si overlap)
-          subG.innerHTML += `<rect class="gantt-subbar-hit"
-                              x="${startX - 2}" y="${hitY}" width="10" height="${hitH}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}">
-                              <title>${escapeHtml(tooltip)}\nClick para planificar</title>
-                             </rect>`;
-          subG.innerHTML += `<rect class="gantt-subbar is-empty"
-                              x="${startX}" y="${innerY}" width="4" height="${innerH}" rx="1"
-                              fill="${e.etapa_color}"
-                              data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"
-                              style="cursor: pointer;">
-                              <title>${escapeHtml(tooltip)}\nClick para planificar</title>
-                             </rect>`;
-        }
-      });
-    }
-  });
+      } else {
+        subs += `<rect class="gantt-subbar-hit gantt-expanded-only" x="${LEFT_PANEL - 2}" y="${subY - 1}" width="10" height="${SUBBAR_HEIGHT + 2}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}"><title>${escapeHtml(tooltip)}\nClick para planificar</title></rect>`;
+        subs += `<rect class="gantt-subbar is-empty gantt-expanded-only" x="${LEFT_PANEL}" y="${subY}" width="6" height="${SUBBAR_HEIGHT}" rx="1" fill="${e.etapa_color}" data-ticket-id="${t.id}" data-etapa-id="${e.etapa_id}" style="cursor: pointer;"><title>${escapeHtml(tooltip)}\nClick para planificar</title></rect>`;
+        subs += `<text class="gantt-subbar-label gantt-expanded-only" x="${LEFT_PANEL + 10}" y="${subY + 10}" fill="#475569" style="text-shadow:none">${escapeHtml(labelTxt)}</text>`;
+      }
+    });
+  }
 
-  // ---- FEATURE 4: Flechas auto-FS intra-ticket (solo en modo expanded) ----
-  // Por cada par consecutivo de etapas del mismo ticket con ambas fechas
-  // planificadas, dibujamos una flecha azul discontinua del fin de N al
-  // inicio de N+1 (chain visual).
+  return bg + tt + tog + text + dots + bar + subs;
+}
+
+// Helper: renderiza las flechas auto-FS intra-ticket (solo en modo expanded)
+function renderAutoFs(layout, range, cellW) {
   const autoFsG = document.getElementById('gantt-auto-fs');
-  autoFsG.innerHTML = '';
+  if (!autoFsG) return;
+  let html = '';
   layout.forEach((row) => {
     if (row.mode !== 'expanded') return;
     const t = TICKETS.find(x => x.id === row.ticketId);
@@ -933,13 +906,17 @@ function render() {
       if (x2 <= x1) continue;
       const midX = x1 + (x2 - x1) / 2;
       const path = `M ${x1} ${yCur} L ${midX} ${yCur} L ${midX} ${yNxt} L ${x2} ${yNxt}`;
-      autoFsG.innerHTML += `<path class="gantt-auto-fs" d="${path}" marker-end="url(#arrow-head-sky)"/>`;
+      html += `<path class="gantt-auto-fs" d="${path}" marker-end="url(#arrow-head-sky)"/>`;
     }
   });
+  autoFsG.innerHTML = html;
+}
 
-  // ---- Flechas de dependencias (inter-ticket) ----
+// Helper: renderiza las flechas de dependencias inter-ticket
+function renderLinks(layout, range, cellW) {
   const linksG = document.getElementById('gantt-links');
-  linksG.innerHTML = '';
+  if (!linksG) return;
+  let html = '';
   LINKS.forEach(l => {
     const rowP = layout.find(r => r.ticketId === l.predecesor_id);
     const rowS = layout.find(r => r.ticketId === l.sucesor_id);
@@ -954,29 +931,71 @@ function render() {
     else if (l.tipo === 'ff') { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.fin)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.fin)) * cellW; }
     else { x1 = LEFT_PANEL + daysBetween(range.start, new Date(tP.inicio)) * cellW; x2 = LEFT_PANEL + daysBetween(range.start, new Date(tS.fin)) * cellW; }
     const path = `M ${x1} ${yP} L ${x1 + 8} ${yP} L ${x1 + 8} ${yS} L ${x2 - 2} ${yS}`;
-    linksG.innerHTML += `<path class="${l.tipo}" d="${path}" data-link-id="${l.id}"/>`;
+    html += `<path class="${l.tipo}" d="${path}" data-link-id="${l.id}"/>`;
   });
+  linksG.innerHTML = html;
 }
 
 // ============================================================
-// FEATURE 4: Toggle per-row / global de sub-bars
+// FEATURE 4: Toggle per-row / global de sub-bars — LIGERO
 // ============================================================
+// En lugar de re-renderizar TODO el SVG, toggleamos una clase CSS
+// y trasladamos los tickets siguientes. O(N) en transform updates,
+// pero sin tocar el DOM de las barras/sub-bars que no cambian.
+function applyToggleLayout(_ticketId) {
+  const svg = document.getElementById('gantt-svg');
+  if (!svg) return;
+  const cellW = CELL_WIDTH[currentZoom];
+  const range = computeRange();
+  const { layout, totalHeight } = computeTicketLayout();
+  const layoutMap = new Map(layout.map(r => [r.ticketId, r]));
+
+  // Actualizar altura del SVG y separador vertical
+  svg.setAttribute('height', totalHeight);
+  svg.setAttribute('viewBox', `0 0 ${svg.getAttribute('width')} ${totalHeight}`);
+
+  // Actualizar transform de CADA ticket group
+  document.querySelectorAll('#gantt-tickets .gantt-ticket').forEach((g) => {
+    const tid = parseInt(g.getAttribute('data-ticket-id'), 10);
+    const row = layoutMap.get(tid);
+    if (row) g.setAttribute('transform', `translate(0, ${row.headerY})`);
+  });
+
+  // Re-renderizar auto-FS y links (sus Y dependen de los headerY de los tickets)
+  renderAutoFs(layout, range, cellW);
+  renderLinks(layout, range, cellW);
+}
+
 function toggleEtapasFor(ticketId) {
+  const ticketG = document.querySelector(`#gantt-tickets .gantt-ticket[data-ticket-id="${ticketId}"]`);
+  if (!ticketG) return;
+
   if (expandedTickets.has(ticketId)) {
     expandedTickets.delete(ticketId);
+    ticketG.classList.remove('is-expanded');
   } else {
     expandedTickets.add(ticketId);
+    ticketG.classList.add('is-expanded');
   }
-  render();
+  applyToggleLayout(ticketId);
 }
+
 function toggleAllEtapas() {
   const anyExpanded = TICKETS.some(t => expandedTickets.has(t.id));
   if (anyExpanded) {
     expandedTickets.clear();
+    document.querySelectorAll('#gantt-tickets .gantt-ticket.is-expanded')
+      .forEach(g => g.classList.remove('is-expanded'));
   } else {
     TICKETS.forEach(t => { if ((t.etapas || []).length > 0) expandedTickets.add(t.id); });
+    TICKETS.forEach(t => {
+      if ((t.etapas || []).length > 0) {
+        const g = document.querySelector(`#gantt-tickets .gantt-ticket[data-ticket-id="${t.id}"]`);
+        if (g) g.classList.add('is-expanded');
+      }
+    });
   }
-  render();
+  applyToggleLayout(null);
   updateToggleAllButton();
 }
 function updateToggleAllButton() {
@@ -1271,8 +1290,11 @@ function abrirMenuGantt(ev, ticketId, codigoEnc) {
       return;
     }
     if (!expandedTickets.has(ticketId)) {
-      expandedTickets.add(ticketId);
-      render();
+      // === OPTIMIZACIÓN FEATURE 4+ (perf-2026-09-30) ===
+      // Usar la ruta ligera: toggle clase + applyToggleLayout, en lugar
+      // de render() completo. El render() repinta ~todos los tickets;
+      // aquí solo necesitamos expandir UNO y abrir su modal.
+      toggleEtapasFor(ticketId);
     }
     const firstPending = etapas.find(e => !e.completado) || etapas[0];
     if (firstPending) abrirEtapaModal(ticketId, firstPending.etapa_id);
@@ -1348,23 +1370,14 @@ document.querySelectorAll('.zoom-btn').forEach(btn => {
 // Toggle global
 document.getElementById('toggle-all-etapas')?.addEventListener('click', toggleAllEtapas);
 
-// Toggle por fila: delegación sobre el SVG
-document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
-  const target = ev.target.closest('[data-toggle-etapas]');
-  if (!target) return;
-  const tid = parseInt(target.dataset.ticketId, 10);
-  if (Number.isFinite(tid)) toggleEtapasFor(tid);
-});
-
-// Click en dot del panel izquierdo (modo compact) → abrir modal de etapa
-// === FIX 2026-09-22: usar getAttribute('data-etapa-id') en vez de
-// `dataset.etapa_id` (que es `undefined` porque `data-etapa-id` se mapea
-// a `dataset.etapaId`, NO a `dataset.etapa_id`). Con el nombre mal
-// mapeado, parseInt devolvía NaN, Number.isFinite() era false y el
-// click se ignoraba silenciosamente. Este bug rompía tanto el click
-// en sub-etapa como el menú contextual "Editar etapas" que llama a
-// la misma función. Aplicamos la misma corrección al listener del
-// grupo #gantt-subbars (abajo).
+// === OPTIMIZACIÓN FEATURE 4+ (perf-2026-09-30) — click handlers consolidados ===
+// ANTES había 3 listeners separados sobre #gantt-rows (toggle + dot) y
+// #gantt-subbars (sub-bar con stopPropagation). Ahora un SOLO listener
+// delegado sobre #gantt-tickets maneja TODOS los clicks de filas:
+//   1. data-toggle-etapas (▶/▼) → toggle expand/collapse del ticket
+//   2. data-etapa-id (cualquiera: dot, sub-bar compact o expanded) → modal
+// getAttribute es robusto al camelCase del dataset API (data-etapa-id no
+// se mapea a dataset.etapa_id sino a dataset.etapaId).
 function _etapaIdFromTarget(target) {
   // getAttribute es robusto: no depende de la conversión camelCase
   // del dataset API. Acepta tanto el ID como string numérico.
@@ -1375,49 +1388,28 @@ function _etapaIdFromTarget(target) {
   return { tid, eid };
 }
 
-document.getElementById('gantt-rows')?.addEventListener('click', (ev) => {
-  const target = ev.target.closest('[data-etapa-id]');
-  if (!target) return;
-  // Evitamos doble-trigger: si el click burbujea desde un sub-bar del
-  // panel derecho (gantt-subbars), ya lo maneja el listener de abajo.
-  if (target.closest('#gantt-subbars')) return;
-  const { tid, eid } = _etapaIdFromTarget(target);
-  if (Number.isFinite(tid) && Number.isFinite(eid)) abrirEtapaModal(tid, eid);
-});
-
-// === FEATURE 4 — Fix bug "click en sub-etapa no abre modal" ===
-// ANTES: los sub-bars usaban `onclick="abrirEtapaModal(...)"` inline sobre
-// el rect generado con innerHTML. Esto tenía varios problemas:
-//   1. Si el evento fallaba (CSP, race condition, etc.) no había fallback.
-//   2. En modo COMPACT los sub-bars son diminutos (4-30px × 6px) y muchos
-//      clicks caían en la barra padre (gantt-bar.onclick=abrirDetalle),
-//      abriendo el detalle del ticket en lugar del modal de etapa.
-//   3. Sin hit-area grande, el usuario clickeaba "fuera" del sub-bar.
-//
-// FIX: event delegation sobre el grupo #gantt-subbars. Capturamos TODOS
-// los clicks en cualquier elemento con [data-etapa-id] dentro del grupo,
-// paramos la propagación para no abrir el detalle del ticket padre, y
-// llamamos a abrirEtapaModal con los IDs parseados de los data-attrs.
-// Combinado con las hit-areas invisibles (.gantt-subbar-hit) que se
-// renderizan DELANTE de cada sub-bar visible, ahora SIEMPRE se impacta
-// el sub-bar primero, no la barra padre.
-//
-// === FIX 2026-09-22 (regresión): usar getAttribute para leer los
-// data-attrs. `dataset.etapa_id` es undefined (el nombre correcto es
-// `dataset.etapaId`); por eso el handler nunca abría el modal. Lo
-// reemplazamos por una helper robusta.
-document.getElementById('gantt-subbars')?.addEventListener('click', (ev) => {
-  const target = ev.target.closest('[data-etapa-id]');
-  if (!target) return;
-  // CRÍTICO: stopPropagation evita que el click "atraviese" el sub-bar y
-  // active el onclick de la gantt-bar padre (abrirDetalle).
-  ev.stopPropagation();
-  ev.preventDefault();
-  const { tid, eid } = _etapaIdFromTarget(target);
-  if (Number.isFinite(tid) && Number.isFinite(eid)) {
-    abrirEtapaModal(tid, eid);
-  } else {
-    console.warn('[gantt-subbars] data-attrs inválidos en click', target);
+document.getElementById('gantt-tickets')?.addEventListener('click', (ev) => {
+  // 1) Toggle button ▶/▼
+  const togTarget = ev.target.closest('[data-toggle-etapas]');
+  if (togTarget) {
+    const tid = parseInt(togTarget.getAttribute('data-ticket-id'), 10);
+    if (Number.isFinite(tid)) toggleEtapasFor(tid);
+    return;
+  }
+  // 2) Stage dot o sub-bar (compact/expanded) → modal de etapa
+  const etaTarget = ev.target.closest('[data-etapa-id]');
+  if (etaTarget) {
+    // stopPropagation evita que el click se propague al gantt-bar padre
+    // y abra el detalle del ticket en lugar del modal de etapa.
+    ev.stopPropagation();
+    ev.preventDefault();
+    const { tid, eid } = _etapaIdFromTarget(etaTarget);
+    if (Number.isFinite(tid) && Number.isFinite(eid)) {
+      abrirEtapaModal(tid, eid);
+    } else {
+      console.warn('[gantt-tickets] data-attrs inválidos en click', etaTarget);
+    }
+    return;
   }
 });
 

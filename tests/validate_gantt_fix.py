@@ -77,15 +77,18 @@ def main() -> int:
         "Guard Number.isFinite presente",
     )
 
-    # --- 4) El listener de gantt-subbars usa la helper ----------------------
-    idx_subbars = text.find("getElementById('gantt-subbars')?.addEventListener('click'")
-    assert_(idx_subbars > 0, "Listener de #gantt-subbars presente")
+    # --- 4) El listener de clicks usa la helper ------------------------------
+    # ANTES (perf-2026-09-30): listener sobre #gantt-subbars (sub-bar click).
+    # AHORA: listener CONSOLIDADO sobre #gantt-tickets que cubre dot, sub-bar
+    # compact, sub-bar expanded y toggle button. Todo en un solo delegated handler.
+    idx_subbars = text.find("getElementById('gantt-tickets')?.addEventListener('click'")
+    assert_(idx_subbars > 0, "Listener consolidado de #gantt-tickets presente")
 
     # Tomar 600 chars después del listener para verificar uso de la helper
-    bloque = text[idx_subbars:idx_subbars + 600]
+    bloque = text[idx_subbars:idx_subbars + 800]
     assert_(
         "_etapaIdFromTarget" in bloque,
-        "Listener de #gantt-subbars usa `_etapaIdFromTarget`",
+        "Listener de #gantt-tickets usa `_etapaIdFromTarget`",
     )
     assert_(
         "abrirEtapaModal(tid, eid)" in bloque,
@@ -94,6 +97,15 @@ def main() -> int:
     assert_(
         "stopPropagation" in bloque,
         "Listener hace stopPropagation (evita abrir detalle padre)",
+    )
+    assert_(
+        "toggleEtapasFor" in bloque,
+        "Listener maneja [data-toggle-etapas] → toggleEtapasFor()",
+    )
+    # Anti-regresión: NO debe quedar el viejo listener de gantt-subbars
+    assert_(
+        text.count("getElementById('gantt-subbars')") == 0,
+        "NO existe listener sobre el viejo #gantt-subbars (consolidado)",
     )
 
     # --- 5) Renderizar el template con contexto realista ---------------------

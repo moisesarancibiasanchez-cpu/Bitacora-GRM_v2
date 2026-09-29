@@ -153,22 +153,64 @@ def main() -> int:
         re.search(r'class="gantt-left-panel-bg"', render_body) is not None,
         "render() añade <rect class='gantt-left-panel-bg'>",
     )
-    # Texto de código usa la clase
+    # Texto de código usa la clase (delegado a _renderTicketInner() en perf-2026-09-30)
     assert_(
-        re.search(r'class="gantt-row-text-code"', render_body) is not None,
+        'class="gantt-row-text-code"' in text,
         "render() usa class='gantt-row-text-code' para el código",
     )
-    # Texto de título usa la clase
+    # Texto de título usa la clase (delegado a _renderTicketInner() en perf-2026-09-30)
     assert_(
-        re.search(r'class="gantt-row-text-title"', render_body) is not None,
+        'class="gantt-row-text-title"' in text,
         "render() usa class='gantt-row-text-title' para el título",
     )
     # Separador vertical usa la clase
     assert_(
-        re.search(r'class="gantt-left-panel-divider"', render_body) is not None,
+        'class="gantt-left-panel-divider"' in text,
         "render() usa class='gantt-left-panel-divider' para el separador",
     )
 
+    # === OPTIMIZACIÓN perf-2026-09-30: tickets consolidados en #gantt-tickets ===
+    # Antes existían 4 grupos (#gantt-rows, #gantt-bars, #gantt-subbars, #gantt-auto-fs).
+    # Ahora todo se renderiza DENTRO de #gantt-tickets, cada ticket en su propio <g>.
+    assert_(
+        'id="gantt-tickets"' in text,
+        "Contenedor único #gantt-tickets presente",
+    )
+    assert_(
+        text.count('id="gantt-rows"') == 0,
+        "NO existe el viejo grupo #gantt-rows (consolidado)",
+    )
+    assert_(
+        text.count('id="gantt-bars"') == 0,
+        "NO existe el viejo grupo #gantt-bars (consolidado)",
+    )
+    assert_(
+        text.count('id="gantt-subbars"') == 0,
+        "NO existe el viejo grupo #gantt-subbars (consolidado)",
+    )
+    # Cada ticket debe estar en su propio <g class="gantt-ticket"> (delegado a
+    # _renderTicketInner que emite el tag y el CSS visibility classes).
+    assert_(
+        "function _renderTicketInner" in text,
+        "Helper _renderTicketInner() presente (renderiza 1 ticket)",
+    )
+    assert_(
+        re.search(r"\.gantt-ticket\s+\.gantt-compact-only\s*\{\s*display\s*:\s*inline[^}]*\}", css_block) is not None,
+        "CSS .gantt-ticket .gantt-compact-only { display: inline } presente",
+    )
+    assert_(
+        re.search(r"\.gantt-ticket\.is-expanded\s+\.gantt-expanded-only\s*\{\s*display\s*:\s*inline[^}]*\}", css_block) is not None,
+        "CSS .gantt-ticket.is-expanded .gantt-expanded-only { display: inline } presente",
+    )
+    # Helpers de toggle ligero
+    assert_(
+        "function applyToggleLayout" in text,
+        "Helper applyToggleLayout() presente (toggle sin re-render)",
+    )
+    assert_(
+        "function renderLinks" in text,
+        "Helper renderLinks() separado",
+    )
     # Orden: canvas aparece ANTES que el panel izquierdo en grid.innerHTML
     canvas_pos = render_body.find('class="gantt-svg-canvas"')
     panel_pos = render_body.find('class="gantt-left-panel-bg"')
