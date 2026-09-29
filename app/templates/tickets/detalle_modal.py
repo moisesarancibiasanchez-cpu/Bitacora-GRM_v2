@@ -5,11 +5,15 @@ El endpoint ``GET /api/v1/tickets/{id}/detalle-html`` invoca
 ``render_detalle_modal`` y devuelve el HTML al frontend, donde HTMX lo
 inserta en ``#modal-root``.
 
-El modal contiene 4 pestañas:
-  1. Detalles      -> datos del ticket + cambio de estado / asignación
-  2. Comentarios   -> listado + formulario para agregar
-  3. Adjuntos      -> lista + dropzone para subir archivos
-  4. Checklist     -> tareas con checkboxes
+El modal contiene 7 pestañas:
+  1. Detalles       -> datos del ticket + cambio de estado / asignación
+  2. Comentarios    -> listado + formulario para agregar
+  3. Adjuntos       -> lista + dropzone para subir archivos
+  4. Checklist      -> tareas con checkboxes
+  5. Etapas UAT     -> fases UAT del proyecto
+  6. Trazabilidad   -> bitácora de auditoría del ticket
+  7. Referencias    -> issue links (relacionado, duplicado, padre/hijo,
+                       bloquea, bloqueado_por) — FEATURE 5
 
 Los formularios internos usan ``hx-post`` y ``hx-target`` configurados
 para recargar solo el modal tras cada acción, sin recargar la página
@@ -1074,7 +1078,7 @@ DETALLE_TEMPLATE = Template(r"""
               hx-post="/api/v1/tickets/{{ ticket.id }}/referencias"
               hx-target="#referencias-list-{{ ticket.id }}"
               hx-swap="innerHTML"
-              hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ref-search-result-{{ ticket.id }}').classList.add('hidden');}"
+              hx-on::after-request="if(event.detail.successful){this.reset();var _h=document.getElementById('ref-ticket-id-{{ ticket.id }}');if(_h)_h.value='';var _v=document.getElementById('ref-ticket-selected-{{ ticket.id }}');if(_v)_v.innerHTML='';var _r=document.getElementById('ref-search-result-{{ ticket.id }}');if(_r){_r.classList.add('hidden');_r.innerHTML='';}}"
               class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
           <div class="grid grid-cols-12 gap-2 items-end">
             <div class="col-span-3">
@@ -1086,14 +1090,15 @@ DETALLE_TEMPLATE = Template(r"""
                 {% endfor %}
               </select>
             </div>
-            <div class="col-span-7 relative">
+            <div class="col-span-6 relative" data-ref-search-wrapper="{{ ticket.id }}">
               <label class="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-0.5">Ticket a vincular</label>
               <input type="text"
                      id="ref-search-input-{{ ticket.id }}"
+                     name="q"
                      placeholder="Buscar por código, título o HU..."
                      autocomplete="off"
                      hx-get="/api/v1/tickets/buscar"
-                     hx-trigger="keyup changed delay:250ms"
+                     hx-trigger="keyup changed delay:250ms, search"
                      hx-vals='{"excluir": "{{ ticket.id }}"}'
                      hx-target="#ref-search-result-{{ ticket.id }}"
                      hx-swap="innerHTML"
@@ -1102,11 +1107,23 @@ DETALLE_TEMPLATE = Template(r"""
               <input type="hidden" name="ticket_referenciado_id" id="ref-ticket-id-{{ ticket.id }}" required>
               <div id="ref-search-result-{{ ticket.id }}" class="hidden absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-300 rounded shadow-lg max-h-48 overflow-y-auto"></div>
               <span id="ref-search-spinner-{{ ticket.id }}" class="htmx-indicator absolute right-2 top-7 text-slate-400 text-[10px]">buscando...</span>
+              <div id="ref-ticket-selected-{{ ticket.id }}" class="hidden mt-1 text-[11px] text-emerald-700 font-medium"></div>
             </div>
-            <div class="col-span-2">
+            <div class="col-span-3 flex items-end gap-1.5">
+              <button type="button"
+                      id="ref-search-btn-{{ ticket.id }}"
+                      data-action="ref-search"
+                      data-ticket-id="{{ ticket.id }}"
+                      title="Ejecutar búsqueda"
+                      class="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+                Buscar
+              </button>
               <button type="submit"
-                      class="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-                      onclick="return !!document.getElementById('ref-ticket-id-{{ ticket.id }}').value;">
+                      id="ref-add-btn-{{ ticket.id }}"
+                      data-action="ref-submit"
+                      data-ticket-id="{{ ticket.id }}"
+                      class="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 Agregar
               </button>
@@ -1222,6 +1239,148 @@ DETALLE_TEMPLATE = Template(r"""
     </div>
   </div>
 </div>
+
+{# ===================================================================== #}
+{# JavaScript para Referencias (delegado, sin colisiones con otros tabs)  #}
+{# Se ejecuta cada vez que se inserta este modal en el DOM.              #}
+{# ===================================================================== #}
+<script>
+(function () {
+  // Resolver ticket.id desde el modal actual
+  var modal = document.currentScript && document.currentScript.previousElementSibling;
+  // Fallback: buscar por data-modal="detalle-ticket"
+  if (!modal || !modal.getAttribute || modal.getAttribute('data-modal') !== 'detalle-ticket') {
+    var all = document.querySelectorAll('[data-modal="detalle-ticket"]');
+    modal = all[all.length - 1];
+  }
+  if (!modal) return;
+  var ticketId = modal.getAttribute('data-ticket-id');
+
+  var input    = document.getElementById('ref-search-input-' + ticketId);
+  var hidden   = document.getElementById('ref-ticket-id-' + ticketId);
+  var result   = document.getElementById('ref-search-result-' + ticketId);
+  var selected = document.getElementById('ref-ticket-selected-' + ticketId);
+  var btnBuscar  = document.getElementById('ref-search-btn-' + ticketId);
+  var btnAgregar = document.getElementById('ref-add-btn-' + ticketId);
+  var form     = document.getElementById('form-add-referencia-' + ticketId);
+
+  if (!input || !hidden || !result || !form) return;
+
+  // Helper: cerrar dropdown
+  function closeDropdown() {
+    result.classList.add('hidden');
+    result.innerHTML = '';
+  }
+
+  // Helper: abrir dropdown (lo desoculta)
+  function openDropdown() {
+    result.classList.remove('hidden');
+  }
+
+  // 1) Click sobre una opción del dropdown → seleccionar ticket
+  result.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.ref-search-option');
+    if (!btn) return;
+    ev.preventDefault();
+    var tId  = btn.getAttribute('data-ticket-id');
+    var cod  = btn.getAttribute('data-codigo-titulo') || '';
+    if (!tId) return;
+    hidden.value = tId;
+    input.value  = cod;
+    if (selected) {
+      selected.innerHTML =
+        '&#x2713; Seleccionado: <span class="font-mono">' +
+        cod.replace(/</g, '&lt;') + '</span>';
+      selected.classList.remove('hidden');
+    }
+    closeDropdown();
+    input.focus();
+  });
+
+  // 2) Botón "Buscar" → fuerza la búsqueda del input (dispara HTMX manualmente)
+  if (btnBuscar) {
+    btnBuscar.addEventListener('click', function () {
+      var q = (input.value || '').trim();
+      if (!q) {
+        input.focus();
+        // Mensaje inline sin ir al backend
+        result.innerHTML =
+          '<div class="px-3 py-2 text-xs text-slate-500 italic">'
+          + 'Escribe al menos 1 car&aacute;cter para buscar</div>';
+        openDropdown();
+        return;
+      }
+      // Disparar HTMX manualmente
+      if (typeof htmx !== 'undefined' && htmx.trigger) {
+        htmx.trigger(input, 'search');
+      } else if (typeof htmx !== 'undefined' && htmx.find) {
+        htmx.find(input);
+        htmx.trigger(input, 'keyup');
+      }
+    });
+  }
+
+  // 3) Botón "Agregar" → valida antes de submit y previene envío si falta selección
+  if (btnAgregar) {
+    btnAgregar.addEventListener('click', function (ev) {
+      if (!hidden.value) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        // Resaltar visualmente
+        input.classList.add('ring-2', 'ring-rose-400');
+        result.innerHTML =
+          '<div class="px-3 py-2 text-xs text-rose-700 bg-rose-50 italic">'
+          + 'Primero selecciona un ticket de la lista (o escribe y presiona Buscar)</div>';
+        openDropdown();
+        setTimeout(function () {
+          input.classList.remove('ring-2', 'ring-rose-400');
+        }, 2000);
+        input.focus();
+        return false;
+      }
+    });
+  }
+
+  // 4) Click fuera del wrapper → cerrar dropdown
+  document.addEventListener('click', function (ev) {
+    var wrapper = document.querySelector('[data-ref-search-wrapper="' + ticketId + '"]');
+    if (!wrapper) return;
+    if (!wrapper.contains(ev.target)) {
+      closeDropdown();
+    }
+  });
+
+  // 5) Escape → cerrar dropdown y limpiar selección
+  input.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      closeDropdown();
+      hidden.value = '';
+      if (selected) {
+        selected.classList.add('hidden');
+        selected.innerHTML = '';
+      }
+    }
+  });
+
+  // 6) Limpiar selección al cambiar manualmente el texto
+  input.addEventListener('input', function () {
+    if (hidden.value) {
+      hidden.value = '';
+      if (selected) {
+        selected.classList.add('hidden');
+        selected.innerHTML = '';
+      }
+    }
+  });
+
+  // 7) Cuando HTMX termine de renderizar el dropdown, asegúrate que esté visible
+  document.body.addEventListener('htmx:afterSwap', function (ev) {
+    if (ev.target === result) {
+      openDropdown();
+    }
+  });
+})();
+</script>
 """)
 
 
