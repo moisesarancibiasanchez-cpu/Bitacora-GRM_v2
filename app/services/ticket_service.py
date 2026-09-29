@@ -216,6 +216,9 @@ class TicketService:
             #      para no pisar valores editados manualmente cuando el
             #      usuario reordena dentro de la misma columna.
             nombre_destino_norm = (estado_destino.nombre or "").strip().lower()
+            categoria_destino_norm = (
+                (estado_destino.categoria or "").strip().lower()
+            )
             if nombre_destino_norm in ("cancelado", "desestimada", "desestimado"):
                 if ticket.resultado_pruebas != "DESESTIMADA":
                     logger.info(
@@ -224,6 +227,39 @@ class TicketService:
                         ticket.id, estado_destino.nombre,
                     )
                     ticket.resultado_pruebas = "DESESTIMADA"
+
+            # 4.2) Side-effect: si el ticket cae en Producción OK
+            #      (estado terminal posterior a Cerrado que confirma el
+            #      deploy verificado en ambiente productivo), se marca
+            #      automáticamente como "listo" y se detiene el SLA:
+            #        - fecha_completado = ahora (si no estaba ya seteada)
+            #        - fecha_cumplida   = True (vencimiento cumplido)
+            #        - sla_cumplido     = 1   (forzar cumplimiento)
+            #      El ``fecha_vencimiento_sla`` se mantiene con su valor
+            #      anterior (no se recalcula porque Producción OK tiene
+            #      ``sla_horas=None``), pero el deadline_notifier ya
+            #      excluye estados finales (``es_final=True``) por lo que
+            #      no se generan más alertas.
+            #      Se detecta por ``categoria == 'produccion_ok'`` (más
+            #      robusto que por nombre: sobrevive a renombrados).
+            if categoria_destino_norm == "produccion_ok":
+                side_effect_applied = False
+                if ticket.fecha_completado is None:
+                    ticket.fecha_completado = datetime.utcnow()
+                    side_effect_applied = True
+                if not ticket.fecha_cumplida:
+                    ticket.fecha_cumplida = True
+                    side_effect_applied = True
+                if ticket.sla_cumplido != 1:
+                    ticket.sla_cumplido = 1
+                    side_effect_applied = True
+                if side_effect_applied:
+                    logger.info(
+                        "[ticket_service] Side-effect: ticket %s → Producción OK; "
+                        "marcado como listo (fecha_completado, fecha_cumplida, "
+                        "sla_cumplido=1)",
+                        ticket.id,
+                    )
         if orden is not None:
             # Asegurar que datos_catalogo sea un dict (puede ser None o string antiguo)
             datos_actuales = ticket.datos_catalogo
