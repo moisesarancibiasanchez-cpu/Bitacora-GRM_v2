@@ -82,26 +82,6 @@ def _clean_db(db):
     db.commit()
 
 
-def _skip_bug_buscar(testcase):
-    """Skip automatico de tests que tocan el endpoint /tickets/buscar.
-
-    BUG CONOCIDO en la app: el endpoint
-        GET /api/v1/tickets/buscar
-    queda shadowed por la ruta
-        GET /api/v1/tickets/{ticket_id}
-    del tickets router (registrado antes en app/api/v1/router.py).
-    FastAPI/Starlette matchea primero la ruta con path-parametro y
-    devuelve 422 ('buscar' no es int). Solucion: reordenar includes en
-    app/api/v1/router.py para que referencias.router_tickets se monte
-    antes que tickets.router. El servicio en si funciona correctamente
-    (ver TestTicketReferenciaService.test_buscar_*).
-    """
-    testcase.skipTest(
-        "BUG: /api/v1/tickets/buscar shadowed por "
-        "/api/v1/tickets/{ticket_id} del tickets router."
-    )
-
-
 def _seed_minimo(db):
     """Inserta datos minimos: 2 estados + 1 usuario + 3 tickets."""
     from app.models.usuario import Usuario, RolUsuario
@@ -613,7 +593,6 @@ class TestReferenciasEndpoints(unittest.TestCase):
 
     # --- GET /tickets/buscar (autocompletar) -------------------------------
     def test_buscar_endpoint_htmx_devuelve_html(self):
-        _skip_bug_buscar(self)
         r = self.client.get(
             "/api/v1/tickets/buscar",
             params={"q": "login", "excluir": str(self.t1.id)},
@@ -626,7 +605,6 @@ class TestReferenciasEndpoints(unittest.TestCase):
         self.assertNotIn(f'data-ticket-id="{self.t1.id}"', r.text)
 
     def test_buscar_endpoint_json_sin_htmx(self):
-        _skip_bug_buscar(self)
         r = self.client.get(
             "/api/v1/tickets/buscar",
             params={"q": "logout"},
@@ -639,7 +617,6 @@ class TestReferenciasEndpoints(unittest.TestCase):
         self.assertEqual(data[0]["codigo"], "INC-002")
 
     def test_buscar_endpoint_vacio(self):
-        _skip_bug_buscar(self)
         r = self.client.get(
             "/api/v1/tickets/buscar",
             params={"q": ""},
@@ -649,7 +626,6 @@ class TestReferenciasEndpoints(unittest.TestCase):
         self.assertEqual(r.json(), [])
 
     def test_buscar_endpoint_sin_resultados(self):
-        _skip_bug_buscar(self)
         r = self.client.get(
             "/api/v1/tickets/buscar",
             params={"q": "xyz-imposible-12345"},
@@ -660,7 +636,6 @@ class TestReferenciasEndpoints(unittest.TestCase):
 
     def test_buscar_endpoint_data_attributes(self):
         """El HTML retornado debe tener data-ticket-id y data-codigo-titulo."""
-        _skip_bug_buscar(self)
         r = self.client.get(
             "/api/v1/tickets/buscar",
             params={"q": "INC-002"},
@@ -705,7 +680,6 @@ class TestReferenciasRenderHTML(unittest.TestCase):
         self.db.close()
 
     def test_render_sin_resultados(self):
-        _skip_bug_buscar(self)
         r = self.client.get(
             "/api/v1/tickets/buscar",
             params={"q": "nada"},
@@ -715,7 +689,6 @@ class TestReferenciasRenderHTML(unittest.TestCase):
         self.assertIn("Sin resultados", r.text)
 
     def test_render_con_resultados_xss_protection(self):
-        _skip_bug_buscar(self)
         # Crear ticket con titulo potencialmente peligroso
         from app.models.ticket import Ticket, TipoIncidencia, Prioridad
         ticket_xss = Ticket(
@@ -762,7 +735,6 @@ class TestReferenciasEndToEnd(unittest.TestCase):
         self.db.close()
 
     def test_flujo_completo(self):
-        _skip_bug_buscar(self)
         # 1) Buscar t2 por titulo
         r = self.client.get(
             "/api/v1/tickets/buscar",

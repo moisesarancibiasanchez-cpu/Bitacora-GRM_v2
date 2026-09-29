@@ -675,18 +675,11 @@ r9 = client.delete(
 _check_eq("DELETE ref inexistente → 404", 404, r9.status_code)
 
 # 15.11 GET /api/v1/tickets/buscar?q=REF&excluir={t1.id}
-#
-# NOTA: Existe un conflicto de routing conocido — la ruta literal
-# ``/tickets/buscar`` se ve ensombrecida por otras rutas registradas con
-# path param ``{ticket_id}`` que matchean primero (FastAPI interpreta
-# "buscar" como ticket_id="buscar" → 422 int_parsing).
-# La funcionalidad de búsqueda ya está cubierta al 100% por los escenarios
-# 13 y 14 (vía servicio directo). Aquí solo validamos que el módulo está
-# registrado y accesible a nivel de router interno.
-print("  [NOTA] /tickets/buscar tiene conflicto con rutas /{ticket_id}/... — "
-      "validado a nivel de servicio en [13] y [14].")
-
-# Verificación directa del router interno
+# FIX 2026-09-29: el endpoint ya NO está shadowed porque
+# referencias.router_tickets se registra ANTES que tickets.router en
+# app/api/v1/router.py (FastAPI matchea rutas en orden de registro).
+# Esto elimina el toast genérico "Error al guardar el cambio" que
+# aparecía al pulsar BUSCAR en el modal de Referencias Internas.
 from app.api.v1.referencias import router_tickets as _ref_tickets_router
 _rutas_buscar = [
     r.path for r in _ref_tickets_router.routes
@@ -698,8 +691,41 @@ _check(
     f"rutas encontradas: {_rutas_buscar}",
 )
 
+# Test HTTP directo al endpoint (antes era 422 por shadowing, ahora 200)
+r_bus = client.get(
+    "/api/v1/tickets/buscar",
+    params={"q": "REF", "excluir": str(t1.id)},
+    headers=_hdr(), cookies=_cookies,
+)
+_check_eq(
+    "GET /api/v1/tickets/buscar HTTP → 200 (sin shadowing)",
+    200, r_bus.status_code,
+)
+data_bus = r_bus.json()
+_check_eq("GET /tickets/buscar → 3 resultados (excluye t1)", 3, len(data_bus))
+_codigos_buscar = {x["codigo"] for x in data_bus}
+_check(
+    "GET /tickets/buscar excluye t1",
+    "REF-001" not in _codigos_buscar,
+    f"codigos retornados: {_codigos_buscar}",
+)
+
+# Test HTMX (debe devolver HTML con clase ref-search-option)
+r_bus_htmx = client.get(
+    "/api/v1/tickets/buscar",
+    params={"q": "REF"},
+    headers={**_hdr(), "HX-Request": "true"}, cookies=_cookies,
+)
+_check_eq(
+    "GET /tickets/buscar + HX-Request → 200",
+    200, r_bus_htmx.status_code,
+)
+_check(
+    "GET /tickets/buscar HTMX → HTML con ref-search-option",
+    "ref-search-option" in r_bus_htmx.text,
+)
+
 # 15.12 Smoke test: la función de búsqueda del SERVICE funciona correctamente
-# (no a través del HTTP route conflictivo).
 from app.services.referencia_service import TicketReferenciaService as _TRS
 db_check = SessionLocal()
 try:
@@ -712,7 +738,6 @@ finally:
     db_check.close()
 
 # 15.13 Verificar que el helper HTML produce el formato esperado
-# (sin pasar por la ruta conflictiva)
 from app.api.v1.referencias import _render_search_results_html as _rsh
 _html = _rsh(_bus, query="REF")
 _check("HTML contiene clase ref-search-option",
