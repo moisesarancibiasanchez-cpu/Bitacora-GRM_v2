@@ -908,12 +908,3 @@
 # This allows outer git to track inner repo files while preserving inner git history
 **/.git_backup_by_agent
 **/.git_backup_by_agent/
-
-# ==============================================================================
-# NESTED COPIES OF THE REPO (clones / mirrors / venvs with the source)
-# ==============================================================================
-# Bitacora-GRM_v2/ es una copia anidada usada para bootstrap del venv-test.
-# NO es parte del entregable.
-Bitacora-GRM_v2/
-Bitacora-GRM_v2.tar.gz
-
