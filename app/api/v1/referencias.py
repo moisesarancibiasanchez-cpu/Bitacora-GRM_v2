@@ -15,6 +15,7 @@ etiquetas).
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import List, Optional
 
@@ -84,20 +85,80 @@ class TipoReferenciaCatalogo(BaseModel):
     response_model=ReferenciaRead,
     status_code=201,
 )
-def agregar_referencia(
+async def agregar_referencia(
+    request: Request,
     ticket_id: int,
-    payload: ReferenciaCreate,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
-    """Crea una referencia DESDE ``ticket_id`` HACIA otro ticket."""
+    """Crea una referencia DESDE ``ticket_id`` HACIA otro ticket.
+
+    Acepta dos Content-Types para mantener compatibilidad con dos clientes:
+      * ``application/json``         → API consumers, curl, pytest.
+      * ``application/x-www-form-urlencoded`` o ``multipart/form-data``
+                                     → form HTML/HTMX del modal.
+
+    El parser se hace a mano para evitar que Pydantic rechace el body
+    form-encoded con 422 antes de poder responder con un error de
+    negocio útil (duplicado / auto_referencia).
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+
+    # ----- Parsing del body según Content-Type -----
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        raw_ticket_ref = form.get("ticket_referenciado_id")
+        raw_tipo = form.get("tipo") or "relacionado"
+        raw_nota = form.get("nota")
+    elif "application/json" in content_type or content_type == "":
+        try:
+            body_bytes = await request.body()
+            body = json.loads(body_bytes) if body_bytes else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"codigo": "json_invalido", "mensaje": f"JSON inválido: {exc}"},
+            )
+        raw_ticket_ref = body.get("ticket_referenciado_id")
+        raw_tipo = body.get("tipo") or "relacionado"
+        raw_nota = body.get("nota")
+    else:
+        raise HTTPException(
+            status_code=415,
+            detail={"codigo": "content_type_no_soportado",
+                    "mensaje": f"Content-Type no soportado: {content_type}"},
+        )
+
+    # ----- Normalización de campos -----
+    try:
+        ticket_referenciado_id = int(raw_ticket_ref) if raw_ticket_ref is not None else 0
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail={"codigo": "ticket_referenciado_id_invalido",
+                    "mensaje": "ticket_referenciado_id debe ser un entero positivo."},
+        )
+    if ticket_referenciado_id <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail={"codigo": "ticket_referenciado_id_requerido",
+                    "mensaje": "ticket_referenciado_id es obligatorio y debe ser > 0."},
+        )
+
+    tipo = (raw_tipo or "relacionado").strip() or "relacionado"
+    nota = (raw_nota or None)
+    if isinstance(nota, str):
+        nota = nota.strip() or None
+        if nota and len(nota) > 500:
+            nota = nota[:500]
+
     svc = TicketReferenciaService(db)
     try:
         ref = svc.agregar(
             ticket_origen_id=ticket_id,
-            ticket_referenciado_id=payload.ticket_referenciado_id,
-            tipo=payload.tipo,
-            nota=payload.nota,
+            ticket_referenciado_id=ticket_referenciado_id,
+            tipo=tipo,
+            nota=nota,
             creado_por_id=usuario.id,
         )
     except ReferenciaError as e:
@@ -115,14 +176,14 @@ def agregar_referencia(
     # Devolvemos en formato "saliente" (porque así lo creamos).
     destino = (
         db.query(__import__("app.models.ticket", fromlist=["Ticket"]).Ticket)
-        .filter(__import__("app.models.ticket", fromlist=["Ticket"]).Ticket.id == payload.ticket_referenciado_id)
+        .filter(__import__("app.models.ticket", fromlist=["Ticket"]).Ticket.id == ticket_referenciado_id)
         .first()
     )
     from app.services.referencia_service import TIPO_REFERENCIA_NOMBRES
     from app.models.ticket_referencia import TipoReferencia
 
     try:
-        tipo_enum = TipoReferencia(payload.tipo)
+        tipo_enum = TipoReferencia(tipo)
     except ValueError:
         tipo_enum = ref.tipo
 
@@ -131,7 +192,7 @@ def agregar_referencia(
         tipo=tipo_enum.value,
         tipo_nombre=TIPO_REFERENCIA_NOMBRES.get(tipo_enum, tipo_enum.value),
         direccion="saliente",
-        ticket_id=payload.ticket_referenciado_id,
+        ticket_id=ticket_referenciado_id,
         ticket_codigo=destino.codigo if destino else "?",
         ticket_titulo=(destino.titulo if destino else "")[:120],
         ticket_estado=None,

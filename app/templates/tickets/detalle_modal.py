@@ -1074,11 +1074,16 @@ DETALLE_TEMPLATE = Template(r"""
         </div>
 
         {# ----- Form para agregar referencia ----- #}
+        {# IMPORTANTE: hx-on::after-request SOLO debe correr cuando el formulario es quien
+           disparó el request (event.detail.elt === this). Si no, el GET que dispara el
+           <input> hijo al escribir/buscar burbujea hasta el form y borra el input + los
+           resultados del dropdown, dejando al usuario con la sensación de que "no pasa nada"
+           y de que el texto "se borra a los pocos segundos". #}
         <form id="form-add-referencia-{{ ticket.id }}"
               hx-post="/api/v1/tickets/{{ ticket.id }}/referencias"
               hx-target="#referencias-list-{{ ticket.id }}"
               hx-swap="innerHTML"
-              hx-on::after-request="if(event.detail.successful){this.reset();var _h=document.getElementById('ref-ticket-id-{{ ticket.id }}');if(_h)_h.value='';var _v=document.getElementById('ref-ticket-selected-{{ ticket.id }}');if(_v)_v.innerHTML='';var _r=document.getElementById('ref-search-result-{{ ticket.id }}');if(_r){_r.classList.add('hidden');_r.innerHTML='';}}"
+              hx-on::after-request="if(event.detail.successful && event.detail.elt===this){this.reset();var _h=document.getElementById('ref-ticket-id-{{ ticket.id }}');if(_h)_h.value='';var _v=document.getElementById('ref-ticket-selected-{{ ticket.id }}');if(_v)_v.innerHTML='';var _r=document.getElementById('ref-search-result-{{ ticket.id }}');if(_r){_r.classList.add('hidden');_r.innerHTML='';}}"
               class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
           <div class="grid grid-cols-12 gap-2 items-end">
             <div class="col-span-3">
