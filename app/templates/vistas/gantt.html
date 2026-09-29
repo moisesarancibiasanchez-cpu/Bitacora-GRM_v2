@@ -576,7 +576,7 @@ function renderEtapasLegend() {
   });
   const items = [...seen.values()].sort((a,b) => a.orden - b.orden);
   legend.innerHTML = items.map(it => `
-    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style="background:${it.color}1a; color:${it.color}; border:1px solid ${it.color}33">
+    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style="background:${it.color}1a; color:#1e293b; border:1px solid ${it.color}33">
       <span class="inline-block w-2 h-2 rounded-full" style="background:${it.color}"></span>
       ${it.orden}. ${escapeHtml(it.nombre)}
     </span>
