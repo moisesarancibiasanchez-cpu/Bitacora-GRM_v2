@@ -21,6 +21,61 @@ from app.models.auditoria import Auditoria
 from app.models.comentario import Comentario
 from app.models.etiqueta import Etiqueta, ticket_etiquetas
 
+# =============================================================================
+# Helper compartido: filtro de tipo de ticket (DRY)
+# =============================================================================
+# FIX-PREFIX-DRY(metricas): tras detectar que el KPI "Incidencias levantadas"
+# del dashboard principal mostraba 14 cuando debería incluir todos los tickets
+# con prefijo histórico "INC-" o "INC_", se centraliza toda la lógica de
+# filtrado por tipo en una sola función. Antes había 8 lugares con el filtro
+# antiguo (Ticket.tipo == TipoIncidencia.INCIDENCIA) y solo 2 con el filtro
+# completo; ahora todos usan esta misma función.
+#
+# Caso especial ``tipo="incidencia"``:
+#   - Enum Ticket.tipo == 'INCIDENCIA' (case-insensitive)
+#   - OR codigo ILIKE 'INC-%'   (prefijo histórico con guion)
+#   - OR codigo ILIKE 'INC\_%' ESCAPE '\' (prefijo histórico con underscore)
+#
+# El ``ESCAPE '\'`` es crítico: en SQL el `_` es un wildcard de "un solo
+# carácter". Si no se escapara, "INC_%" matchearía también "INCX%" etc.
+#
+# Esta expresión es portable entre SQLite (tests) y PostgreSQL (producción):
+# - func.upper(<Enum>.cast(String)) funciona en ambos (SQLite ignora el cast).
+# - ilike() se compila a LIKE en SQLite y a ILIKE en PostgreSQL.
+
+_TIPOS_VALIDOS = {
+    "incidencia":         "INCIDENCIA",
+    "resultado_pruebas":  "RESULTADO_PRUEBAS",
+    "solicitud":          "SOLICITUD",
+    "cambio":             "CAMBIO",
+    "problema":           "PROBLEMA",
+}
+
+
+def _build_tipo_filter(tipo: str):
+    """
+    Devuelve una cláusula SQLAlchemy que filtra tickets por tipo.
+
+    Args:
+        tipo: Uno de ``"incidencia"``, ``"resultado_pruebas"``, ``"solicitud"``,
+              ``"cambio"``, ``"problema"``, ``"todos"``, o cualquier otro valor
+              (en cuyo caso se comporta como ``"todos"``).
+
+    Returns:
+        Expresión SQLAlchemy combinable con .filter() / .where().
+    """
+    if tipo == "incidencia":
+        return or_(
+            func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
+            Ticket.codigo.ilike("INC-%"),
+            Ticket.codigo.ilike("INC\\_%", escape="\\"),
+        )
+    if tipo in _TIPOS_VALIDOS:
+        return func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
+    # 'todos' o cualquier valor desconocido: union de los 5 tipos del LOV
+    return func.upper(Ticket.tipo.cast(String)).in_(list(_TIPOS_VALIDOS.values()))
+
+
 # Columnas esperadas para la tabla pivote "Cuenta de Resultado"
 # Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
 #
@@ -84,15 +139,18 @@ def resumen_dashboard(
     # === Conteos específicos por tipo Incidencia (Sprint 2) ===
     # total: incluye todos los tipos de tickets
     # incidencias: solo tipo Incidencia
+    # FIX-PREFIX-DRY(metricas): uso helper compartido para incluir tickets
+    # con prefijo histórico INC-/INC_ además del enum INCIDENCIA.
+    _tipo_inc = _build_tipo_filter("incidencia")
     incidencias_total = (
         db.query(func.count(Ticket.id))
-        .filter(Ticket.tipo == TipoIncidencia.INCIDENCIA)
+        .filter(_tipo_inc)
         .scalar() or 0
     )
     incidencias_activas = (
         db.query(func.count(Ticket.id))
         .filter(
-            Ticket.tipo == TipoIncidencia.INCIDENCIA,
+            _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
         )
         .scalar() or 0
@@ -107,7 +165,7 @@ def resumen_dashboard(
     incidencias_nuevas_7d = (
         db.query(func.count(Ticket.id))
         .filter(
-            Ticket.tipo == TipoIncidencia.INCIDENCIA,
+            _tipo_inc,
             Ticket.created_at >= hace_7d,
         )
         .scalar() or 0
@@ -116,7 +174,7 @@ def resumen_dashboard(
     backlog_7d = (
         db.query(func.count(Ticket.id))
         .filter(
-            Ticket.tipo == TipoIncidencia.INCIDENCIA,
+            _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at < hace_7d,
         )
@@ -278,11 +336,13 @@ def dashboard_completo(
     # === Próximos a vencer SLA (default 72h) ===
     ahora = datetime.utcnow()
     hasta_72h = ahora + timedelta(hours=72)
+    # FIX-PREFIX-DRY(metricas): helper compartido incluye prefijo INC-/INC_.
+    _tipo_inc = _build_tipo_filter("incidencia")
     riesgo_rows = (
         db.query(Ticket, Estado.color.label("estado_color"))
         .join(Estado, Estado.id == Ticket.estado_id)
         .filter(
-            Ticket.tipo == TipoIncidencia.INCIDENCIA,
+            _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_vencimiento_sla.isnot(None),
             Ticket.fecha_vencimiento_sla <= hasta_72h,
@@ -308,6 +368,7 @@ def dashboard_completo(
 
     # === Cuenta de Resultado: pivot módulo × resultado de pruebas (sólo incidencias cerradas) ===
     # Filtramos tickets con fecha_completado (i.e., cerrados/resueltos)
+    # FIX-PREFIX-DRY(metricas): helper compartido incluye prefijo INC-/INC_.
     cuenta_rows = (
         db.query(
             Ticket.modulo,
@@ -315,7 +376,7 @@ def dashboard_completo(
             func.count(Ticket.id).label("total"),
         )
         .filter(
-            Ticket.tipo == TipoIncidencia.INCIDENCIA,
+            _tipo_inc,
             Ticket.fecha_completado.isnot(None),
             Ticket.resultado_pruebas.isnot(None),
             Ticket.archivado == False,  # noqa: E712
@@ -404,11 +465,12 @@ def dashboard_completo(
 
     # === Series para sparklines (sintéticas desde la serie de actividad) ===
     spark_levantadas = [s["levantadas"] for s in serie_actividad]
+    # FIX-PREFIX-DRY(metricas): helper compartido incluye prefijo INC-/INC_.
     spark_incidencias = [
         (
             db.query(func.count(Ticket.id))
             .filter(
-                Ticket.tipo == TipoIncidencia.INCIDENCIA,
+                _tipo_inc,
                 Ticket.created_at >= (
                     ahora - timedelta(days=i)
                 ).replace(hour=0, minute=0, second=0, microsecond=0),
@@ -445,7 +507,7 @@ def dashboard_completo(
         backlog_dia = (
             db.query(func.count(Ticket.id))
             .filter(
-                Ticket.tipo == TipoIncidencia.INCIDENCIA,
+                _tipo_inc,
                 Ticket.archivado == False,  # noqa: E712
                 Ticket.created_at <= d_fin,
                 Ticket.fecha_completado.is_(None),
@@ -912,34 +974,14 @@ def incidencias_recientes(
     # porque no existe sobrecarga para esos tipos. Hay que castear a TEXT
     # primero con `Ticket.tipo.cast(String)`. SQLite ignora el cast, así que
     # esta misma expresión es portable.
-    _TIPOS_VALIDOS = {
-        "incidencia":         "INCIDENCIA",
-        "resultado_pruebas":  "RESULTADO_PRUEBAS",
-        "solicitud":          "SOLICITUD",
-        "cambio":             "CAMBIO",
-        "problema":           "PROBLEMA",
-    }
-    if tipo in ("incidencia", "resultado_pruebas"):
-        if tipo == "incidencia":
-            # FIX-PREFIX(metricas): además del tipo enum, se consideran
-            # INCIDENCIA todos los tickets cuyo `codigo` empieza con
-            # `INC-` o `INC_` (prefijo histórico del proyecto). El `_`
-            # es un wildcard en SQL LIKE, así que se escapa con `\\`.
-            tipo_filter = or_(
-                func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
-                Ticket.codigo.ilike("INC-%"),
-                Ticket.codigo.ilike("INC\\_%", escape="\\"),
-            )
-        else:
-            tipo_filter = func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
-    else:  # 'todos'
-        tipo_filter = func.upper(Ticket.tipo.cast(String)).in_([
-            _TIPOS_VALIDOS["incidencia"],
-            _TIPOS_VALIDOS["resultado_pruebas"],
-            _TIPOS_VALIDOS["solicitud"],
-            _TIPOS_VALIDOS["cambio"],
-            _TIPOS_VALIDOS["problema"],
-        ])
+    #
+    # FIX-PREFIX(metricas): además del tipo enum, se consideran INCIDENCIA
+    # todos los tickets cuyo `codigo` empieza con `INC-` o `INC_` (prefijo
+    # histórico del proyecto). El `_` es un wildcard en SQL LIKE, así que
+    # se escapa con `\\`. Toda esta lógica vive ahora en
+    # ``_build_tipo_filter()`` (helper compartido a nivel módulo) para
+    # evitar inconsistencias entre endpoints.
+    tipo_filter = _build_tipo_filter(tipo)
 
     # === Listado de tickets ===
     q = (
@@ -1252,31 +1294,11 @@ def detalle_kpi(
     ahora = datetime.utcnow()
     fecha_limite = ahora - timedelta(days=periodo_dias)
 
-    # === Filtro de tipo (idéntico a /incidencias-recientes) ===
-    _TIPOS_VALIDOS = {
-        "incidencia":         "INCIDENCIA",
-        "resultado_pruebas":  "RESULTADO_PRUEBAS",
-        "solicitud":          "SOLICITUD",
-        "cambio":             "CAMBIO",
-        "problema":           "PROBLEMA",
-    }
-    if tipo in ("incidencia", "resultado_pruebas"):
-        if tipo == "incidencia":
-            tipo_filter = or_(
-                func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
-                Ticket.codigo.ilike("INC-%"),
-                Ticket.codigo.ilike("INC\\_%", escape="\\"),
-            )
-        else:
-            tipo_filter = func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
-    else:  # 'todos'
-        tipo_filter = func.upper(Ticket.tipo.cast(String)).in_([
-            _TIPOS_VALIDOS["incidencia"],
-            _TIPOS_VALIDOS["resultado_pruebas"],
-            _TIPOS_VALIDOS["solicitud"],
-            _TIPOS_VALIDOS["cambio"],
-            _TIPOS_VALIDOS["problema"],
-        ])
+    # === Filtro de tipo ===
+    # FIX-PREFIX-DRY(metricas): se usa el helper compartido
+    # ``_build_tipo_filter()`` para mantener la lógica del prefijo INC-/INC_
+    # en un único lugar.
+    tipo_filter = _build_tipo_filter(tipo)
 
     # === Base + filtro de período + archivado ===
     base = (
