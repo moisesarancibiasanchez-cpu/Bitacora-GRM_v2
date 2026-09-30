@@ -8,7 +8,7 @@ resultado_pruebas (réplica del rango A64:H81 de la hoja REPORTE del Excel UAT)
 """
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import String, func, case, and_, or_
 from sqlalchemy.orm import Session
 
@@ -920,7 +920,18 @@ def incidencias_recientes(
         "problema":           "PROBLEMA",
     }
     if tipo in ("incidencia", "resultado_pruebas"):
-        tipo_filter = func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
+        if tipo == "incidencia":
+            # FIX-PREFIX(metricas): además del tipo enum, se consideran
+            # INCIDENCIA todos los tickets cuyo `codigo` empieza con
+            # `INC-` o `INC_` (prefijo histórico del proyecto). El `_`
+            # es un wildcard en SQL LIKE, así que se escapa con `\\`.
+            tipo_filter = or_(
+                func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
+                Ticket.codigo.ilike("INC-%"),
+                Ticket.codigo.ilike("INC\\_%", escape="\\"),
+            )
+        else:
+            tipo_filter = func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
     else:  # 'todos'
         tipo_filter = func.upper(Ticket.tipo.cast(String)).in_([
             _TIPOS_VALIDOS["incidencia"],
@@ -1124,4 +1135,193 @@ def incidencias_recientes(
         "generado_en": ahora.isoformat(),
         "tickets": tickets_out,
         "metricas": metricas,
+    }
+
+
+# =============================================================================
+# Detalle de tickets por KPI (drill-down modal del dashboard)
+# =============================================================================
+# FIX-KPI(metricas): endpoint dedicado para alimentar el modal de drill-down
+# de la franja "Lista de Incidencias Recientes". Cada uno de los 7 KPI
+# (Total periodo, Vencidas, En riesgo 72h, Crít/Altas, % SLA OK,
+# % Sin asignar, TTR prom.) muestra un modal al hacer clic con los
+# tickets que componen ese KPI. Para KPIs ambiguos (TTR, % SLA OK,
+# % Sin asignar) devolvemos un subconjunto razonable para que el modal
+# no quede vacío ni devuelva "todos".
+# -----------------------------------------------------------------------------
+
+# Catálogo de KPIs soportados. Cada entrada describe:
+#   - filtro: callable(db, Session) -> SQLAlchemy filter expression
+#   - descripcion: texto que aparece en el modal
+#   - titulo: título del modal
+_KPI_DETALLE = {
+    "total_periodo": {
+        "titulo": "Total periodo",
+        "descripcion": "Todos los tickets del período (tipo y filtros aplicados).",
+        "filtro": lambda base: base,
+    },
+    "vencidas": {
+        "titulo": "Tickets vencidos",
+        "descripcion": "Tickets sin completar cuya fecha de vencimiento SLA ya pasó.",
+        "filtro": lambda base: base.filter(
+            Ticket.fecha_completado.is_(None),
+            Ticket.fecha_vencimiento_sla.isnot(None),
+            Ticket.fecha_vencimiento_sla < datetime.utcnow(),
+        ),
+    },
+    "en_riesgo_72h": {
+        "titulo": "Tickets en riesgo (próximas 72h)",
+        "descripcion": "Tickets sin completar cuya fecha de vencimiento SLA está dentro de las próximas 72 horas.",
+        "filtro": lambda base: base.filter(
+            Ticket.fecha_completado.is_(None),
+            Ticket.fecha_vencimiento_sla.isnot(None),
+            Ticket.fecha_vencimiento_sla >= datetime.utcnow(),
+            Ticket.fecha_vencimiento_sla <= datetime.utcnow() + timedelta(hours=72),
+        ),
+    },
+    "criticas_o_altas": {
+        "titulo": "Tickets Crít/Altas",
+        "descripcion": "Tickets del período con prioridad Crítica o Alta.",
+        "filtro": lambda base: base.filter(
+            func.upper(Ticket.prioridad.cast(String)).in_([
+                Prioridad.CRITICA.value.upper(),
+                Prioridad.ALTA.value.upper(),
+            ])
+        ),
+    },
+    "porcentaje_sla_cumplido": {
+        # Para % SLA OK no hay una "categoría" clara; mostramos los
+        # tickets CERRADOS del período (la base del cálculo), con su
+        # flag sla_cumplido visible para que el usuario pueda auditar
+        # los OK=1 vs NOK=0 vs pendientes=-1.
+        "titulo": "Tickets base del % SLA OK",
+        "descripcion": "Tickets cerrados del período. El % SLA OK se calcula sobre este conjunto.",
+        "filtro": lambda base: base.filter(Ticket.fecha_completado.isnot(None)),
+    },
+    "porcentaje_sin_asignar": {
+        "titulo": "Tickets sin asignar",
+        "descripcion": "Tickets del período sin responsable asignado.",
+        "filtro": lambda base: base.filter(Ticket.asignado_id.is_(None)),
+    },
+    "tiempo_promedio_resolucion_horas": {
+        # TTR prom. no tiene categoría clara: mostramos los cerrados
+        # del período (la base del cálculo TTR).
+        "titulo": "Tickets base del TTR promedio",
+        "descripcion": "Tickets cerrados del período (base del cálculo de tiempo promedio de resolución).",
+        "filtro": lambda base: base.filter(Ticket.fecha_completado.isnot(None)),
+    },
+}
+
+
+@router.get("/detalle-kpi")
+def detalle_kpi(
+    kpi: str = "total_periodo",
+    periodo_dias: int = 30,
+    tipo: str = "incidencia",
+    limite: int = 200,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+):
+    """
+    Retorna los tickets del período que componen un KPI específico
+    del dashboard. Usado por el modal de drill-down al hacer clic
+    en una de las 7 casillas KPI de la "Lista de Incidencias Recientes".
+
+    Parámetros:
+      - kpi: uno de los 7 nombres de métrica del dashboard
+             (total_periodo | vencidas | en_riesgo_72h | criticas_o_altas
+              | porcentaje_sla_cumplido | porcentaje_sin_asignar
+              | tiempo_promedio_resolucion_horas).
+      - periodo_dias: ventana hacia atrás (1..365).
+      - tipo: filtro de tipo. 'incidencia' incluye también los tickets
+              con prefijo INC- / INC_ (ver FIX-PREFIX en
+              ``incidencias_recientes``).
+      - limite: máximo de tickets devueltos (1..500).
+    """
+    if kpi not in _KPI_DETALLE:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "kpi inválido. Valores soportados: "
+                + ", ".join(sorted(_KPI_DETALLE.keys()))
+            ),
+        )
+
+    periodo_dias = max(1, min(periodo_dias, 365))
+    limite = max(1, min(limite, 500))
+    ahora = datetime.utcnow()
+    fecha_limite = ahora - timedelta(days=periodo_dias)
+
+    # === Filtro de tipo (idéntico a /incidencias-recientes) ===
+    _TIPOS_VALIDOS = {
+        "incidencia":         "INCIDENCIA",
+        "resultado_pruebas":  "RESULTADO_PRUEBAS",
+        "solicitud":          "SOLICITUD",
+        "cambio":             "CAMBIO",
+        "problema":           "PROBLEMA",
+    }
+    if tipo in ("incidencia", "resultado_pruebas"):
+        if tipo == "incidencia":
+            tipo_filter = or_(
+                func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
+                Ticket.codigo.ilike("INC-%"),
+                Ticket.codigo.ilike("INC\\_%", escape="\\"),
+            )
+        else:
+            tipo_filter = func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
+    else:  # 'todos'
+        tipo_filter = func.upper(Ticket.tipo.cast(String)).in_([
+            _TIPOS_VALIDOS["incidencia"],
+            _TIPOS_VALIDOS["resultado_pruebas"],
+            _TIPOS_VALIDOS["solicitud"],
+            _TIPOS_VALIDOS["cambio"],
+            _TIPOS_VALIDOS["problema"],
+        ])
+
+    # === Base + filtro de período + archivado ===
+    base = (
+        db.query(Ticket, Estado)
+        .join(Estado, Estado.id == Ticket.estado_id)
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+        )
+    )
+
+    # === Aplicar el filtro específico del KPI ===
+    base = _KPI_DETALLE[kpi]["filtro"](base)
+
+    # === Orden: vencidas primero, luego más recientes ===
+    base = base.order_by(
+        Ticket.fecha_vencimiento_sla.asc().nullslast(),
+        Ticket.created_at.desc(),
+    ).limit(limite)
+
+    tickets_out = []
+    for t, est in base.all():
+        tickets_out.append({
+            "id":            t.id,
+            "codigo":        t.codigo,
+            "titulo":        t.titulo,
+            "estado":        est.nombre if est else "—",
+            "estado_color":  est.color if (est and est.color) else "#64748b",
+            "prioridad":     t.prioridad.value if hasattr(t.prioridad, "value") else str(t.prioridad),
+            "asignado":      (t.asignado.nombre_completo if t.asignado else None),
+            "tipo":          t.tipo.value if hasattr(t.tipo, "value") else str(t.tipo),
+            "fecha_creacion": t.created_at.isoformat() if t.created_at else None,
+            "fecha_vencimiento_sla": t.fecha_vencimiento_sla.isoformat() if t.fecha_vencimiento_sla else None,
+            "fecha_completado":      t.fecha_completado.isoformat() if t.fecha_completado else None,
+            "sla_cumplido":   int(t.sla_cumplido) if t.sla_cumplido is not None else None,
+        })
+
+    return {
+        "kpi":          kpi,
+        "titulo":       _KPI_DETALLE[kpi]["titulo"],
+        "descripcion":  _KPI_DETALLE[kpi]["descripcion"],
+        "periodo_dias": periodo_dias,
+        "tipo":         tipo,
+        "limite":       limite,
+        "total":        len(tickets_out),
+        "tickets":      tickets_out,
     }

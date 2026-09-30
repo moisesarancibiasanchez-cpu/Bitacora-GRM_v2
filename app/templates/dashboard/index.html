@@ -285,34 +285,83 @@
         <!-- Franja de métricas asociadas -->
         <div id="incidencias-recientes-metricas"
              class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-3 text-[11px]">
-          <div class="rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100">
-            <div class="text-slate-500 text-[10px] uppercase tracking-wide">Total periodo</div>
+          <button type="button"
+                  data-kpi="total_periodo"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100 hover:bg-slate-100 hover:border-slate-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-slate-300">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[10px] uppercase tracking-wide">Total periodo</span>
+              <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-slate-800 text-base font-mono" data-metric="total_periodo">—</div>
-          </div>
-          <div class="rounded-md bg-red-50 px-2 py-1.5 border border-red-100">
-            <div class="text-red-600 text-[10px] uppercase tracking-wide">Vencidas</div>
+          </button>
+          <button type="button"
+                  data-kpi="vencidas"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-red-50 px-2 py-1.5 border border-red-100 hover:bg-red-100 hover:border-red-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-red-300">
+            <div class="flex items-center justify-between">
+              <span class="text-red-600 text-[10px] uppercase tracking-wide">Vencidas</span>
+              <svg class="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-red-700 text-base font-mono" data-metric="vencidas">—</div>
-          </div>
-          <div class="rounded-md bg-amber-50 px-2 py-1.5 border border-amber-100">
-            <div class="text-amber-700 text-[10px] uppercase tracking-wide">En riesgo 72h</div>
+          </button>
+          <button type="button"
+                  data-kpi="en_riesgo_72h"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-amber-50 px-2 py-1.5 border border-amber-100 hover:bg-amber-100 hover:border-amber-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-amber-300">
+            <div class="flex items-center justify-between">
+              <span class="text-amber-700 text-[10px] uppercase tracking-wide">En riesgo 72h</span>
+              <svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-amber-700 text-base font-mono" data-metric="en_riesgo_72h">—</div>
-          </div>
-          <div class="rounded-md bg-rose-50 px-2 py-1.5 border border-rose-100">
-            <div class="text-rose-700 text-[10px] uppercase tracking-wide">Crít/Altas</div>
+          </button>
+          <button type="button"
+                  data-kpi="criticas_o_altas"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-rose-50 px-2 py-1.5 border border-rose-100 hover:bg-rose-100 hover:border-rose-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-rose-300">
+            <div class="flex items-center justify-between">
+              <span class="text-rose-700 text-[10px] uppercase tracking-wide">Crít/Altas</span>
+              <svg class="w-3 h-3 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-rose-700 text-base font-mono" data-metric="criticas_o_altas">—</div>
-          </div>
-          <div class="rounded-md bg-indigo-50 px-2 py-1.5 border border-indigo-100">
-            <div class="text-indigo-700 text-[10px] uppercase tracking-wide">% SLA OK</div>
+          </button>
+          <button type="button"
+                  data-kpi="porcentaje_sla_cumplido"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-indigo-50 px-2 py-1.5 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            <div class="flex items-center justify-between">
+              <span class="text-indigo-700 text-[10px] uppercase tracking-wide">% SLA OK</span>
+              <svg class="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-indigo-700 text-base font-mono" data-metric="porcentaje_sla_cumplido">—</div>
-          </div>
-          <div class="rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100">
-            <div class="text-slate-500 text-[10px] uppercase tracking-wide">% Sin asignar</div>
+          </button>
+          <button type="button"
+                  data-kpi="porcentaje_sin_asignar"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100 hover:bg-slate-100 hover:border-slate-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-slate-300">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[10px] uppercase tracking-wide">% Sin asignar</span>
+              <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-slate-700 text-base font-mono" data-metric="porcentaje_sin_asignar">—</div>
-          </div>
-          <div class="rounded-md bg-emerald-50 px-2 py-1.5 border border-emerald-100">
-            <div class="text-emerald-700 text-[10px] uppercase tracking-wide">TTR prom. (h)</div>
+          </button>
+          <button type="button"
+                  data-kpi="tiempo_promedio_resolucion_horas"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-emerald-50 px-2 py-1.5 border border-emerald-100 hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-emerald-300">
+            <div class="flex items-center justify-between">
+              <span class="text-emerald-700 text-[10px] uppercase tracking-wide">TTR prom. (h)</span>
+              <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
             <div class="font-bold text-emerald-700 text-base font-mono" data-metric="tiempo_promedio_resolucion_horas">—</div>
-          </div>
+          </button>
         </div>
 
         <!-- Contenedor con scroll vertical (todos los registros) -->
@@ -407,6 +456,13 @@
    HTMX inyecta aquí el HTML devuelto por /api/v1/metricas/cuenta-resultado/detalle
    cuando el usuario hace clic en una celda numérica de la tabla pivote. #}
 <div id="modal-cuenta-resultado-root"></div>
+
+{# Contenedor para el modal de drill-down de KPIs de la "Lista de Incidencias
+   Recientes". El JS abre/cierra este modal al hacer clic en cualquiera de las
+   7 casillas KPI (Total periodo, Vencidas, En riesgo 72h, Crít/Altas,
+   % SLA OK, % Sin asignar, TTR prom.). Los datos vienen de
+   /api/v1/metricas/detalle-kpi?kpi=... #}
+<div id="modal-kpi-detalle-root"></div>
 
 <script>
 (function () {
@@ -803,13 +859,257 @@
     }, 60000);
   }
 
+  // ============== DRILL-DOWN MODAL: KPIs Lista Incidencias Recientes ==============
+  // FIX-KPI(dashboard): cada una de las 7 casillas KPI de la franja
+  // "Lista de Incidencias Recientes" es ahora clickeable. Al hacer clic se
+  // abre un modal con el listado de tickets que componen ese KPI, usando
+  // el endpoint /api/v1/metricas/detalle-kpi?kpi=...&periodo_dias=...
+  // ------------------------------------------------------------------------------
+  const KPI_LABELS = {
+    'total_periodo':                       'Total periodo',
+    'vencidas':                            'Vencidas',
+    'en_riesgo_72h':                       'En riesgo 72h',
+    'criticas_o_altas':                    'Crít/Altas',
+    'porcentaje_sla_cumplido':             '% SLA OK',
+    'porcentaje_sin_asignar':              '% Sin asignar',
+    'tiempo_promedio_resolucion_horas':    'TTR prom. (h)',
+  };
+
+  function _kpiPrioridadColor(p) {
+    if (!p) return '#94a3b8';
+    const v = String(p).toLowerCase();
+    if (v === 'critica') return '#dc2626';
+    if (v === 'alta')    return '#ea580c';
+    if (v === 'media')   return '#ca8a04';
+    if (v === 'baja')    return '#16a34a';
+    return '#64748b';
+  }
+
+  function _kpiSlaBadge(sla) {
+    if (sla === 1)  return '<span class="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold">OK</span>';
+    if (sla === 0)  return '<span class="px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-semibold">NOK</span>';
+    if (sla === -1) return '<span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">Pendiente</span>';
+    return '<span class="text-slate-400 text-[10px]">—</span>';
+  }
+
+  function _kpiFmtDate(s) {
+    if (!s) return '<span class="text-slate-300">—</span>';
+    try {
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return s;
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const hh = String(d.getUTCHours()).padStart(2, '0');
+      const mi = String(d.getUTCMinutes()).padStart(2, '0');
+      return yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + mi;
+    } catch (e) {
+      return s;
+    }
+  }
+
+  function cerrarModalKpiDetalle() {
+    const root = document.getElementById('modal-kpi-detalle-root');
+    if (root) root.innerHTML = '';
+  }
+  window.cerrarModalKpiDetalle = cerrarModalKpiDetalle;
+
+  async function abrirModalKpiDetalle(kpi) {
+    if (!kpi) return;
+    const root = document.getElementById('modal-kpi-detalle-root');
+    if (!root) return;
+
+    // Spinner de carga
+    const label = KPI_LABELS[kpi] || kpi;
+    root.innerHTML =
+      '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" data-kpi-modal-backdrop="1">'
+      + '<div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">'
+      +   '<svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">'
+      +     '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>'
+      +     '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>'
+      +   '</svg>'
+      +   'Cargando detalle de «' + label + '»…'
+      + '</div>'
+      + '</div>';
+
+    try {
+      const sel = safeId('periodo');
+      const periodo = sel ? (sel.value || '30') : '30';
+      const tipoSel = safeId('incidencias-tipo');
+      const tipo = tipoSel ? (tipoSel.value || 'incidencia') : 'incidencia';
+      const url = '/api/v1/metricas/detalle-kpi'
+        + '?kpi=' + encodeURIComponent(kpi)
+        + '&periodo_dias=' + encodeURIComponent(periodo)
+        + '&tipo=' + encodeURIComponent(tipo)
+        + '&limite=200'
+        + '&_=' + Date.now();
+      const r = await fetch(url, {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try {
+          const j = await r.json();
+          if (j && j.detail) msg = j.detail;
+        } catch (_) { /* noop */ }
+        throw new Error(msg);
+      }
+      const data = await r.json();
+      _renderModalKpiDetalle(data);
+    } catch (err) {
+      root.innerHTML =
+        '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" data-kpi-modal-backdrop="1">'
+        + '<div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 border border-red-200">'
+        +   '<div class="flex items-start justify-between mb-3">'
+        +     '<h3 class="text-sm font-semibold text-red-700">Error al cargar el detalle</h3>'
+        +     '<button type="button" data-close-modal="1" class="text-slate-400 hover:text-slate-700" aria-label="Cerrar">'
+        +       '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+        +     '</button>'
+        +   '</div>'
+        +   '<p class="text-xs text-slate-600">' + String(err && err.message ? err.message : err) + '</p>'
+        +   '<div class="mt-4 text-right">'
+        +     '<button type="button" data-close-modal="1" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">Cerrar</button>'
+        +   '</div>'
+        + '</div>'
+        + '</div>';
+    }
+  }
+  window.abrirModalKpiDetalle = abrirModalKpiDetalle;
+
+  function _renderModalKpiDetalle(data) {
+    const root = document.getElementById('modal-kpi-detalle-root');
+    if (!root) return;
+
+    const tickets = (data && data.tickets) || [];
+    const rows = tickets.map(function (t) {
+      const priColor = _kpiPrioridadColor(t.prioridad);
+      const asignado = t.asignado
+        ? '<span class="text-slate-700">' + t.asignado + '</span>'
+        : '<span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">Sin asignar</span>';
+      return ''
+        + '<tr class="hover:bg-slate-50 transition-colors">'
+        +   '<td class="px-3 py-2 font-mono text-[11px] text-indigo-700 whitespace-nowrap">' + (t.codigo || '—') + '</td>'
+        +   '<td class="px-3 py-2 text-slate-700 max-w-[280px] truncate" title="' + (t.titulo || '') + '">' + (t.titulo || '—') + '</td>'
+        +   '<td class="px-3 py-2 whitespace-nowrap">'
+        +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
+        +       'style="background:' + (t.estado_color || '#e2e8f0') + '20;color:' + (t.estado_color || '#475569') + '">'
+        +       (t.estado || '—') + '</span>'
+        +   '</td>'
+        +   '<td class="px-3 py-2 whitespace-nowrap">'
+        +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
+        +       'style="background:' + priColor + '20;color:' + priColor + '">'
+        +       (t.prioridad || '—') + '</span>'
+        +   '</td>'
+        +   '<td class="px-3 py-2 text-[11px]">' + asignado + '</td>'
+        +   '<td class="px-3 py-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">' + _kpiFmtDate(t.fecha_vencimiento_sla) + '</td>'
+        +   '<td class="px-3 py-2">' + _kpiSlaBadge(t.sla_cumplido) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    const empty = tickets.length === 0
+      ? '<tr><td colspan="7" class="text-center py-6 text-slate-400 text-xs">No hay tickets en este KPI para el período seleccionado.</td></tr>'
+      : '';
+
+    root.innerHTML =
+      '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" data-kpi-modal-backdrop="1">'
+      + '<div class="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col border border-slate-200">'
+      +   '<div class="flex items-start justify-between p-4 border-b border-slate-200">'
+      +     '<div>'
+      +       '<h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">'
+      +         '<span class="inline-block w-1.5 h-5 bg-indigo-500 rounded-sm"></span>'
+      +         (data.titulo || 'Detalle del KPI')
+      +       '</h3>'
+      +       '<p class="text-xs text-slate-500 mt-1">' + (data.descripcion || '') + '</p>'
+      +       '<p class="text-[11px] text-slate-400 mt-1">'
+      +         'Período: <span class="font-mono">' + (data.periodo_dias || '?') + ' días</span>'
+      +         ' · Tipo: <span class="font-mono">' + (data.tipo || '?') + '</span>'
+      +         ' · Total: <span class="font-mono">' + (data.total || 0) + '</span> tickets'
+      +       '</p>'
+      +     '</div>'
+      +     '<button type="button" data-close-modal="1" class="text-slate-400 hover:text-slate-700 p-1" aria-label="Cerrar">'
+      +       '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+      +     '</button>'
+      +   '</div>'
+      +   '<div class="overflow-auto flex-1">'
+      +     '<table class="w-full text-xs">'
+      +       '<thead class="bg-slate-100 text-[10px] uppercase text-slate-600 sticky top-0 z-10 shadow-sm">'
+      +         '<tr>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Código</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Título</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Estado</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Prioridad</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Asignado</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Vencimiento SLA</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">SLA</th>'
+      +         '</tr>'
+      +       '</thead>'
+      +       '<tbody class="divide-y divide-slate-100">' + rows + empty + '</tbody>'
+      +     '</table>'
+      +   '</div>'
+      +   '<div class="p-3 border-t border-slate-200 bg-slate-50 text-right">'
+      +     '<button type="button" data-close-modal="1" class="px-4 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-slate-700">Cerrar</button>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function installKpiModalListeners() {
+    // FIX-KPI(dashboard): delegación de eventos para los botones KPI.
+    // Usamos delegación en document.body para que funcione aunque
+    // el contenedor #incidencias-recientes-metricas se re-renderice.
+    document.body.addEventListener('click', function (e) {
+      const kpiBtn = e.target.closest('[data-kpi][data-metric-card="1"]');
+      if (kpiBtn && kpiBtn.getAttribute) {
+        const kpi = kpiBtn.getAttribute('data-kpi');
+        if (kpi) {
+          e.preventDefault();
+          e.stopPropagation();
+          abrirModalKpiDetalle(kpi);
+          return;
+        }
+      }
+      // Cierre del modal: data-close-modal o click en el backdrop
+      const root = document.getElementById('modal-kpi-detalle-root');
+      if (!root || !root.innerHTML.trim()) return;
+      const closeBtn = e.target.closest('[data-close-modal]');
+      if (closeBtn && root.contains(closeBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        cerrarModalKpiDetalle();
+        return;
+      }
+      const backdrop = e.target.closest('[data-kpi-modal-backdrop]');
+      if (backdrop && root.contains(backdrop) && e.target === backdrop) {
+        e.preventDefault();
+        e.stopPropagation();
+        cerrarModalKpiDetalle();
+        return;
+      }
+    });
+    // ESC para cerrar
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      const root = document.getElementById('modal-kpi-detalle-root');
+      if (!root || !root.innerHTML.trim()) return;
+      cerrarModalKpiDetalle();
+    });
+  }
+
   // Init
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { bind(); cargarMetricas(); installDrillDownListeners(); });
+    document.addEventListener('DOMContentLoaded', function () {
+      bind();
+      cargarMetricas();
+      installDrillDownListeners();
+      installKpiModalListeners();
+    });
   } else {
     bind();
     cargarMetricas();
     installDrillDownListeners();
+    installKpiModalListeners();
   }
 
   // ===================================================================
