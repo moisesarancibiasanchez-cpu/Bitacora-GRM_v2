@@ -9,7 +9,7 @@ resultado_pruebas (réplica del rango A64:H81 de la hoja REPORTE del Excel UAT)
 import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, case, and_, or_
+from sqlalchemy import String, func, case, and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
@@ -905,6 +905,13 @@ def incidencias_recientes(
     # devolvía 0 filas, dejando la lista "vacía" aunque hubiera tickets.
     # Aplicamos func.upper() en el lado de la BD para hacer la comparación
     # robusta al case actual de los datos, sin alterar el Enum en el modelo.
+    #
+    # FIX-PG(metricas): en PostgreSQL las columnas `tipo` y `prioridad` están
+    # definidas como ENUM nativos (`tipoincidencia`, `prioridad`). Aplicar
+    # `upper(<enum>)` falla con `function upper(tipoincidencia) does not exist`
+    # porque no existe sobrecarga para esos tipos. Hay que castear a TEXT
+    # primero con `Ticket.tipo.cast(String)`. SQLite ignora el cast, así que
+    # esta misma expresión es portable.
     _TIPOS_VALIDOS = {
         "incidencia":         "INCIDENCIA",
         "resultado_pruebas":  "RESULTADO_PRUEBAS",
@@ -913,9 +920,9 @@ def incidencias_recientes(
         "problema":           "PROBLEMA",
     }
     if tipo in ("incidencia", "resultado_pruebas"):
-        tipo_filter = func.upper(Ticket.tipo) == _TIPOS_VALIDOS[tipo]
+        tipo_filter = func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
     else:  # 'todos'
-        tipo_filter = func.upper(Ticket.tipo).in_([
+        tipo_filter = func.upper(Ticket.tipo.cast(String)).in_([
             _TIPOS_VALIDOS["incidencia"],
             _TIPOS_VALIDOS["resultado_pruebas"],
             _TIPOS_VALIDOS["solicitud"],
@@ -1003,7 +1010,13 @@ def incidencias_recientes(
         # FIX(metricas): Enum en minúsculas vs BD en MAYÚSCULAS.
         # Comparamos en upper-case para que el KPI refleje los
         # datos reales aunque no se haya migrado el Enum.
-        func.upper(Ticket.prioridad).in_([Prioridad.CRITICA.value.upper(), Prioridad.ALTA.value.upper()])
+        #
+        # FIX-PG(metricas): castear a TEXT antes de UPPER() para que
+        # funcione en PostgreSQL (la columna `prioridad` es ENUM nativo).
+        func.upper(Ticket.prioridad.cast(String)).in_([
+            Prioridad.CRITICA.value.upper(),
+            Prioridad.ALTA.value.upper(),
+        ])
     ).count()
 
     vencidas = base.filter(
