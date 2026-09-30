@@ -898,17 +898,29 @@ def incidencias_recientes(
     fecha_limite = ahora - timedelta(days=periodo_dias)
 
     # === Filtro de tipo ===
-    if tipo == "incidencia":
-        tipo_filter = Ticket.tipo == TipoIncidencia.INCIDENCIA
-    elif tipo == "resultado_pruebas":
-        tipo_filter = Ticket.tipo == TipoIncidencia.RESULTADO_PRUEBAS
+    # FIX(metricas): el Enum Python (TipoIncidencia.INCIDENCIA.value = 'incidencia')
+    # está en minúsculas, pero la BD tiene los valores en MAYÚSCULAS
+    # ('INCIDENCIA', 'RESULTADO_PRUEBAS', 'SOLICITUD', 'CAMBIO', 'PROBLEMA').
+    # Comparar literal-en-minúsculas contra columna-en-mayúsculas siempre
+    # devolvía 0 filas, dejando la lista "vacía" aunque hubiera tickets.
+    # Aplicamos func.upper() en el lado de la BD para hacer la comparación
+    # robusta al case actual de los datos, sin alterar el Enum en el modelo.
+    _TIPOS_VALIDOS = {
+        "incidencia":         "INCIDENCIA",
+        "resultado_pruebas":  "RESULTADO_PRUEBAS",
+        "solicitud":          "SOLICITUD",
+        "cambio":             "CAMBIO",
+        "problema":           "PROBLEMA",
+    }
+    if tipo in ("incidencia", "resultado_pruebas"):
+        tipo_filter = func.upper(Ticket.tipo) == _TIPOS_VALIDOS[tipo]
     else:  # 'todos'
-        tipo_filter = Ticket.tipo.in_([
-            TipoIncidencia.INCIDENCIA,
-            TipoIncidencia.RESULTADO_PRUEBAS,
-            TipoIncidencia.SOLICITUD,
-            TipoIncidencia.CAMBIO,
-            TipoIncidencia.PROBLEMA,
+        tipo_filter = func.upper(Ticket.tipo).in_([
+            _TIPOS_VALIDOS["incidencia"],
+            _TIPOS_VALIDOS["resultado_pruebas"],
+            _TIPOS_VALIDOS["solicitud"],
+            _TIPOS_VALIDOS["cambio"],
+            _TIPOS_VALIDOS["problema"],
         ])
 
     # === Listado de tickets ===
@@ -988,7 +1000,10 @@ def incidencias_recientes(
     total_periodo = base.count()
 
     criticas_o_altas = base.filter(
-        Ticket.prioridad.in_([Prioridad.CRITICA, Prioridad.ALTA])
+        # FIX(metricas): Enum en minúsculas vs BD en MAYÚSCULAS.
+        # Comparamos en upper-case para que el KPI refleje los
+        # datos reales aunque no se haya migrado el Enum.
+        func.upper(Ticket.prioridad).in_([Prioridad.CRITICA.value.upper(), Prioridad.ALTA.value.upper()])
     ).count()
 
     vencidas = base.filter(
@@ -1043,6 +1058,12 @@ def incidencias_recientes(
     )
     ttr_horas = float(ttr_rows) if ttr_rows is not None else 0.0
 
+    # FIX(metricas): el denominador del % SLA OK antes filtraba por
+    # `sla_cumplido IN (0, 1)`, excluyendo los tickets cerrados con
+    # `sla_cumplido = -1` (pendiente de clasificar). El denominador
+    # correcto es TODOS los tickets CERRADOS del periodo (los -1
+    # cuentan como "no cumplido" al calcular el numerador sobre los
+    # explícitamente OK).
     sla_cumplido_rows = (
         db.query(func.count(Ticket.id))
         .filter(
@@ -1050,7 +1071,6 @@ def incidencias_recientes(
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
             Ticket.fecha_completado.isnot(None),
-            Ticket.sla_cumplido.in_([0, 1]),
         ).scalar() or 0
     )
     sla_ok_rows = (

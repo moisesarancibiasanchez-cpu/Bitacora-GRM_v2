@@ -770,19 +770,37 @@
   }
 
   // ============== EVENTOS ==============
+  // FIX(dashboard): el handler de periodo / botón Actualizar /
+  // cambio de "horas en riesgo" antes sólo disparaba cargarMetricas(),
+  // dejando la 'Lista de Incidencias Recientes' sin refrescar.
+  // recargarTodo() ahora actualiza KPIs y lista en paralelo.
+  function recargarTodo() {
+    return Promise.allSettled([
+      cargarMetricas(),
+      cargarIncidenciasRecientes(),
+    ]);
+  }
+
   function bind() {
     const sel = safeId('periodo');
-    if (sel) sel.addEventListener('change', cargarMetricas);
+    if (sel) sel.addEventListener('change', recargarTodo);
     const btn = safeId('btn-refresh');
     if (btn) btn.addEventListener('click', function () {
       const icon = safeId('icon-refresh');
       if (icon) icon.classList.add('animate-spin');
-      cargarMetricas().then(() => setTimeout(() => icon && icon.classList.remove('animate-spin'), 400));
+      recargarTodo().then(() => setTimeout(() => icon && icon.classList.remove('animate-spin'), 400));
     });
     const riesgoH = safeId('riesgo-horas');
-    if (riesgoH) riesgoH.addEventListener('change', function () {
-      cargarMetricas();
-    });
+    if (riesgoH) riesgoH.addEventListener('change', recargarTodo);
+
+    // FIX(dashboard): auto-refresh cada 60s para que la lista
+    // refleje tickets creados/editados desde otras pestañas sin
+    // necesidad de recargar manualmente. Limpia cualquier intervalo
+    // previo para evitar duplicación en reinicializaciones.
+    if (window.__autoRefreshIncidencias) clearInterval(window.__autoRefreshIncidencias);
+    window.__autoRefreshIncidencias = setInterval(() => {
+      cargarIncidenciasRecientes().catch(() => { /* error aislado, no romper UI */ });
+    }, 60000);
   }
 
   // Init
@@ -1081,12 +1099,20 @@
     table.classList.add('opacity-50');
 
     try {
+      // FIX: cache-busting con timestamp para que el navegador /
+      // proxy intermedio no devuelva una respuesta cacheada cuando
+      // se recarga manualmente o por auto-refresh cada 60s.
+      const cacheBust = '_=' + Date.now();
       const r = await fetch(
         '/api/v1/metricas/incidencias-recientes'
         + '?periodo_dias=' + encodeURIComponent(periodo)
         + '&tipo=' + encodeURIComponent(tipo)
-        + '&limite=50',
-        { headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) } }
+        + '&limite=50'
+        + '&' + cacheBust,
+        {
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+          cache: 'no-store',
+        }
       );
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
