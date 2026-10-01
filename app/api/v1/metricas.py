@@ -170,10 +170,11 @@ def resumen_dashboard(
         )
         .scalar() or 0
     )
-    # Backlog Incidencias: incidencias activas (no archivadas) que AÚN NO
+    # Incidencias Abiertas: incidencias activas (no archivadas) que AÚN NO
     # se han abordado o solucionado. Es decir, NO cuentan las que ya pasaron
-    # a etapa "Producción OK" (estado terminal que indica que la incidencia
-    # fue resuelta y desplegada en producción).
+    # a un estado terminal/ cerrado:
+    #   - "Producción OK"  → resuelta y desplegada en producción
+    #   - "DESESTIMADA"    → rechazada/cancelada, no procede
     #
     # FIX-BACKLOG-SEMANTICA(metricas):
     #   v1: filtro `created_at < hace_7d` → "abiertas >7d" (Backlog=13)
@@ -181,24 +182,27 @@ def resumen_dashboard(
     #       INCIDENCIA legítimas creadas en los últimos 7 días.
     #   v2: eliminamos el filtro de fecha → "todas las activas" (Backlog=17)
     #       Pero ahora contaba 13 tickets ya finalizados en Producción OK.
-    #   v3 (actual): helper _tipo_inc + archivado=false + estado NOT IN
-    #       ("produccion ok"). El KPI representa "incidencias pendientes"
-    #       (no archivadas, no resueltas en producción).
+    #   v3: helper _tipo_inc + archivado=false + estado != "produccion ok"
+    #       (Backlog=4) pero seguía contando INC-008 que está DESESTIMADA.
+    #   v4 (actual): helper _tipo_inc + archivado=false + estado NOT IN
+    #       ("produccion ok", "desestimada"). El KPI se renombra a
+    #       "Incidencias Abiertas" y representa "incidencias en gestión"
+    #       (no archivadas, no resueltas, no rechazadas).
     #
-    # Detección de "Producción OK":
-    #   - Se compara contra `estados.nombre` (no contra `estados.categoria`,
+    # Detección de estados terminales:
+    #   - Se compara contra `estados.nombre` (NO contra `estados.categoria`,
     #     que en producción NUNCA toma el valor 'produccion_ok'; ver
     #     commit 4bac32d para más detalle).
-    #   - El valor almacenado en la BD es 'produccion ok' (lowercase, sin
-    #     acento), por lo que `func.lower(Estado.nombre) != "produccion ok"`
-    #     es suficiente y portable entre SQLite y PostgreSQL.
+    #   - Los valores almacenados en la BD son lowercase y sin acento
+    #     ('produccion ok', 'desestimada'), por lo que `func.lower()` es
+    #     suficiente y portable entre SQLite y PostgreSQL.
     backlog_7d = (
         db.query(func.count(Ticket.id))
         .join(Estado, Estado.id == Ticket.estado_id)
         .filter(
             _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
-            func.lower(Estado.nombre) != "produccion ok",
+            func.lower(Estado.nombre).notin_(["produccion ok", "desestimada"]),
         )
         .scalar() or 0
     )
