@@ -170,13 +170,23 @@ def resumen_dashboard(
         )
         .scalar() or 0
     )
-    # Backlog: incidencias activas creadas hace más de 7 días
+    # Backlog Incidencias: total de incidencias activas (no archivadas).
+    # FIX-BACKLOG-SEMANTICA(metricas): antes este KPI se calculaba con
+    # filtro `created_at < hace_7d` para mostrar únicamente las
+    # "abiertas >7d", pero el dashboard mostraba ese mismo conteo en el
+    # stat-bar "Abiertas" (helper _tipo_inc sin filtro de fecha = 17),
+    # generando una inconsistencia (Backlog=13 vs Abiertas=17).
+    # Los 4 tickets faltantes (INC-935/936/937/938) son INCIDENCIA
+    # legítimas creadas en los últimos 7 días y deben contar.
+    # Por consistencia con `incidencias_activas` y con el stat-bar
+    # "Abiertas", se elimina el filtro de fecha. El KPI ahora representa
+    # "todas las incidencias activas" (coincide con el conteo manual
+    # esperado: 14 INCIDENCIA + 3 INC_/RESULTADO_PRUEBAS = 17).
     backlog_7d = (
         db.query(func.count(Ticket.id))
         .filter(
             _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
-            Ticket.created_at < hace_7d,
         )
         .scalar() or 0
     )
