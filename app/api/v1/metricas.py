@@ -170,23 +170,35 @@ def resumen_dashboard(
         )
         .scalar() or 0
     )
-    # Backlog Incidencias: total de incidencias activas (no archivadas).
-    # FIX-BACKLOG-SEMANTICA(metricas): antes este KPI se calculaba con
-    # filtro `created_at < hace_7d` para mostrar únicamente las
-    # "abiertas >7d", pero el dashboard mostraba ese mismo conteo en el
-    # stat-bar "Abiertas" (helper _tipo_inc sin filtro de fecha = 17),
-    # generando una inconsistencia (Backlog=13 vs Abiertas=17).
-    # Los 4 tickets faltantes (INC-935/936/937/938) son INCIDENCIA
-    # legítimas creadas en los últimos 7 días y deben contar.
-    # Por consistencia con `incidencias_activas` y con el stat-bar
-    # "Abiertas", se elimina el filtro de fecha. El KPI ahora representa
-    # "todas las incidencias activas" (coincide con el conteo manual
-    # esperado: 14 INCIDENCIA + 3 INC_/RESULTADO_PRUEBAS = 17).
+    # Backlog Incidencias: incidencias activas (no archivadas) que AÚN NO
+    # se han abordado o solucionado. Es decir, NO cuentan las que ya pasaron
+    # a etapa "Producción OK" (estado terminal que indica que la incidencia
+    # fue resuelta y desplegada en producción).
+    #
+    # FIX-BACKLOG-SEMANTICA(metricas):
+    #   v1: filtro `created_at < hace_7d` → "abiertas >7d" (Backlog=13)
+    #       Inconsistente con el stat-bar "Abiertas" (=17) y excluía 4
+    #       INCIDENCIA legítimas creadas en los últimos 7 días.
+    #   v2: eliminamos el filtro de fecha → "todas las activas" (Backlog=17)
+    #       Pero ahora contaba 13 tickets ya finalizados en Producción OK.
+    #   v3 (actual): helper _tipo_inc + archivado=false + estado NOT IN
+    #       ("produccion ok"). El KPI representa "incidencias pendientes"
+    #       (no archivadas, no resueltas en producción).
+    #
+    # Detección de "Producción OK":
+    #   - Se compara contra `estados.nombre` (no contra `estados.categoria`,
+    #     que en producción NUNCA toma el valor 'produccion_ok'; ver
+    #     commit 4bac32d para más detalle).
+    #   - El valor almacenado en la BD es 'produccion ok' (lowercase, sin
+    #     acento), por lo que `func.lower(Estado.nombre) != "produccion ok"`
+    #     es suficiente y portable entre SQLite y PostgreSQL.
     backlog_7d = (
         db.query(func.count(Ticket.id))
+        .join(Estado, Estado.id == Ticket.estado_id)
         .filter(
             _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
+            func.lower(Estado.nombre) != "produccion ok",
         )
         .scalar() or 0
     )
