@@ -10,6 +10,7 @@ Reglas de validación (cumplen con ITIL/ITSM):
 """
 from datetime import datetime, timedelta
 import logging
+import unicodedata
 from typing import Optional, Tuple, List, Any, Dict
 
 from sqlalchemy import and_, or_
@@ -21,6 +22,36 @@ from app.models.usuario import Usuario, RolUsuario
 from app.services.auditoria_service import registrar_auditoria
 
 logger = logging.getLogger(__name__)
+
+
+def _norm(s: Optional[str]) -> str:
+    """
+    Normaliza un string para comparaciones case-insensitive y
+    diacritic-insensitive.
+
+    Pasos:
+      1. ``None``/str vacío → ``""``.
+      2. ``strip()`` para tolerar espacios accidentales.
+      3. ``unicodedata.normalize("NFKD", ...)`` + filtro de marcas
+         diacríticas (categoría ``Mn``) → ``"Producción"`` → ``"Produccion"``.
+      4. ``lower()`` para case-insensitive.
+
+    Ejemplos:
+      >>> _norm("Producción OK")
+      'produccion ok'
+      >>> _norm("PRODUCCION OK")
+      'produccion ok'
+      >>> _norm("  producción ók  ")
+      'produccion ok'
+    """
+    if not s:
+        return ""
+    s = s.strip()
+    s = "".join(
+        c for c in unicodedata.normalize("NFKD", s)
+        if unicodedata.category(c) != "Mn"
+    )
+    return s.lower()
 
 
 class TransicionInvalidaError(Exception):
@@ -215,10 +246,7 @@ class TicketService:
             #      Solo se aplica cuando REALMENTE hubo cambio de estado
             #      para no pisar valores editados manualmente cuando el
             #      usuario reordena dentro de la misma columna.
-            nombre_destino_norm = (estado_destino.nombre or "").strip().lower()
-            categoria_destino_norm = (
-                (estado_destino.categoria or "").strip().lower()
-            )
+            nombre_destino_norm = _norm(estado_destino.nombre)
             if nombre_destino_norm in ("cancelado", "desestimada", "desestimado"):
                 if ticket.resultado_pruebas != "DESESTIMADA":
                     logger.info(
@@ -234,15 +262,26 @@ class TicketService:
             #      automáticamente como "listo" y se detiene el SLA:
             #        - fecha_completado = ahora (si no estaba ya seteada)
             #        - fecha_cumplida   = True (vencimiento cumplido)
-            #        - sla_cumplido     = 1   (forzar cumplimiento)
+            #        - sla_cumulido     = 1   (forzar cumplimiento)
             #      El ``fecha_vencimiento_sla`` se mantiene con su valor
             #      anterior (no se recalcula porque Producción OK tiene
             #      ``sla_horas=None``), pero el deadline_notifier ya
             #      excluye estados finales (``es_final=True``) por lo que
             #      no se generan más alertas.
-            #      Se detecta por ``categoria == 'produccion_ok'`` (más
-            #      robusto que por nombre: sobrevive a renombrados).
-            if categoria_destino_norm == "produccion_ok":
+            #      ⚠️ IMPORTANTE: la detección se hace por ``nombre`` y NO
+            #      por ``categoria``. En producción la columna
+            #      ``estados.categoria`` NUNCA toma el valor
+            #      ``'produccion_ok'`` (su default es ``'abierto'`` y el
+            #      seeding solo seteó ese valor para BDs nuevas); en
+            #      cambio, el ``nombre`` se persiste como ``'Producción OK'``
+            #      (``LOWER(nombre) = 'produccion ok'``, con espacio y
+            #      sin guion bajo). Esta convención es la misma que usan:
+            #        - ``migrations.py`` (pre-check idempotente)
+            #        - ``tarjeta.html`` (badge del lado del cliente)
+            #        - las ``transiciones_estado`` (``LOWER(o.nombre)``,
+            #          ``LOWER(d.nombre)``)
+            #      Por eso se compara ``nombre_destino_norm == 'produccion ok'``.
+            if nombre_destino_norm == "produccion ok":
                 side_effect_applied = False
                 if ticket.fecha_completado is None:
                     ticket.fecha_completado = datetime.utcnow()
