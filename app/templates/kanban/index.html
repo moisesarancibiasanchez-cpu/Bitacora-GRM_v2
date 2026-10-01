@@ -141,11 +141,16 @@
       {% for estado in estados %}
         {% set tickets_col = tickets_por_estado.get(estado.id, []) %}
         {% set resp = estado.responsable %}
-        {# Calculamos partes/iniciales de forma robusta (soporta un solo nombre) #}
+        {# Calculamos partes/iniciales de forma robusta (soporta un solo nombre).
+           Importante: Jinja2 NO soporta generator expressions dentro de "".join()
+           porque `for` es palabra reservada para bloques {% for %}. Usamos
+           concatenación explícita con el operador `~`. #}
         {% if resp %}
           {% set resp_nombre = (resp.nombre_completo or resp.username or "").strip() %}
           {% set resp_partes = resp_nombre.split() %}
-          {% set resp_initials = "".join(p[0].upper() for p in resp_partes[:2]) if resp_partes else '?' %}
+          {% set first_initial = resp_partes[0][0]|upper if resp_partes else '?' %}
+          {% set second_initial = (resp_partes[1][0]|upper) if resp_partes|length > 1 else '' %}
+          {% set resp_initials = first_initial ~ second_initial %}
           {% set resp_display = resp_partes[0] if resp_partes else resp.username %}
         {% endif %}
         <div id="column-{{ estado.id }}"
