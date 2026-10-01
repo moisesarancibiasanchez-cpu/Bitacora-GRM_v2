@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.deps import get_current_user, require_role, require_admin
 from app.db.session import get_db
 from app.models.estado import Estado, TransicionEstado
+from app.models.ticket import Ticket
 from app.models.usuario import Usuario, RolUsuario
 from app.schemas.ticket import EstadoCreate, EstadoRead, TransicionEstadoRead
 
@@ -445,55 +446,24 @@ class EstadoUpdate(BaseModel):
         return v
 
 
-def _render_column_header(estado: Estado) -> str:
+def _render_responsable_badge(estado: Estado) -> str:
     """
-    Renderiza el fragmento HTML del encabezado de una columna (título +
-    responsable + contador). Se usa como respuesta de los PATCH para
-    refrescar la cabecera con HTMX sin recargar la página.
+    Renderiza SOLO el bloque del badge de responsable (con o sin responsable).
+    Se usa tanto en la cabecera inicial del Kanban como en la respuesta
+    de los PATCH/GET de refresco. Helper centralizado para evitar
+    divergencias entre el template y la respuesta del backend.
     """
-    # Iniciales del responsable
     resp = estado.responsable
-    if resp is not None:
-        nombre_completo = (resp.nombre_completo or resp.username or "").strip()
-        partes = [p for p in nombre_completo.split() if p]
-        if partes:
-            initials = "".join(p[0].upper() for p in partes[:2]) or "?"
-        else:
-            initials = "?"
-    else:
-        initials = ""
-        nombre_completo = ""
-
-    responsable_html = ""
-    if resp is not None:
-        responsable_html = (
-            f'<span class="inline-flex items-center gap-1 px-1.5 py-0.5 '
-            f'rounded-full bg-indigo-50 border border-indigo-200 '
-            f'text-[10px] text-indigo-700" '
-            f'title="Responsable: {nombre_completo}">'
-            f'<span class="inline-flex items-center justify-center w-4 h-4 '
-            f'rounded-full bg-indigo-600 text-white text-[9px] font-bold">'
-            f"{initials}</span>"
-            f'<span class="font-medium truncate max-w-[7rem]">'
-            f"{nombre_completo.split()[0] if nombre_completo else resp.username}</span>"
-            f'<button type="button" '
-            f'hx-patch="/api/v1/estados/{estado.id}" '
-            f'hx-vals=\'{{"responsable_id": ""}}\' '
-            f'hx-target="#column-header-{estado.id}" '
-            f'hx-swap="outerHTML" '
-            f'class="ml-0.5 text-indigo-400 hover:text-red-500" '
-            f'title="Quitar responsable">×</button>'
-            f"</span>"
-        )
-    else:
-        responsable_html = (
+    if resp is None:
+        # Botón para abrir el picker de responsable
+        return (
             f'<button type="button" '
             f'hx-get="/api/v1/estados/{estado.id}/responsable-picker" '
             f'hx-target="#column-header-{estado.id}" '
             f'hx-swap="outerHTML" '
             f'class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full '
             f'border border-dashed border-slate-300 text-[10px] text-slate-500 '
-            f'hover:bg-slate-50" '
+            f'hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600" '
             f'title="Asignar responsable a esta columna">'
             f'<svg class="w-3 h-3" fill="none" stroke="currentColor" '
             f'viewBox="0 0 24 24"><path stroke-linecap="round" '
@@ -502,11 +472,48 @@ def _render_column_header(estado: Estado) -> str:
             f"</path></svg>responsable</button>"
         )
 
-    # El nombre es editable: doble clic o botón "editar" -> muestra input
-    # HTMX autosubmit. La edición se persiste con PATCH /estados/{id}.
+    # Hay responsable: badge con iniciales + nombre + botón "×"
+    nombre_completo = (resp.nombre_completo or resp.username or "").strip()
+    partes = [p for p in nombre_completo.split() if p]
+    initials = "".join(p[0].upper() for p in partes[:2]) if partes else "?"
+    # Nombre a mostrar: primer nombre, o username si no hay nada
+    nombre_display = partes[0] if partes else (resp.username or "?")
+
+    return (
+        f'<span class="inline-flex items-center gap-1 px-1.5 py-0.5 '
+        f'rounded-full bg-indigo-50 border border-indigo-200 '
+        f'text-[10px] text-indigo-700" '
+        f'title="Responsable: {nombre_completo}">'
+        f'<span class="inline-flex items-center justify-center w-4 h-4 '
+        f'rounded-full bg-indigo-600 text-white text-[9px] font-bold">'
+        f"{initials}</span>"
+        f'<span class="font-medium truncate max-w-[7rem]">'
+        f"{nombre_display}</span>"
+        f'<button type="button" '
+        f'hx-patch="/api/v1/estados/{estado.id}" '
+        f'hx-vals=\'{{"responsable_id": ""}}\' '
+        f'hx-target="#column-header-{estado.id}" '
+        f'hx-swap="outerHTML" '
+        f'hx-confirm="¿Quitar al responsable de esta columna?" '
+        f'class="ml-0.5 text-indigo-400 hover:text-red-500" '
+        f'title="Quitar responsable">×</button>'
+        f"</span>"
+    )
+
+
+def _render_column_header(estado: Estado, count: int = 0) -> str:
+    """
+    Renderiza el fragmento HTML del encabezado de una columna (título +
+    responsable + contador). Se usa como respuesta de los PATCH para
+    refrescar la cabecera con HTMX sin recargar la página.
+
+    Args:
+        estado: instancia del Estado (puede o no tener `responsable` cargado).
+        count: número de tickets en esta columna (se persiste en el contador).
+    """
     header_id = f"column-header-{estado.id}"
-    # El contador de tickets se refresca con un endpoint separado;
-    # aquí devolvemos solo el título + responsable + botón editar.
+    responsable_html = _render_responsable_badge(estado)
+
     return (
         f'<div id="{header_id}" '
         f'class="flex items-center justify-between gap-2 mb-3 px-1 '
@@ -537,7 +544,7 @@ def _render_column_header(estado: Estado) -> str:
         f"{responsable_html}"
         f'<span class="text-xs font-mono text-slate-500 bg-white px-2 py-0.5 '
         f'rounded-full border border-slate-200" '
-        f'id="count-{estado.id}">{getattr(estado, "_count", "")}</span>'
+        f'id="count-{estado.id}">{count}</span>'
         f"</div>"
         f"</div>"
     )
@@ -715,9 +722,16 @@ async def actualizar_estado(
         estado.archivado = archivado_parsed
 
     if not cambios:
-        # Sin cambios: devolver el header actual
+        # Sin cambios: devolver el header actual con el conteo persistido
         db.refresh(estado)
-        return HTMLResponse(_render_column_header(estado))
+        if estado.responsable_id is not None:
+            estado.responsable = (
+                db.query(Usuario).filter(Usuario.id == estado.responsable_id).first()
+            )
+        count_actual = (
+            db.query(Ticket).filter(Ticket.estado_id == estado.id).count()
+        )
+        return HTMLResponse(_render_column_header(estado, count=count_actual))
 
     # Las ediciones de columna NO se registran en la tabla `auditorias`
     # porque esa tabla exige ticket_id NOT NULL (FK a tickets.id) y estos
@@ -746,8 +760,13 @@ async def actualizar_estado(
             db.query(Usuario).filter(Usuario.id == estado.responsable_id).first()
         )
 
+    # Contar tickets para persistir el contador en el header refrescado
+    count_actual = (
+        db.query(Ticket).filter(Ticket.estado_id == estado.id).count()
+    )
+
     return HTMLResponse(
-        _render_column_header(estado),
+        _render_column_header(estado, count=count_actual),
         headers={"HX-Trigger": "column-updated"},
     )
 
@@ -762,6 +781,16 @@ def responsable_picker(
     """
     Devuelve un mini-form con un <select> de usuarios activos para asignar
     como responsable de la columna. Pensado para HTMX (swap en el header).
+
+    Diseño:
+      - El <select> está DENTRO del <form> (no usa el atributo ``form=``).
+        Esto garantiza que FormData(form) incluya siempre el valor, sin
+        depender del soporte HTML5 del atributo ``form`` en el navegador.
+      - El form dispara ``hx-trigger="change"`` directamente desde el select,
+        sin necesidad de ``onchange`` inline ni ``requestSubmit()``.
+      - El wrapper usa las MISMAS clases que el header normal
+        (``flex items-center justify-between gap-2 mb-3 px-1 flex-shrink-0 flex-wrap``)
+        para evitar saltos de layout al abrir/cerrar el picker.
 
     Permisos: SOLO el rol Administrador puede asignar responsables.
     """
@@ -814,7 +843,8 @@ def responsable_picker(
     options = ['<option value="">— Sin responsable —</option>']
     for u in usuarios:
         nombre = u.nombre_completo or u.username
-        sufijo = " (inactivo)" if (mostrando_inactivos or not u.is_active) else ""
+        # FIX bug #5: sufijo solo si el usuario está realmente inactivo
+        sufijo = " (inactivo)" if not u.is_active else ""
         selected = " selected" if estado.responsable_id == u.id else ""
         options.append(
             f'<option value="{u.id}"{selected}>{nombre} ({u.username}){sufijo}</option>'
@@ -845,28 +875,149 @@ def responsable_picker(
         )
 
     header_id = f"column-header-{estado.id}"
+
+    # FIX bug raíz #1: el <select> está DENTRO del <form>, no usa el atributo
+    # form="" separado. El form usa hx-trigger="change" directamente en el
+    # select para evitar la fragilidad de onchange="this.form.requestSubmit()".
+    # FIX bug #3: las clases del wrapper coinciden con el header normal
+    # (flex-wrap + justify-between) para evitar desbordes en columnas angostas.
     return HTMLResponse(
         ayuda_html +
         f'<div id="{header_id}" '
-        f'class="flex items-center gap-2 mb-3 px-1 flex-shrink-0">'
-        f'<select name="responsable_id" '
-        f'autofocus '
-        f'onchange="this.form.requestSubmit()" '
-        f'form="form-resp-{estado.id}" '
-        f'class="text-xs border border-slate-300 rounded-md px-2 py-1 max-w-[14rem]">'
-        + "".join(options) +
-        f'</select>'
+        f'class="flex items-center justify-between gap-2 mb-3 px-1 '
+        f'flex-shrink-0 flex-wrap">'
         f'<form id="form-resp-{estado.id}" '
         f'hx-patch="/api/v1/estados/{estado.id}" '
         f'hx-target="#column-header-{estado.id}" '
         f'hx-swap="outerHTML" '
-        f'style="display:none"></form>'
+        f'class="contents" '
+        f'onsubmit="return false">'
+        f'<select name="responsable_id" '
+        f'autofocus '
+        f'hx-trigger="change" '
+        f'hx-target="#column-header-{estado.id}" '
+        f'hx-swap="outerHTML" '
+        f'hx-get="/api/v1/estados/{estado.id}/picker-commit" '
+        f'hx-include="this" '
+        f'class="text-xs border border-slate-300 rounded-md px-2 py-1 '
+        f'max-w-[14rem] flex-shrink min-w-0">'
+        + "".join(options) +
+        f'</select>'
+        f'</form>'
         f'<button type="button" '
         f'hx-get="/api/v1/estados/{estado.id}/header" '
         f'hx-target="#column-header-{estado.id}" '
         f'hx-swap="outerHTML" '
-        f'class="text-[10px] text-slate-500 hover:text-slate-700">cancelar</button>'
+        f'class="text-[10px] text-slate-500 hover:text-slate-700 px-2 py-1 '
+        f'rounded hover:bg-slate-100">cancelar</button>'
         f"</div>"
+    )
+
+
+@router.get("/{estado_id}/picker-commit", response_class=HTMLResponse)
+def picker_commit(
+    estado_id: int,
+    request: Request,
+    responsable_id: str = "",
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """
+    Endpoint auxiliar invocado por el select del responsable-picker cuando
+    el usuario cambia la selección (vía hx-trigger="change" + hx-get).
+
+    Centraliza la lógica de:
+      1. Validar que el usuario destino existe y está activo (si viene id).
+      2. Actualizar el estado.responsable_id.
+      3. Devolver el header refrescado con el contador persistido.
+
+    Permisos: SOLO Administrador.
+    """
+    estado = db.query(Estado).filter(Estado.id == estado_id).first()
+    if not estado:
+        raise HTTPException(status_code=404, detail="Estado no encontrado")
+
+    # Permisos: SOLO Administrador
+    rol_legible = (
+        usuario.rol.value if hasattr(usuario.rol, "value") else usuario.rol
+    )
+    if str(rol_legible).lower() != "administrador":
+        return HTMLResponse(
+            content=(
+                f'<div id="column-header-{estado_id}" '
+                f'class="rounded-md border-2 border-red-300 bg-red-50 '
+                f'px-2 py-1 text-xs text-red-700">'
+                f"Solo el rol Administrador puede asignar responsables de columna."
+                f"</div>"
+            ),
+            status_code=403,
+            headers={"HX-Trigger": "ticket-error"},
+        )
+
+    # Parsear responsable_id (cadena vacía = limpiar)
+    nuevo_resp_id: int | None = None
+    if responsable_id and str(responsable_id).strip() not in ("", "null", "None", "0"):
+        try:
+            nuevo_resp_id = int(str(responsable_id).strip())
+        except (ValueError, TypeError):
+            return HTMLResponse(
+                content=(
+                    f'<div id="column-header-{estado_id}" '
+                    f'class="rounded-md border-2 border-amber-300 bg-amber-50 '
+                    f'px-2 py-1 text-xs text-amber-700">'
+                    f"responsable_id inválido.</div>"
+                ),
+                status_code=400,
+                headers={"HX-Trigger": "ticket-error"},
+            )
+
+    # Validar usuario destino si viene id
+    if nuevo_resp_id is not None:
+        u = db.query(Usuario).filter(Usuario.id == nuevo_resp_id).first()
+        if not u or not u.is_active:
+            return HTMLResponse(
+                content=(
+                    f'<div id="column-header-{estado_id}" '
+                    f'class="rounded-md border-2 border-amber-300 bg-amber-50 '
+                    f'px-2 py-1 text-xs text-amber-700">'
+                    f"El usuario responsable no existe o está inactivo.</div>"
+                ),
+                status_code=400,
+                headers={"HX-Trigger": "ticket-error"},
+            )
+
+    # Aplicar cambio
+    if estado.responsable_id != nuevo_resp_id:
+        estado.responsable_id = nuevo_resp_id
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            return HTMLResponse(
+                content=(
+                    f'<div id="column-header-{estado_id}" '
+                    f'class="rounded-md border-2 border-red-300 bg-red-50 '
+                    f'px-2 py-1 text-xs text-red-700">'
+                    f"Error al guardar: {exc}</div>"
+                ),
+                status_code=500,
+                headers={"HX-Trigger": "ticket-error"},
+            )
+
+    db.refresh(estado)
+    # Recargar relación responsable para el render
+    if estado.responsable_id is not None:
+        estado.responsable = (
+            db.query(Usuario).filter(Usuario.id == estado.responsable_id).first()
+        )
+
+    count_actual = (
+        db.query(Ticket).filter(Ticket.estado_id == estado.id).count()
+    )
+
+    return HTMLResponse(
+        _render_column_header(estado, count=count_actual),
+        headers={"HX-Trigger": "column-updated"},
     )
 
 
@@ -949,7 +1100,11 @@ def get_header(
         estado.responsable = (
             db.query(Usuario).filter(Usuario.id == estado.responsable_id).first()
         )
-    return HTMLResponse(_render_column_header(estado))
+    # Persistir el contador de tickets en el header refrescado
+    count_actual = (
+        db.query(Ticket).filter(Ticket.estado_id == estado.id).count()
+    )
+    return HTMLResponse(_render_column_header(estado, count=count_actual))
 
 
 # ===========================================================================

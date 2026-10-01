@@ -141,10 +141,12 @@
       {% for estado in estados %}
         {% set tickets_col = tickets_por_estado.get(estado.id, []) %}
         {% set resp = estado.responsable %}
+        {# Calculamos partes/iniciales de forma robusta (soporta un solo nombre) #}
         {% if resp %}
-          {% set resp_nombre = (resp.nombre_completo or resp.username) %}
+          {% set resp_nombre = (resp.nombre_completo or resp.username or "").strip() %}
           {% set resp_partes = resp_nombre.split() %}
-          {% set resp_initials = (resp_partes[0][0] if resp_partes else '?') ~ (resp_partes[1][0] if resp_partes|length > 1 else '') %}
+          {% set resp_initials = "".join(p[0].upper() for p in resp_partes[:2]) if resp_partes else '?' %}
+          {% set resp_display = resp_partes[0] if resp_partes else resp.username %}
         {% endif %}
         <div id="column-{{ estado.id }}"
              class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col cursor-grab active:cursor-grabbing"
@@ -176,13 +178,14 @@
               {% if resp %}
                 <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-[10px] text-indigo-700"
                       title="Responsable: {{ resp_nombre }}">
-                  <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-bold">{{ resp_initials|upper }}</span>
-                  <span class="font-medium truncate max-w-[7rem]">{{ resp_partes[0] if resp_partes else resp.username }}</span>
+                  <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-bold">{{ resp_initials }}</span>
+                  <span class="font-medium truncate max-w-[7rem]">{{ resp_display }}</span>
                   <button type="button"
                           hx-patch="/api/v1/estados/{{ estado.id }}"
-                          hx-vals='{"responsable_id": null}'
+                          hx-vals='{"responsable_id": ""}'
                           hx-target="#column-header-{{ estado.id }}"
                           hx-swap="outerHTML"
+                          hx-confirm="¿Quitar al responsable de esta columna?"
                           class="ml-0.5 text-indigo-400 hover:text-red-500"
                           title="Quitar responsable">×</button>
                 </span>
@@ -191,7 +194,7 @@
                         hx-get="/api/v1/estados/{{ estado.id }}/responsable-picker"
                         hx-target="#column-header-{{ estado.id }}"
                         hx-swap="outerHTML"
-                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 text-[10px] text-slate-500 hover:bg-slate-50"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 text-[10px] text-slate-500 hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-600"
                         title="Asignar responsable a esta columna">
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
