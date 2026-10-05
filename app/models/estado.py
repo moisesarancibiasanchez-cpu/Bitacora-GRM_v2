@@ -56,6 +56,29 @@ class Estado(Base, TimestampMixin):
         index=True,
     )
 
+    # ----------------------------------------------------------------------
+    #  FEATURE — Reporte diario de entregas
+    # ----------------------------------------------------------------------
+    # Si True, cuando un ticket ENTRA en este estado por primera vez se
+    # registra para el reporte diario de entregas (enviado por correo a
+    # una lista configurable de usuarios al final del día). Permite que
+    # el reporte NO incluya columnas tipo "En curso" o "En espera" y
+    # SOLO considere entregas finales (Entregado, Resuelto, Cerrado, etc).
+    #
+    # La transición concreta se registra UNA SOLA VEZ por ticket (constraint
+    # UNIQUE sobre historial_estados.id → reporte_entregas_diarias), por
+    # lo que si el ticket vuelve a entrar al mismo estado no se duplica.
+    es_entrega = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        doc=(
+            "Marca el estado como terminal de entrega. Cuando un ticket "
+            "transiciona a este estado, se registra para el reporte diario."
+        ),
+    )
+
     # Relaciones
     transiciones_salida = relationship(
         "TransicionEstado",

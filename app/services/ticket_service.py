@@ -321,6 +321,7 @@ class TicketService:
         # 6. Insertar historial (obligatorio). Se omite en no-op (mismo estado)
         #    para no ensuciar la traza cuando el usuario reordena dentro de
         #    la misma columna.
+        historial_creado = None
         if not mismo_estado:
             historial = HistorialEstado(
                 ticket_id=ticket.id,
@@ -345,10 +346,18 @@ class TicketService:
                 ip_origen=ip_origen,
                 commit=False,
             )
+            historial_creado = historial
 
         # 8. Commit transacción
         self.db.commit()
         self.db.refresh(ticket)
+        # Tras el commit el historial tiene ID asignado; refrescarlo si
+        # existe para que la tarea Celery lo vea con id persistente.
+        if historial_creado is not None:
+            try:
+                self.db.refresh(historial_creado)
+            except Exception:
+                pass
 
         # 8.1) Notificar al responsable de la columna destino (in-app + email)
         #      Se hace ANTES de las tareas Celery para que, si la columna
@@ -393,6 +402,26 @@ class TicketService:
         except Exception:
             # Si Redis no está disponible, no fallar el flujo principal
             task_id = None
+
+        # 9.1) FEATURE — Reporte diario de entregas.
+        #      Si el estado destino es terminal de entrega (es_entrega=True),
+        #      se encola una tarea idempotente que registra la transición
+        #      en ``reporte_entregas_diarias`` para el reporte diario del día.
+        #      Solo se dispara cuando realmente hubo cambio de estado (no
+        #      en no-op por reordenamiento). El historial_creado es la
+        #      clave de idempotencia (UNIQUE sobre historial_estado_id).
+        if not mismo_estado and getattr(estado_destino, "es_entrega", False) and historial_creado is not None:
+            try:
+                from app.tasks.entregas import registrar_entrega_diaria
+                r3 = registrar_entrega_diaria.delay(
+                    ticket.id, historial_creado.id
+                )
+                task_id = (task_id or "") + f";entrega={r3.id}"
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    "[ticket_service] No se pudo encolar registrar_entrega_diaria "
+                    "para ticket %s (no crítico): %s", ticket.id, exc,
+                )
 
         # 10. Ejecutar reglas Butler (no afecta la transición ya confirmada)
         try:

@@ -87,6 +87,19 @@ class Settings(BaseSettings):
     # Tamaño máximo permitido por archivo de backup en MB (protección anti-OOM).
     BACKUP_MAX_SIZE_MB: int = 2048
 
+    # === Reporte diario de entregas ===
+    # Hora (UTC) en la que Beat dispara la tarea ``generar_reporte_diario``.
+    # Por defecto 18:00 UTC (≈ 15:00 hora Chile continental en invierno,
+    # 14:00 en horario de verano). El admin puede cambiarlo desde la UI
+    # ``/admin/reporte-entregas`` o definiendo estas env vars en Railway.
+    REPORTE_ENTREGAS_HOUR: int = 18
+    REPORTE_ENTREGAS_MINUTE: int = 0
+    # Si False, la tarea programada registra entregas pero NO envía el
+    # correo (útil para auditorías o para detener temporalmente el
+    # envío mientras se ajusta la plantilla). El admin puede togglearlo
+    # desde la UI.
+    REPORTE_ENTREGAS_HABILITADO: bool = True
+
     def get_database_url(self) -> str:
         """Devuelve la URL de BD; si no se configuró, construye la de PostgreSQL."""
         if self.DATABASE_URL and self.DATABASE_URL != "sqlite:///./bitacora_grm.db":

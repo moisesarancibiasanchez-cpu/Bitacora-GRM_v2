@@ -55,6 +55,14 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
             "INTEGER REFERENCES usuarios(id) ON DELETE SET NULL",
             "INTEGER REFERENCES usuarios(id) ON DELETE SET NULL",
         ),
+        # FEATURE — Reporte diario de entregas.
+        # True marca el estado como terminal de entrega. Cuando un ticket
+        # entra en este estado por primera vez, se registra para el
+        # reporte diario enviado por correo al final del día.
+        "es_entrega": (
+            "BOOLEAN NOT NULL DEFAULT FALSE",
+            "BOOLEAN NOT NULL DEFAULT 0",
+        ),
     },
     "tickets": {
         # Trello: cada tarjeta pertenece a un tablero
@@ -106,6 +114,7 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
 INDEXES: List[Tuple[str, str]] = [
     ("ix_estados_tablero_id",  "CREATE INDEX IF NOT EXISTS ix_estados_tablero_id ON estados(tablero_id)"),
     ("ix_estados_archivado",   "CREATE INDEX IF NOT EXISTS ix_estados_archivado  ON estados(archivado)"),
+    ("ix_estados_es_entrega",  "CREATE INDEX IF NOT EXISTS ix_estados_es_entrega ON estados(es_entrega)"),
     ("ix_tickets_tablero_id",  "CREATE INDEX IF NOT EXISTS ix_tickets_tablero_id ON tickets(tablero_id)"),
     ("ix_tickets_archivado",   "CREATE INDEX IF NOT EXISTS ix_tickets_archivado  ON tickets(archivado)"),
     ("ix_tickets_posicion",    "CREATE INDEX IF NOT EXISTS ix_tickets_posicion   ON tickets(posicion)"),
@@ -739,6 +748,44 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     except Exception as e:
         logger.warning(
             "[migrations] data: error general insertando etapas del proyecto: %s", e,
+        )
+
+    # 4.6) Reporte diario de entregas: marcar como ``es_entrega=True``
+    #      los estados terminales reconocidos por convención. La
+    #      comparación es case-insensitive y diacritic-insensitive
+    #      (toleramos "ENTREGADO", "Entregado", "entregado", etc.).
+    #      El admin puede luego agregar más estados desde la UI de
+    #      configuración del reporte diario.
+    try:
+        if is_pg:
+            res = conn.execute(text(
+                "UPDATE estados SET es_entrega = TRUE "
+                "WHERE LOWER(TRANSLATE(TRIM(nombre), 'áéíóúÁÉÍÓÚ', 'aeiouAEIOU')) "
+                "IN ('entregado','entregada','resuelto','resuelta',"
+                "'cerrado','cerrada','completado','completada',"
+                "'finalizado','finalizada','produccion ok','deploy ok') "
+                "AND es_entrega = FALSE"
+            ))
+        else:
+            res = conn.execute(text(
+                "UPDATE estados SET es_entrega = 1 "
+                "WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(nombre),"
+                "'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u')) "
+                "IN ('entregado','entregada','resuelto','resuelta',"
+                "'cerrado','cerrada','completado','completada',"
+                "'finalizado','finalizada','produccion ok','deploy ok') "
+                "AND es_entrega = 0"
+            ))
+        n = res.rowcount if hasattr(res, "rowcount") else 0
+        if n:
+            logger.info(
+                "[migrations] data: %d estados marcados como es_entrega=True",
+                n,
+            )
+            total += n
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: no se pudieron marcar estados es_entrega: %s", e,
         )
 
     return total

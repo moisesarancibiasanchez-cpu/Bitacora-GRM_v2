@@ -23,6 +23,8 @@ def make_celery() -> Celery:
             "app.tasks.deadline_tasks",
             # === Sistema de Backups de Base de Datos ===
             "app.tasks.backup_tasks",
+            # === FEATURE — Reporte diario de entregas ===
+            "app.tasks.entregas",
         ],
     )
 
@@ -78,6 +80,18 @@ def make_celery() -> Celery:
                 minute=int(settings.BACKUP_DAILY_MINUTE),
             ),
             "kwargs": {"note": "scheduled"},
+        },
+        # === FEATURE — Reporte diario de entregas ===
+        # Diario a las 18:00 UTC (≈ 15:00 Chile continental en invierno,
+        # 14:00 en horario de verano) — hora configurable vía
+        # ``REPORTE_ENTREGAS_HOUR`` y ``REPORTE_ENTREGAS_MINUTE`` en
+        # ``app.core.config.settings``. Por defecto 18:00 UTC.
+        "reporte-entregas-diario": {
+            "task": "app.tasks.entregas.generar_reporte_diario",
+            "schedule": crontab(
+                hour=int(getattr(settings, "REPORTE_ENTREGAS_HOUR", 18)),
+                minute=int(getattr(settings, "REPORTE_ENTREGAS_MINUTE", 0)),
+            ),
         },
     }
 

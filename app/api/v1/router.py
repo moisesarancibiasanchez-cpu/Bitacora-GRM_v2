@@ -14,6 +14,8 @@ from app.api.v1 import etapas
 from app.api.v1 import referencias
 # === Sistema de Backups de Base de Datos ===
 from app.api.v1 import backups
+# === FEATURE 6 — Reporte diario de entregas (admin) ===
+from app.api.v1 import reporte_entregas
 
 
 api_router = APIRouter()
@@ -58,3 +60,5 @@ api_router.include_router(etapas.router)
 api_router.include_router(referencias.router)
 # === Sistema de Backups de Base de Datos ===
 api_router.include_router(backups.router)
+# === FEATURE 6 — Reporte diario de entregas (admin) ===
+api_router.include_router(reporte_entregas.router)

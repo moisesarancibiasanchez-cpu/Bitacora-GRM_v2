@@ -26,6 +26,12 @@ from app.models.etapa_proyecto import EtapaProyecto, TicketEtapa
 from app.models.ticket_referencia import (
     TicketReferencia, TipoReferencia, TIPO_INVERSO,
 )
+# === FEATURE 6: Reporte diario de entregas (admin) ===
+from app.models.reporte_entregas import (
+    ReportePlantilla,
+    ReporteDestinatario,
+    ReporteEntregaDiaria,
+)
 
 __all__ = [
     "Usuario", "RolUsuario",
@@ -49,4 +55,8 @@ __all__ = [
     "EtapaProyecto", "TicketEtapa",
     # FEATURE 5
     "TicketReferencia", "TipoReferencia", "TIPO_INVERSO",
+    # FEATURE 6
+    "ReportePlantilla",
+    "ReporteDestinatario",
+    "ReporteEntregaDiaria",
 ]

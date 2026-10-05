@@ -1454,10 +1454,10 @@
           : '<span class="text-slate-400 text-[11px]">— Sin asignar —</span>';
         const fv = _fmtFechaSla(t.fecha_vencimiento_sla);
         const sla = _slaBadge(t.sla_cumplido_label);
-        return '<tr class="hover:bg-slate-50 cursor-pointer"'
+        return '<tr class="hover:bg-slate-50 cursor-pointer js-ver-detalle"'
              + ' data-ticket-id="' + (t.id || '') + '"'
              + ' data-ticket-codigo="' + _escapeHtml(codigo) + '"'
-             + ' onclick="window.location.href=\'/tickets/' + (t.id || '') + '\'">'
+             + ' title="Abrir detalle de ' + _escapeHtml(codigo) + '">'
           + '<td class="px-3 py-2 font-mono text-indigo-700 font-semibold whitespace-nowrap">' + _escapeHtml(codigo) + '</td>'
           + '<td class="px-3 py-2 text-slate-700 max-w-[280px]"><div class="truncate" title="' + _escapeHtml(titulo) + '">' + _escapeHtml(titulo) + '</div></td>'
           + '<td class="px-3 py-2 whitespace-nowrap">' + estado + '</td>'
@@ -1478,6 +1478,74 @@
       throw err;
     }
   }
+
+  // === Click-to-detail: Lista de Incidencias Recientes ===
+  // Abre el modal de detalle (mismo target /api/v1/tickets/{id}/detalle-html)
+  // que usa el kanban. Se delega en document para soportar re-renders
+  // del tbody cuando se cambian los filtros.
+  document.addEventListener('click', async ev => {
+    const tr = ev.target.closest('tr.js-ver-detalle');
+    if (!tr) return;
+    ev.preventDefault();
+    const ticketId = tr.dataset.ticketId;
+    if (!ticketId) return;
+
+    const root = document.getElementById('modal-root');
+    if (!root) {
+      // Fallback si no hay modal-root en esta página: navegar al detalle
+      window.location.href = '/tickets/' + ticketId;
+      return;
+    }
+
+    // Loading state inmediato
+    root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30">'
+      + '<div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3">'
+      +   '<div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>'
+      +   '<span class="text-sm text-slate-600">Cargando detalle…</span>'
+      + '</div></div>';
+
+    const useHtmx = typeof htmx !== 'undefined' && htmx.ajax;
+    if (useHtmx) {
+      try {
+        htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, {
+          target: '#modal-root',
+          swap: 'innerHTML',
+         });
+        return;
+      } catch (err) {
+        console.warn('[dashboard] htmx.ajax falló, usando fetch:', err);
+      }
+    }
+
+    // Fallback: fetch directo
+    try {
+      const r = await fetch(`/api/v1/tickets/${ticketId}/detalle-html`, {
+        headers: { 'Accept': 'text/html' },
+        credentials: 'same-origin',
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      root.innerHTML = await r.text();
+      if (typeof htmx !== 'undefined') {
+        try { htmx.process(root); } catch (_) {}
+      }
+      if (typeof window.reinitModalExtras === 'function') {
+        try { window.reinitModalExtras(); } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[dashboard] Error al cargar detalle:', err);
+      root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">'
+        + '<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">'
+        +   '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">'
+        +     '<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+        +       '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>'
+        +     '</svg>'
+        +   '</div>'
+        +   '<h3 class="text-lg font-semibold text-slate-800 mb-2">Error al cargar el detalle</h3>'
+        +   '<p class="text-sm text-slate-600 mb-4">' + _escapeHtml(err.message || String(err)) + '</p>'
+        +   '<button onclick="document.getElementById(\'modal-root\').innerHTML=\'\'" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300">Cerrar</button>'
+        + '</div></div>';
+    }
+   });
 
   function exportarIncidenciasRecientes() {
     if (!_incidenciasRecientesCache) {

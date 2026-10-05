@@ -2154,6 +2154,68 @@ async def admin_deadline_ejecutar(request: Request):
         db.close()
 
 
+# ===========================================================================
+#  Reporte diario de entregas — Panel admin
+# ===========================================================================
+@app.get("/admin/reporte-entregas", response_class=HTMLResponse)
+async def admin_reporte_entregas_page(request: Request):
+    """Mantenedor del reporte diario de entregas.
+
+    Desde aquí el rol Administrador puede:
+
+      • Editar la plantilla (asunto, cuerpo HTML, cuerpo texto, firma).
+      • Gestionar destinatarios (crear, activar/desactivar, eliminar).
+      • Marcar qué estados cuentan como "entrega terminal".
+      • Previsualizar el reporte (sin enviar) y disparar la regeneración
+        manual del día o de una fecha específica.
+      • Ver el histórico de los últimos días y las últimas entregas
+        registradas.
+
+    Solo accesible para rol Administrador.
+    """
+    from app.db.session import SessionLocal
+    from app.services.reporte_entregas_service import (
+        obtener_plantilla,
+        listar_destinatarios,
+        listar_estados_es_entrega,
+    )
+
+    usuario, redirect = _require_session_or_redirect(request)
+    if redirect is not None:
+        return redirect
+
+    # Guard de rol: solo Administrador.
+    rol = (
+        usuario.rol.value
+        if hasattr(usuario.rol, "value")
+        else str(usuario.rol or "")
+    )
+    if (rol or "").lower() != "administrador":
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso restringido a Administradores",
+        )
+
+    db = SessionLocal()
+    try:
+        plantilla = obtener_plantilla(db)
+        destinatarios = listar_destinatarios(db)
+        estados = listar_estados_es_entrega(db)
+        return templates.TemplateResponse(
+            request,
+            "admin/reporte_entregas.html",
+            {
+                "usuario": usuario,
+                "plantilla": plantilla,
+                "destinatarios": destinatarios,
+                "estados": estados,
+            },
+        )
+    finally:
+        db.close()
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
     """Dashboard con KPIs y métricas del módulo de incidencias.
