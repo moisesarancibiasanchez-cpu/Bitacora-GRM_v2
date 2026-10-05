@@ -45,7 +45,7 @@
             {% if n.origen_usuario %}
             <span class="text-xs text-slate-500">de {{ n.origen_usuario }}</span>
             {% endif %}
-            <span class="text-[10px] text-slate-400 ml-auto">{{ n.created_at }}</span>
+            <span class="text-[10px] text-slate-400 ml-auto" title="{{ n.created_at | cl_iso }}">{{ n.created_at | cl }}</span>
           </div>
           <h4 class="text-sm font-medium text-slate-800">{{ n.titulo }}</h4>
           {% if n.mensaje %}

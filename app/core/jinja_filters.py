@@ -15,6 +15,7 @@ el campo "DESCRIPCION DETALLE" (que admite markdown).
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 # Caracteres ~70 para la vista de tarjeta Kanban. Es el largo aproximado
 # que cabe en dos líneas con el tamaño ``text-xs`` de Tailwind.
@@ -128,3 +129,68 @@ def truncate_text(value, max_chars: int = DEFAULT_MAX_CHARS, suffix: str = "…"
 ALL_FILTERS = {
     "truncate_text": truncate_text,
 }
+
+
+# =============================================================================
+# Filtro ``cl``: formatea fechas en hora de Chile (America/Santiago)
+# =============================================================================
+# - ``dt`` puede ser datetime, ``str`` ISO 8601 o ``None``.
+# - El ``fmt`` opcional sigue la sintaxis strftime (default ``%Y-%m-%d %H:%M``).
+# - Si la entrada es ``None`` o vacía, devuelve ``""``.
+# - Si el parseo falla, devuelve la cadena original.
+#
+# Ejemplos de uso en plantilla::
+#
+#     <time>{{ ticket.created_at | cl }}</time>
+#     <span>{{ ticket.created_at | cl('%d/%m/%Y') }}</span>
+#     <span title="{{ ticket.created_at | cl_iso }}">{{ ticket.created_at | cl }}</span>
+def cl(dt, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Filtro Jinja2 para formatear datetimes en hora de Chile."""
+    from app.core.timezone import to_cl
+
+    if dt is None or dt == "":
+        return ""
+    if isinstance(dt, str):
+        try:
+            # Acepta ISO 8601 con/sin offset (lo que viene de la BD es naive
+            # UTC). Para los naive asumimos UTC por convención del proyecto.
+            from datetime import datetime as _dt, timezone as _tz
+            parsed = _dt.fromisoformat(dt.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=_tz.utc)
+            dt = parsed
+        except Exception:
+            return dt
+    if not isinstance(dt, datetime):
+        try:
+            dt = datetime(dt)
+        except Exception:
+            return str(dt)
+    cl_dt = to_cl(dt)
+    if cl_dt is None:
+        return ""
+    return cl_dt.strftime(fmt)
+
+
+def cl_iso(dt) -> str:
+    """Filtro Jinja2 que devuelve ISO 8601 con offset de Chile."""
+    from app.core.timezone import fmt_cl_iso
+
+    if dt is None or dt == "":
+        return ""
+    if isinstance(dt, str):
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            parsed = _dt.fromisoformat(dt.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=_tz.utc)
+            dt = parsed
+        except Exception:
+            return dt
+    if not isinstance(dt, datetime):
+        return str(dt)
+    return fmt_cl_iso(dt) or ""
+
+
+ALL_FILTERS["cl"] = cl
+ALL_FILTERS["cl_iso"] = cl_iso

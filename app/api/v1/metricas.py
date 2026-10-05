@@ -13,6 +13,7 @@ from sqlalchemy import String, func, case, and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
+from app.core.timezone import now_utc, fmt_cl_iso, fmt_cl
 from app.db.session import get_db
 from app.models.ticket import Ticket, Prioridad, TipoIncidencia
 from app.models.estado import Estado
@@ -544,6 +545,8 @@ def dashboard_completo(
     return {
         "periodo_dias": dias,
         "timestamp": ahora.isoformat(),
+        "timestamp_cl": fmt_cl_iso(ahora),
+        "timezone": "America/Santiago",
         "totales": resumen["totales"],
         "incidencias": resumen["incidencias"],
         "nuevas_7d": resumen["nuevas_7d"],
@@ -1023,6 +1026,13 @@ def incidencias_recientes(
         # deja de tener efecto. Mantenemos el valor informativo para el
         # front pero la consulta usa el rango.
         fecha_limite = fecha_desde_dt or datetime.min
+    else:
+        # FIX(metricas): sin rango explícito caemos al comportamiento
+        # legacy (ventana de N días hacia atrás). Sin este else el
+        # filtro `Ticket.created_at >= fecha_limite` lanzaba
+        # UnboundLocalError y el dashboard quedaba colgado en
+        # "Cargando métricas...".
+        fecha_limite = ahora - timedelta(days=periodo_dias)
     fecha_hasta_limite = fecha_hasta_dt or ahora
 
     # === Filtro de tipo ===
@@ -1104,6 +1114,10 @@ def incidencias_recientes(
             "ambiente": t.ambiente,
             "fecha_vencimiento_sla": (
                 t.fecha_vencimiento_sla.isoformat()
+                if t.fecha_vencimiento_sla else None
+            ),
+            "fecha_vencimiento_sla_cl": (
+                fmt_cl_iso(t.fecha_vencimiento_sla)
                 if t.fecha_vencimiento_sla else None
             ),
             "sla_activo": sla_activo,
@@ -1248,8 +1262,12 @@ def incidencias_recientes(
         "limite": limite,
         "fecha_desde": fecha_desde_dt.isoformat() if fecha_desde_dt else None,
         "fecha_hasta": fecha_hasta_dt.isoformat() if fecha_hasta_dt else None,
+        "fecha_desde_cl": fmt_cl_iso(fecha_desde_dt) if fecha_desde_dt else None,
+        "fecha_hasta_cl": fmt_cl_iso(fecha_hasta_dt) if fecha_hasta_dt else None,
         "rango_explicito": rango_explicito,
         "generado_en": ahora.isoformat(),
+        "generado_en_cl": fmt_cl_iso(ahora),
+        "timezone": "America/Santiago",
         "tickets": tickets_out,
         "metricas": metricas,
     }
@@ -1407,8 +1425,11 @@ def detalle_kpi(
             "asignado":      (t.asignado.nombre_completo if t.asignado else None),
             "tipo":          t.tipo.value if hasattr(t.tipo, "value") else str(t.tipo),
             "fecha_creacion": t.created_at.isoformat() if t.created_at else None,
+            "fecha_creacion_cl": fmt_cl_iso(t.created_at) if t.created_at else None,
             "fecha_vencimiento_sla": t.fecha_vencimiento_sla.isoformat() if t.fecha_vencimiento_sla else None,
+            "fecha_vencimiento_sla_cl": fmt_cl_iso(t.fecha_vencimiento_sla) if t.fecha_vencimiento_sla else None,
             "fecha_completado":      t.fecha_completado.isoformat() if t.fecha_completado else None,
+            "fecha_completado_cl": fmt_cl_iso(t.fecha_completado) if t.fecha_completado else None,
             "sla_cumplido":   int(t.sla_cumplido) if t.sla_cumplido is not None else None,
         })
 

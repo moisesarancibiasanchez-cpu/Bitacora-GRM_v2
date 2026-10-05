@@ -89,8 +89,8 @@
                 </span>
               </td>
               <td class="px-3 py-2 text-xs">{{ f.asignado or '—' }}</td>
-              <td class="px-3 py-2 text-xs text-slate-500">{{ f.fecha_inicio or '—' }}</td>
-              <td class="px-3 py-2 text-xs text-slate-500">{{ f.fecha_vencimiento or '—' }}</td>
+              <td class="px-3 py-2 text-xs text-slate-500">{{ f.fecha_inicio | cl('%Y-%m-%d') or '—' }}</td>
+              <td class="px-3 py-2 text-xs text-slate-500">{{ f.fecha_vencimiento | cl('%Y-%m-%d') or '—' }}</td>
               <td class="px-3 py-2">
                 <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold
                   {% if f.sla == 'vencido' %}bg-red-100 text-red-700

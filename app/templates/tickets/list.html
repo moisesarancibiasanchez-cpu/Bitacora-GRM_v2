@@ -120,7 +120,7 @@
               <td class="px-4 py-3 text-xs text-slate-600">{{ t.asignado.nombre_completo if t.asignado else '—' }}</td>
               <td class="px-4 py-3 text-xs text-slate-600">
                 {% if t.fecha_vencimiento_sla %}
-                  {{ t.fecha_vencimiento_sla.strftime('%Y-%m-%d') }}
+                  <span title="{{ t.fecha_vencimiento_sla | cl_iso }}">{{ t.fecha_vencimiento_sla | cl('%Y-%m-%d') }}</span>
                 {% else %}
                   <span class="text-slate-400">—</span>
                 {% endif %}

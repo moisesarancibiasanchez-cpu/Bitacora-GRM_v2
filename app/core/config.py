@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     # === CORS ===
     CORS_ORIGINS: List[str] = ["*"]
 
+    # === Zona horaria operativa ===
+    # Zona horaria usada para mostrar fechas al usuario. La BD siempre
+    # almacena en UTC (naive, por compatibilidad con SQLite/PG); los
+    # timestamps que se renderizan en HTML o se devuelven al frontend
+    # se convierten a esta zona. Por defecto Chile continental, que
+    # alterna entre UTC-3 (invierno) y UTC-4 (verano) y resuelve
+    # automáticamente el cambio con ``zoneinfo``.
+    APP_TIMEZONE: str = "America/Santiago"
+
     # === SMTP (envío de correos) ===
     # Si SMTP_HOST y SMTP_FROM están definidos, los correos se envían
     # vía SMTP real. Si no, se persisten en tmp/app.email.log (modo dev).

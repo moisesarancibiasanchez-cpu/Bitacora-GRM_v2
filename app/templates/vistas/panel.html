@@ -75,9 +75,9 @@
                   </span>
                   <!-- Fecha de vencimiento -->
                   {% if t.fecha_vencimiento %}
-                  <span class="inline-flex items-center gap-1 text-[11px] {% if t.estado_sla == 'vencido' %}text-red-600 font-semibold{% elif t.estado_sla == 'cumplido' %}text-emerald-600{% else %}text-slate-500{% endif %}" title="Vence el {{ t.fecha_vencimiento }}">
+                  <span class="inline-flex items-center gap-1 text-[11px] {% if t.estado_sla == 'vencido' %}text-red-600 font-semibold{% elif t.estado_sla == 'cumplido' %}text-emerald-600{% else %}text-slate-500{% endif %}" title="Vence el {{ t.fecha_vencimiento | cl_iso }}">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                    {{ t.fecha_vencimiento }}
+                    {{ t.fecha_vencimiento | cl('%Y-%m-%d') }}
                   </span>
                   {% endif %}
                 </div>

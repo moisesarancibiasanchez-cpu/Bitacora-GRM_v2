@@ -521,6 +521,47 @@
     if (el) el.textContent = val;
   }
 
+  // ============== TIMEZONE HELPERS (America/Santiago) ==============
+  // FIX-TZ(dashboard): los timestamps del backend llegan en UTC. Para
+  // mostrar al operador siempre la hora de Chile (que cambia entre
+  // UTC-3 invierno y UTC-4 verano), se usa Intl.DateTimeFormat con
+  // timeZone:'America/Santiago'. Esto independiza la UI de la zona
+  // horaria del navegador y del servidor.
+  const _CL_TZ = 'America/Santiago';
+  const _CL_FMT_TIME = new Intl.DateTimeFormat('es-CL', {
+    timeZone: _CL_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+  const _CL_FMT_DATE = new Intl.DateTimeFormat('es-CL', {
+    timeZone: _CL_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const _CL_FMT_DATETIME = new Intl.DateTimeFormat('es-CL', {
+    timeZone: _CL_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+
+  function _clFmtTime(iso) {
+    try {
+      const d = (iso instanceof Date) ? iso : new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return _CL_FMT_TIME.format(d);
+    } catch (e) { return ''; }
+  }
+  function _clFmtDate(iso) {
+    try {
+      const d = (iso instanceof Date) ? iso : new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return _CL_FMT_DATE.format(d);
+    } catch (e) { return ''; }
+  }
+  function _clFmtDateTime(iso) {
+    try {
+      const d = (iso instanceof Date) ? iso : new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return _CL_FMT_DATETIME.format(d);
+    } catch (e) { return ''; }
+  }
+
   // ============== SPARKLINE ==============
   function drawSpark(svgId, data, color) {
     const svg = safeId(svgId);
@@ -583,8 +624,17 @@
       render(data);
       loading.classList.add('hidden');
       content.classList.remove('hidden');
-      const ahora = new Date();
-      setText('last-update', ahora.toLocaleTimeString('es-CL'));
+      // FIX-TZ(dashboard): preferir SIEMPRE la marca de tiempo que viene
+      // del backend en hora de Chile (data.timestamp_cl). Si no viene
+      // (compatibilidad con respuestas viejas), usar la hora del
+      // navegador *forzada* a America/Santiago para evitar el drift
+      // típico cuando el servidor está en UTC+8 y el cliente en Chile.
+      const tsCl = (data && (data.timestamp_cl || data.generado_en_cl)) || null;
+      if (tsCl) {
+        setText('last-update', _clFmtTime(tsCl));
+      } else {
+        setText('last-update', _clFmtTime(new Date().toISOString()));
+      }
       // Cargar tabla pivote "Cuenta de Resultado" en paralelo. La falla
       // de este fetch NO debe afectar la carga del resto del dashboard.
       cargarCuentaResultado().catch(err => {
@@ -939,12 +989,12 @@
     try {
       const d = new Date(s);
       if (isNaN(d.getTime())) return s;
-      const yyyy = d.getUTCFullYear();
-      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(d.getUTCDate()).padStart(2, '0');
-      const hh = String(d.getUTCHours()).padStart(2, '0');
-      const mi = String(d.getUTCMinutes()).padStart(2, '0');
-      return yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + mi;
+      // FIX-TZ(dashboard): antes se usaban getUTCFullYear/getUTCHours
+      // (mostraba la hora UTC) y el render quedaba 3-11 horas
+      // corrido respecto a la hora local del operador. Ahora se fuerza
+      // explícitamente la zona America/Santiago (Chile continental)
+      // usando Intl.DateTimeFormat, que sí respeta DST.
+      return _clFmtDateTime(s);
     } catch (e) {
       return s;
     }
@@ -1379,9 +1429,17 @@
   function _fmtFechaSla(iso) {
     if (!iso) return '—';
     try {
+      // FIX-TZ(dashboard): antes dependía de la TZ del navegador
+      // (toLocaleString sin timeZone), lo que provocaba desfaces
+      // cuando el operador veía la app desde otra zona. Ahora se
+      // fuerza America/Santiago y se prefiere el sufijo ``_cl`` que
+      // viene del backend (que ya está en offset CLT/CLST).
+      if (typeof iso === 'string') {
+        return _clFmtDate(iso);
+      }
       const d = new Date(iso);
       if (isNaN(d.getTime())) return '—';
-      return d.toLocaleString('es-CL', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      return _clFmtDate(d.toISOString());
     } catch (e) { return '—'; }
   }
   function _prBadge(prio) {
