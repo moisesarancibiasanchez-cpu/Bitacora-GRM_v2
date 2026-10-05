@@ -256,14 +256,23 @@
              Código | Título | Estado | Prioridad | Asignado | Fecha Vencimiento | SLA Activo
            Encima de la tabla se renderiza una franja de métricas asociadas
            (totales, vencidas, % SLA, % sin asignar, TTR, etc.) que le da
-           contexto al usuario sin saturar el listado. -->
+           contexto al usuario sin saturar el listado.
+
+           Filtros disponibles:
+             * Selector de tipo (incidencia / resultado de pruebas / todos).
+             * Selector rápido de bloque (hoy / 7d / 30d / 90d / personalizado).
+             * Selector explícito de rango de fechas (fecha_desde / fecha_hasta)
+               que toma precedencia sobre el bloque. Las fechas se comparan
+               contra ``Ticket.created_at`` (fecha de apertura de la
+               incidencia), con fallback informativo a ``Ticket.fecha_inicio``
+               cuando está presente. -->
       <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div class="flex items-center gap-2">
             <h3 class="text-sm font-semibold text-slate-700">Lista de Incidencias Recientes</h3>
             <span class="text-[10px] uppercase tracking-wide text-slate-400" id="incidencias-recientes-periodo">—</span>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <select id="incidencias-recientes-tipo"
                     onchange="cargarIncidenciasRecientes()"
                     class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
@@ -271,6 +280,39 @@
               <option value="resultado_pruebas">Resultados de pruebas</option>
               <option value="todos">Todos los tipos</option>
             </select>
+
+            <!-- Bloques rápidos -->
+            <select id="incidencias-recientes-bloque"
+                    onchange="aplicarBloqueFechas()"
+                    title="Bloque rápido de fechas"
+                    class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+              <option value="hoy">Hoy</option>
+              <option value="7" selected>Últimos 7 días</option>
+              <option value="30">Últimos 30 días</option>
+              <option value="90">Últimos 90 días</option>
+              <option value="personalizado">Personalizado…</option>
+            </select>
+
+            <!-- Rango explícito (precedencia sobre el bloque) -->
+            <input id="incidencias-recientes-desde"
+                   type="date"
+                   onchange="aplicarBloqueFechas()"
+                   title="Fecha desde (apertura de la incidencia)"
+                   class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+            <span class="text-[10px] text-slate-400">→</span>
+            <input id="incidencias-recientes-hasta"
+                   type="date"
+                   onchange="aplicarBloqueFechas()"
+                   title="Fecha hasta (apertura de la incidencia)"
+                   class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+
+            <button id="incidencias-recientes-limpiar"
+                    onclick="limpiarFiltroFechas()"
+                    title="Limpiar filtro de fechas"
+                    class="px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+              Limpiar
+            </button>
+
             <button id="incidencias-recientes-export"
                     onclick="exportarIncidenciasRecientes()"
                     class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
@@ -1394,6 +1436,16 @@
     const tipo    = (tipoSel && tipoSel.value) ? tipoSel.value : 'incidencia';
     const periodo = (safeId('periodo') || { value: '30' }).value;
 
+    // === Filtro de rango de fechas ===
+    // El bloque rápido (hoy / 7d / 30d / 90d) solo se aplica si NO hay
+    // un rango explícito definido en los inputs desde/hasta. Si el
+    // usuario escoge uno o ambos, toman precedencia.
+    const bloque  = safeId('incidencias-recientes-bloque');
+    const desde   = safeId('incidencias-recientes-desde');
+    const hasta   = safeId('incidencias-recientes-hasta');
+    const fd = (desde && desde.value) || '';
+    const fh = (hasta && hasta.value) || '';
+
     // Mostrar loading sin perder la tabla (sólo overlay visual)
     if (loading) loading.classList.remove('hidden');
     table.classList.add('opacity-50');
@@ -1403,12 +1455,19 @@
       // proxy intermedio no devuelva una respuesta cacheada cuando
       // se recarga manualmente o por auto-refresh cada 60s.
       const cacheBust = '_=' + Date.now();
+      const params = [
+          'periodo_dias=' + encodeURIComponent(periodo),
+          'tipo=' + encodeURIComponent(tipo),
+          'limite=50',
+          cacheBust,
+        ];
+      // Si el usuario ha definido un rango explícito, lo enviamos al
+      // backend para que filtre por Ticket.created_at (con fallback
+      // informativo a Ticket.fecha_inicio si está presente).
+      if (fd) params.push('fecha_desde=' + encodeURIComponent(fd));
+      if (fh) params.push('fecha_hasta=' + encodeURIComponent(fh));
       const r = await fetch(
-        '/api/v1/metricas/incidencias-recientes'
-        + '?periodo_dias=' + encodeURIComponent(periodo)
-        + '&tipo=' + encodeURIComponent(tipo)
-        + '&limite=50'
-        + '&' + cacheBust,
+        '/api/v1/metricas/incidencias-recientes?' + params.join('&'),
         {
           headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
           cache: 'no-store',
@@ -1428,7 +1487,19 @@
         else if (k === 'promedio_edad_horas') el.textContent = _fmtHrs(m[k]);
         else el.textContent = _fmtNum(m[k]);
       });
-      if (badge) badge.textContent = (data.periodo_dias || periodo) + 'd · ' + (data.tickets || []).length + ' tickets';
+      // Badge: priorizar rango explícito si lo hay.
+      if (badge) {
+        let label;
+        if (data.rango_explicito && (data.fecha_desde || data.fecha_hasta)) {
+          const a = data.fecha_desde ? data.fecha_desde.slice(0, 10) : '…';
+          const b = data.fecha_hasta ? data.fecha_hasta.slice(0, 10) : '…';
+          label = a + ' → ' + b;
+        } else {
+          label = (data.periodo_dias || periodo) + 'd';
+        }
+        badge.textContent =
+          label + ' · ' + (data.tickets || []).length + ' tickets';
+      }
 
       // === Pintar tabla ===
       const tickets = data.tickets || [];
@@ -1546,6 +1617,44 @@
         + '</div></div>';
     }
    });
+
+  // === Filtro de fechas: bloque rápido ===
+  // Cuando el usuario elige un bloque (hoy / 7d / 30d / 90d) se
+  // pre-rellenan los inputs desde/hasta con ese rango. El usuario
+  // puede luego ajustar manualmente los inputs y entonces el bloque
+  // vuelve a "personalizado".
+  function aplicarBloqueFechas() {
+    const bloque = safeId('incidencias-recientes-bloque');
+    const desde  = safeId('incidencias-recientes-desde');
+    const hasta  = safeId('incidencias-recientes-hasta');
+    if (!bloque) return;
+
+    const val = bloque.value;
+    if (!val || val === 'personalizado') {
+      cargarIncidenciasRecientes();
+      return;
+    }
+
+    const hoy = new Date();
+    let dias = parseInt(val, 10);
+    if (isNaN(dias)) dias = 7;
+
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    if (desde) desde.value = fmt(new Date(hoy.getTime() - dias * 86400 * 1000));
+    if (hasta) hasta.value = fmt(hoy);
+
+    cargarIncidenciasRecientes();
+  }
+
+  function limpiarFiltroFechas() {
+    const desde = safeId('incidencias-recientes-desde');
+    const hasta = safeId('incidencias-recientes-hasta');
+    const bloque = safeId('incidencias-recientes-bloque');
+    if (desde) desde.value = '';
+    if (hasta) hasta.value = '';
+    if (bloque) bloque.value = '7';
+    cargarIncidenciasRecientes();
+  }
 
   function exportarIncidenciasRecientes() {
     if (!_incidenciasRecientesCache) {

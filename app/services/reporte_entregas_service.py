@@ -28,10 +28,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import Integer
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -346,14 +346,16 @@ def listar_ultimas_entregas(db: Session, *, limit: int = 100):
 def listar_entregas_por_dia(db: Session, *, fecha_iso: str):
     """Devuelve todas las entregas de un día (formato YYYY-MM-DD)."""
     from app.models.reporte_entregas import ReporteEntregaDiaria
+    from sqlalchemy import func
 
     try:
         fecha = date.fromisoformat(fecha_iso)
     except ValueError:
         raise ValueError(f"fecha inválida: {fecha_iso}")
+    # Compatible PG/SQLite: ``func.date(col)`` funciona en ambos.
     return (
         db.query(ReporteEntregaDiaria)
-        .filter(text("fecha_entrega::date = :f").bindparams(f=fecha))
+        .filter(func.date(ReporteEntregaDiaria.fecha_entrega) == fecha)
         .order_by(ReporteEntregaDiaria.fecha_entrega.asc())
         .all()
     )
@@ -364,17 +366,25 @@ def resumen_entregas_por_dia(db: Session, *, dias: int = 7):
     Para los últimos N días calendario (incluyendo hoy).
     """
     from app.models.reporte_entregas import ReporteEntregaDiaria
+    from sqlalchemy import func
 
+    dia_col = func.date(ReporteEntregaDiaria.fecha_entrega).label("dia")
     rows = (
         db.query(
-            text("fecha_entrega::date AS dia"),
-            text("COUNT(*) AS total"),
-            text("SUM(CASE WHEN reporte_enviado_en IS NOT NULL THEN 1 ELSE 0 END) AS enviadas"),
+            dia_col,
+            func.count(ReporteEntregaDiaria.id).label("total"),
+            func.sum(
+                func.cast(
+                    ReporteEntregaDiaria.reporte_enviado_en.isnot(None),
+                    Integer,
+                )
+            ).label("enviadas"),
         )
         .select_from(ReporteEntregaDiaria)
-        .filter(text("fecha_entrega::date >= (CURRENT_DATE - :dias)").bindparams(dias=dias))
-        .group_by(text("fecha_entrega::date"))
-        .order_by(text("fecha_entrega::date DESC"))
+        .filter(ReporteEntregaDiaria.fecha_entrega
+                >= func.current_date() - timedelta(days=dias))
+        .group_by(dia_col)
+        .order_by(dia_col.desc())
         .all()
     )
     resumen = []

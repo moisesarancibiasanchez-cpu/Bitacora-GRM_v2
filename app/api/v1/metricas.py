@@ -971,6 +971,8 @@ def incidencias_recientes(
     periodo_dias: int = 30,
     tipo: str = "incidencia",
     limite: int = 50,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
@@ -979,11 +981,49 @@ def incidencias_recientes(
     Pensado para alimentar la card 'Lista de Incidencias Recientes' del
     dashboard. Devuelve tickets + métricas asociadas (totales, vencidas,
     % SLA, % sin asignar, TTR, etc.).
+
+    Filtros temporales:
+      * ``periodo_dias``: ventana hacia atrás desde ahora (default 30).
+      * ``fecha_desde`` / ``fecha_hasta``: rango explícito ISO (YYYY-MM-DD).
+        Si se envía cualquiera de los dos, **tienen precedencia** sobre
+        ``periodo_dias``. ``fecha_hasta`` es inclusivo (se compara contra
+        el final del día en UTC).
+      * El filtro temporal se aplica sobre ``Ticket.created_at`` (fecha
+        de apertura/creación de la incidencia), que es el uso más
+        habitual del dashboard. Si la fecha de inicio ``Ticket.fecha_inicio``
+        está presente se prefiere para mostrar el "inicio real" del trabajo.
     """
     periodo_dias = max(1, min(periodo_dias, 365))
     limite = max(1, min(limite, 200))
     ahora = datetime.utcnow()
-    fecha_limite = ahora - timedelta(days=periodo_dias)
+
+    # === Rango explícito tiene precedencia ===
+    rango_explicito = False
+    fecha_desde_dt = None
+    fecha_hasta_dt = None
+    if fecha_desde:
+        try:
+            fecha_desde_dt = datetime.fromisoformat(fecha_desde)
+            rango_explicito = True
+        except ValueError:
+            fecha_desde_dt = None
+    if fecha_hasta:
+        try:
+            # inclusivo: hasta el final del día 23:59:59
+            fecha_hasta_dt = datetime.fromisoformat(fecha_hasta)
+            fecha_hasta_dt = fecha_hasta_dt.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+            rango_explicito = True
+        except ValueError:
+            fecha_hasta_dt = None
+
+    if rango_explicito:
+        # Cuando el usuario define un rango explícito, el "periodo_dias"
+        # deja de tener efecto. Mantenemos el valor informativo para el
+        # front pero la consulta usa el rango.
+        fecha_limite = fecha_desde_dt or datetime.min
+    fecha_hasta_limite = fecha_hasta_dt or ahora
 
     # === Filtro de tipo ===
     # FIX(metricas): el Enum Python (TipoIncidencia.INCIDENCIA.value = 'incidencia')
@@ -1017,6 +1057,7 @@ def incidencias_recientes(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
         )
         .order_by(Ticket.created_at.desc())
         .limit(limite)
@@ -1081,6 +1122,7 @@ def incidencias_recientes(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
         )
     )
     total_periodo = base.count()
@@ -1128,6 +1170,7 @@ def incidencias_recientes(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
             Ticket.fecha_completado.is_(None),
         )
         .scalar()
@@ -1144,6 +1187,7 @@ def incidencias_recientes(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
             Ticket.fecha_completado.isnot(None),
         )
         .scalar()
@@ -1162,6 +1206,7 @@ def incidencias_recientes(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
             Ticket.fecha_completado.isnot(None),
         ).scalar() or 0
     )
@@ -1171,6 +1216,7 @@ def incidencias_recientes(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
             Ticket.fecha_completado.isnot(None),
             Ticket.sla_cumplido == 1,
         ).scalar() or 0
@@ -1200,6 +1246,9 @@ def incidencias_recientes(
         "periodo_dias": periodo_dias,
         "tipo": tipo,
         "limite": limite,
+        "fecha_desde": fecha_desde_dt.isoformat() if fecha_desde_dt else None,
+        "fecha_hasta": fecha_hasta_dt.isoformat() if fecha_hasta_dt else None,
+        "rango_explicito": rango_explicito,
         "generado_en": ahora.isoformat(),
         "tickets": tickets_out,
         "metricas": metricas,
