@@ -648,7 +648,18 @@
       });
     } catch (e) {
       console.error('Error cargando métricas:', e);
-      loading.innerHTML = '<div class="text-red-600 text-sm">Error cargando métricas: ' + (e.message || e) + '</div>';
+      // FIX(dashboard): antes, en caso de error, sólo se reemplazaba el
+      // innerHTML del overlay "loading" con texto de error, sin jamás ocultar
+      // el overlay ni mostrarlo. Resultado: la UI quedaba congelada en
+      // "Cargando métricas..." (o el mensaje de error, indistinguible) y
+      // el usuario nunca veía el resto del dashboard. Ahora ocultamos el
+      // overlay, mostramos el content y dejamos un banner de error visible.
+      loading.classList.add('hidden');
+      content.classList.remove('hidden');
+      const banner = document.createElement('div');
+      banner.className = 'bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded mb-3';
+      banner.textContent = 'Error cargando métricas: ' + (e.message || e);
+      content.insertBefore(banner, content.firstChild);
     }
   }
 
