@@ -1886,6 +1886,28 @@
       }
     });
   }
+
+  // === EXPOSICIÓN A window ===
+  // FIX-FILTRO-DATERALES(dashboard): el script completo está envuelto en un
+  // IIFE (`(function () { ... })();`), por lo que las funciones declaradas
+  // con `function nombre()` viven en el closure interno y NO son visibles
+  // desde `window`. El HTML de la sección "Lista de Incidencias Recientes"
+  // usa atributos `onchange="aplicarBloqueFechas()"`, `onclick="..."`, etc.
+  // Esos atributos se evalúan en el contexto global (window), por lo que
+  // si la función no está expuesta, el navegador lanza un ReferenceError
+  // SILENCIOSO: el evento se "dispara" pero no hace nada. Antes esto
+  // provocaba que el dropdown de bloque rápido y los inputs de rango no
+  // refrescaran la tabla — el usuario veía siempre "30d · 18 tickets"
+  // aunque cambiara el bloque o tipeara fechas distintas.
+  //
+  // Expongo solo las funciones que el HTML invoca desde atributos, no
+  // toda la API interna (mantener superficie mínima).
+  window.aplicarBloqueFechas       = aplicarBloqueFechas;
+  window.limpiarFiltroFechas       = limpiarFiltroFechas;
+  window.cargarIncidenciasRecientes = cargarIncidenciasRecientes;
+  window.exportarIncidenciasRecientes = exportarIncidenciasRecientes;
+  window.exportarCuentaResultado  = exportarCuentaResultado;
+  window.cerrarModalKpiDetalle    = cerrarModalKpiDetalle;
 })();
 </script>
 {% endblock %}
