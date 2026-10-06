@@ -1706,7 +1706,7 @@
         htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, {
           target: '#modal-root',
           swap: 'innerHTML',
-         });
+        });
         return;
       } catch (err) {
         console.warn('[dashboard] htmx.ajax falló, usando fetch:', err);
@@ -1741,7 +1741,7 @@
         +   '<button onclick="document.getElementById(\'modal-root\').innerHTML=\'\'" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300">Cerrar</button>'
         + '</div></div>';
     }
-   });
+  });
 
   // === Filtro de fechas: bloque rápido ===
   // Cuando el usuario elige un bloque (hoy / 7d / 30d / 90d) se
