@@ -597,13 +597,43 @@
   }
 
   // ============== CARGAR MÉTRICAS ==============
+  // FIX-FINALLY(dashboard): spinner y content se controlan ahora en `finally`
+  // para garantizar que la UI NUNCA quede en "Cargando métricas..." aunque
+  // una excepción asincrónica escape de render() o de un .catch() interno.
+  // Además, se monta un watchdog de 8s que fuerza el desbloqueo si la red o
+  // el backend quedan colgados sin responder.
+  let _loadingWatchdog = null;
+  let _renderError = null;
+
   async function cargarMetricas() {
     const periodo = (safeId('periodo') || { value: '30' }).value;
     const loading = safeId('dashboard-loading');
     const content = safeId('dashboard-content');
-    loading.classList.remove('hidden');
-    content.classList.add('hidden');
+    _renderError = null;
+    if (loading) loading.classList.remove('hidden');
+    if (content) content.classList.add('hidden');
+
+    // Watchdog: si en 8s la promesa overall no terminó, forzar desbloqueo
+    // de la UI para que el operador vea un mensaje accionable en vez del
+    // spinner indefinido. Es belt-and-suspenders contra cuelgues de red
+    // silenciosos (Railway proxy, sleep, etc.).
+    if (_loadingWatchdog) clearTimeout(_loadingWatchdog);
+    _loadingWatchdog = setTimeout(() => {
+      if (loading && !loading.classList.contains('hidden')) {
+        console.warn('[dashboard] watchdog 8s agotado, forzando desbloqueo UI');
+        loading.classList.add('hidden');
+        if (content) {
+          content.classList.remove('hidden');
+          const banner = document.createElement('div');
+          banner.className = 'bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded mb-3';
+          banner.textContent = 'La carga de métricas tardó demasiado (>8s). El backend puede estar lento o no responder. Reintenta con el botón Actualizar.';
+          content.insertBefore(banner, content.firstChild);
+        }
+      }
+    }, 8000);
+
     try {
+      console.log('[dashboard] cargarMetricas: periodo=' + periodo);
       // Endpoint extendido (Sprint 2)
       // FIX-AUTH(dashboard): 'credentials: same-origin' es OBLIGATORIO porque
       // los endpoints usan Depends(get_current_user), que lee la cookie de
@@ -628,9 +658,16 @@
         // Adaptar al shape esperado por el dashboard nuevo
         data = adaptResumen(data);
       }
-      render(data);
-      loading.classList.add('hidden');
-      content.classList.remove('hidden');
+      console.log('[dashboard] data OK, keys=' + Object.keys(data || {}).join(','));
+      // FIX-FINALLY(dashboard): envolver render() en su propio try/catch
+      // para que cualquier excepción DOM (p.ej. safeId() que devuelve null
+      // y dispara un TypeError) NO impida que el finally oculte el spinner.
+      try {
+        render(data);
+      } catch (renderErr) {
+        console.error('[dashboard] Error en render():', renderErr);
+        _renderError = renderErr;
+      }
       // FIX-TZ(dashboard): preferir SIEMPRE la marca de tiempo que viene
       // del backend en hora de Chile (data.timestamp_cl). Si no viene
       // (compatibilidad con respuestas viejas), usar la hora del
@@ -655,18 +692,28 @@
       });
     } catch (e) {
       console.error('Error cargando métricas:', e);
-      // FIX(dashboard): antes, en caso de error, sólo se reemplazaba el
-      // innerHTML del overlay "loading" con texto de error, sin jamás ocultar
-      // el overlay ni mostrarlo. Resultado: la UI quedaba congelada en
-      // "Cargando métricas..." (o el mensaje de error, indistinguible) y
-      // el usuario nunca veía el resto del dashboard. Ahora ocultamos el
-      // overlay, mostramos el content y dejamos un banner de error visible.
-      loading.classList.add('hidden');
-      content.classList.remove('hidden');
-      const banner = document.createElement('div');
-      banner.className = 'bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded mb-3';
-      banner.textContent = 'Error cargando métricas: ' + (e.message || e);
-      content.insertBefore(banner, content.firstChild);
+      _renderError = e;
+    } finally {
+      // FIX-FINALLY(dashboard): el spinner SE OCULTA SIEMPRE aquí, sin
+      // importar si hubo error, si render() lanzó una excepción DOM o
+      // si todo salió bien. Es la única línea que toca la visibilidad
+      // de loading/content durante el happy path.
+      if (_loadingWatchdog) { clearTimeout(_loadingWatchdog); _loadingWatchdog = null; }
+      if (loading) loading.classList.add('hidden');
+      if (content) content.classList.remove('hidden');
+      // Banner de error si algo falló (incluido render() DOM).
+      if (_renderError && content) {
+        // No duplicar banner si ya existe uno del watchdog.
+        const existing = content.querySelector('[data-dashboard-error-banner]');
+        if (!existing) {
+          const banner = document.createElement('div');
+          banner.setAttribute('data-dashboard-error-banner', '1');
+          banner.className = 'bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded mb-3';
+          banner.textContent = 'Error cargando métricas: ' + (_renderError.message || _renderError);
+          content.insertBefore(banner, content.firstChild);
+        }
+      }
+      console.log('[dashboard] cargarMetricas: finally ejecutado, spinner oculto');
     }
   }
 
