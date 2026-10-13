@@ -379,8 +379,17 @@ async def eliminar_checklist(
             )
         raise HTTPException(status_code=404, detail="Checklist no encontrada")
     ticket_id = cl.ticket_id
+    cl_meta = {"checklist_id": checklist_id, "titulo": cl.titulo}
     ChecklistService(db).eliminar(checklist_id)
-    registrar_auditoria(db, ticket_id, user.id, "checklist_eliminada", valor_anterior={"checklist_id": checklist_id})
+    # FIX-TRAZABILIDAD-CHECKLIST: mismo bug que adjunto_eliminado. El commit
+    # explícito garantiza que el INSERT de auditoría no se pierda al
+    # cerrar la sesión.
+    registrar_auditoria(
+        db, ticket_id, user.id, "checklist_eliminada",
+        valor_anterior=cl_meta,
+        comentario=f"Checklist eliminado: {cl.titulo}",
+    )
+    db.commit()
     if is_htmx:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -933,8 +942,33 @@ async def eliminar_adjunto(
             )
         raise HTTPException(status_code=403, detail="No autorizado para eliminar")
     ticket_id = adj.ticket_id
+    # Capturar metadatos ANTES de eliminar: el ORM marca el objeto como
+    # eliminado al hacer db.delete(), pero los atributos siguen accesibles
+    # hasta el commit. Los preservamos para enriquecer la auditoría con
+    # información útil para la trazabilidad (nombre, tamaño, mime, autor).
+    adj_meta = {
+        "adjunto_id":      adjunto_id,
+        "nombre_original": adj.nombre_original,
+        "nombre_storage":  adj.nombre_storage,
+        "tamano_bytes":     adj.tamano_bytes,
+        "mime_type":        adj.mime_type,
+        "subido_por_id":    adj.usuario_id,
+    }
     AdjuntoService(db).eliminar(adjunto_id)
-    registrar_auditoria(db, ticket_id, user.id, "adjunto_eliminado", valor_anterior={"adjunto_id": adjunto_id})
+    # FIX-TRAZABILIDAD-ADJUNTO (bug del usuario):
+    #   ``AdjuntoService.eliminar()`` hace ``self.db.commit()`` internamente
+    #   para persistir el DELETE, pero ``registrar_auditoria()`` solo hace
+    #   ``db.flush()``. Sin un ``db.commit()`` posterior, el INSERT de la
+    #   auditoría quedaba en la sesión y se DESCARTABA al cerrar ``get_db()``
+    #   (que solo hace ``db.close()`` sin commit).
+    #   Síntoma reportado: el adjunto SÍ se borraba del disco y de la BD,
+    #   pero el evento NO aparecía en la pestaña Trazabilidad.
+    registrar_auditoria(
+        db, ticket_id, user.id, "adjunto_eliminado",
+        valor_anterior=adj_meta,
+        comentario=f"Archivo eliminado: {adj_meta['nombre_original']}",
+    )
+    db.commit()  # CRÍTICO: persiste la auditoría antes de cerrar la sesión
     if is_htmx:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if ticket:
