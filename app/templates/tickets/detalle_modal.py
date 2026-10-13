@@ -683,6 +683,17 @@ DETALLE_TEMPLATE = Template(r"""
               {% set es_imagen = a.es_imagen if a.es_imagen is defined else (_mime.startswith('image/') or _ext in ['png','jpg','jpeg','gif','webp','bmp','svg','avif']) %}
               {# Disponible: propiedad del modelo OR fallback por existencia de ruta. #}
               {% set _disponible = (a.disponible if a.disponible is defined else None) %}
+              {# -----------------------------------------------------------------
+                 FIX-ELIMINAR-ADJUNTOS: permiso para eliminar un adjunto.
+                 Backend ya valida en /api/v1/adjuntos/{id} (DELETE) que solo
+                 el Admin o el usuario que subió el archivo pueden borrarlo.
+                 Acá replicamos la misma regla en la UI para mostrar/ocultar
+                 el botón y emitir el badge que indica POR QUÉ está permitido
+                 eliminar ese adjunto (trazabilidad visible para el usuario).
+                 ----------------------------------------------------------------- #}
+              {% set _es_admin  = (usuario is not none and usuario.rol is defined and (usuario.rol.value if usuario.rol is defined and usuario.rol is not string else usuario.rol) == 'administrador') %}
+              {% set _es_creador = (usuario is not none and a.usuario_id is defined and usuario.id == a.usuario_id) %}
+              {% set _puede_borrar = (_es_admin or _es_creador) %}
               <div class="flex items-center justify-between rounded-lg border {% if _disponible is sameas false %}border-amber-300 bg-amber-50/40{% else %}border-slate-200 bg-slate-50/40{% endif %} p-2.5">
                 <div class="flex items-center gap-2 min-w-0">
                   {% if es_imagen and _disponible is not sameas false %}
@@ -722,6 +733,44 @@ DETALLE_TEMPLATE = Template(r"""
                   {% else %}
                     <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
                        class="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium">Descargar</a>
+                  {% endif %}
+                  {# ----------------------------------------------------------------
+                     Botón ELIMINAR adjunto + badge que explica POR QUÉ está
+                     permitido. Reglas de visibilidad (idénticas a la validación
+                     del backend en features.py:902):
+                       * Admin                   -> siempre puede borrar.
+                       * Quien subió el archivo  -> puede borrar el suyo.
+                     El DELETE crea automáticamente un registro en la tabla
+                     ``auditorias`` con accion="adjunto_eliminado" y
+                     valor_anterior={"adjunto_id": ...} (trazabilidad).
+                     ---------------------------------------------------------------- #}
+                  {% if _puede_borrar %}
+                    {% if _es_admin %}
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200"
+                            title="El administrador puede eliminar cualquier adjunto. Quedará registro en la pestaña Trazabilidad.">
+                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        Admin
+                      </span>
+                    {% else %}
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-100 text-sky-800 border border-sky-200"
+                            title="Eres el autor de este adjunto, por eso puedes eliminarlo. Quedará registro en la pestaña Trazabilidad.">
+                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                        Creador
+                      </span>
+                    {% endif %}
+                    <button type="button"
+                            hx-delete="/api/v1/adjuntos/{{ a.id }}"
+                            hx-confirm="¿Eliminar el archivo &quot;{{ a.nombre_original or a.filename or a.nombre }}&quot;? Esta acción no se puede deshacer y quedará registrada en la trazabilidad del ticket."
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-vals='{"active_tab": "adjuntos"}'
+                            title="Eliminar adjunto (se registra en trazabilidad)"
+                            class="inline-flex items-center justify-center w-6 h-6 rounded text-rose-600 hover:bg-rose-50 hover:text-rose-800 border border-transparent hover:border-rose-200 transition-colors"
+                            aria-label="Eliminar adjunto">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"></path>
+                      </svg>
+                    </button>
                   {% endif %}
                 </div>
               </div>
