@@ -139,7 +139,7 @@
       return;
     }
     cont.innerHTML = results.map((r, i) => `
-      <a href="${escapeHtml(r.url)}" data-idx="${i}"
+      <a href="javascript:void(0)" data-idx="${i}" role="button" tabindex="0"
          class="cp-item flex items-center gap-3 px-4 py-2 text-sm ${i === selectedIndex ? 'bg-indigo-50' : 'hover:bg-slate-50'}">
         <span class="w-7 text-center">${r.icono}</span>
         <span class="flex-1 min-w-0">
@@ -149,6 +149,15 @@
         <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">${escapeHtml(r.tipo)}</span>
       </a>
     `).join('');
+    // Wire up clicks on each result (delegation alternativa, más simple)
+    cont.querySelectorAll('.cp-item').forEach((el) => {
+      el.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const idx = parseInt(el.getAttribute('data-idx') || '0', 10);
+        const r = currentResults[idx];
+        if (r) openResult(r);
+      });
+    });
     // Scroll selected into view
     const sel = cont.querySelector(`[data-idx="${selectedIndex}"]`);
     if (sel) sel.scrollIntoView({ block: 'nearest' });
@@ -168,9 +177,46 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const sel = currentResults[selectedIndex];
-      if (sel && sel.url) {
-        window.location.href = sel.url;
+      if (sel) openResult(sel);
+    }
+  }
+
+  /**
+   * Abre un resultado del command palette según su tipo.
+   *
+   * BUG HISTÓRICO (corregido): el backend ``/api/v1/buscar`` devuelve
+   * ``url = /api/v1/tickets/{id}/detalle-html`` para los tickets, que es
+   * el endpoint del MODAL (devuelve SOLO el fragmento HTML, sin
+   * ``base.html``, sin Tailwind, sin JS). Hacer ``window.location.href``
+   * a esa URL navegaba el navegador completo a un endpoint que sólo
+   * devuelve un fragmento, mostrando la página "rota" (sin estilos y
+   * con el SVG del modal escalado al tamaño de la pantalla).
+   *
+   * Fix: detectar cuando el resultado es un ticket y abrirlo como
+   * MODAL HTMX (``target=#modal-root, swap=innerHTML``) — el mismo
+   * patrón que usan las tarjetas del Kanban. Para espacios y tableros
+   * sí se navega con ``window.location.href`` (sus URLs son páginas
+   * completas, no fragmentos de modal).
+   */
+  function openResult(sel) {
+    if (!sel) return;
+    // Tickets: abrir como MODAL (HTMX), no navegar
+    if (sel.tipo === 'ticket' && sel.url && sel.url.indexOf('/detalle-html') >= 0) {
+      const root = document.getElementById('modal-root');
+      if (root && typeof htmx !== 'undefined') {
+        close();
+        // htmx.ajax es la API JS equivalente a hx-get + hx-target + hx-swap
+        htmx.ajax('GET', sel.url, {
+          target: '#modal-root',
+          swap: 'innerHTML',
+          headers: { 'HX-Request': 'true', 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        });
+        return;
       }
+    }
+    // Usuarios, etiquetas, espacios, tableros: URL real de página completa → navegar
+    if (sel.url) {
+      window.location.href = sel.url;
     }
   }
 
