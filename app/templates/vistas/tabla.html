@@ -71,7 +71,11 @@
                 data-texto="{{ (f.codigo + ' ' + f.titulo)|lower }}">
               <td class="px-3 py-2 font-mono text-xs text-indigo-600">{{ f.codigo }}</td>
               <td class="px-3 py-2">
-                <a href="/api/v1/tickets/{{ f.id }}/detalle-html" hx-target="#modal-root" hx-swap="innerHTML" class="text-slate-800 font-medium hover:text-indigo-600 truncate inline-block max-w-xs">
+                <a href="javascript:void(0)"
+                   hx-get="/api/v1/tickets/{{ f.id }}/detalle-html"
+                   hx-target="#modal-root" hx-swap="innerHTML"
+                   hx-on::before-request="window.currentTicketId={{ f.id }}; window.CURRENT_USER_ID=window.CURRENT_USER_ID||1"
+                   class="text-slate-800 font-medium hover:text-indigo-600 truncate inline-block max-w-xs">
                   {{ f.titulo }}
                 </a>
               </td>

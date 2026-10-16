@@ -115,7 +115,10 @@
                 <span class="text-xs text-slate-500">·</span>
                 <span class="text-xs text-slate-500">{{ t.estado }}</span>
               </div>
-              <a href="/api/v1/tickets/{{ t.id }}/detalle-html" hx-target="#modal-root" hx-swap="innerHTML" class="text-sm font-medium text-slate-800 hover:text-indigo-600">{{ t.titulo }}</a>
+              <a href="javascript:void(0)"
+                 hx-get="/api/v1/tickets/{{ t.id }}/detalle-html"
+                 hx-target="#modal-root" hx-swap="innerHTML"
+                 class="text-sm font-medium text-slate-800 hover:text-indigo-600">{{ t.titulo }}</a>
               <div class="text-xs text-slate-500 mt-0.5">Asignado: {{ t.asignado or '—' }}</div>
             </div>
             <div class="text-right text-[11px] text-slate-500">

@@ -40,7 +40,7 @@
         <!-- Tarjetas -->
         <div class="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50">
           {% for t in col.tarjetas %}
-          <a href="/api/v1/tickets/{{ t.id }}/detalle-html"
+          <a href="javascript:void(0)"
              hx-get="/api/v1/tickets/{{ t.id }}/detalle-html"
              hx-target="#modal-root" hx-swap="innerHTML"
              class="block bg-white rounded-lg shadow-sm border border-slate-200 hover:shadow-md hover:border-slate-300 transition overflow-hidden cursor-pointer">
