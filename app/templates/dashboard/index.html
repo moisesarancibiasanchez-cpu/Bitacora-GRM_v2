@@ -1679,6 +1679,11 @@
   // Abre el modal de detalle (mismo target /api/v1/tickets/{id}/detalle-html)
   // que usa el kanban. Se delega en document para soportar re-renders
   // del tbody cuando se cambian los filtros.
+  //
+  // BUG HISTÓRICO (corregido): si no existía #modal-root en la página, el
+  // código hacía ``window.location.href = '/tickets/' + ticketId``, pero esa
+  // ruta NO existe (retorna 404). Ahora, si no hay #modal-root navegamos a
+  // la lista de tickets (``/tickets``) que sí es una página completa válida.
   document.addEventListener('click', async ev => {
     const tr = ev.target.closest('tr.js-ver-detalle');
     if (!tr) return;
@@ -1688,8 +1693,11 @@
 
     const root = document.getElementById('modal-root');
     if (!root) {
-      // Fallback si no hay modal-root en esta página: navegar al detalle
-      window.location.href = '/tickets/' + ticketId;
+      // Fallback si no hay modal-root en esta página: navegar a la lista
+      // de tickets (página completa válida). NO navegar a
+      // /api/v1/tickets/{id}/detalle-html porque ese endpoint devuelve
+      // SOLO el fragmento del modal y rompería la página.
+      window.location.href = '/tickets';
       return;
     }
 

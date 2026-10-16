@@ -192,29 +192,91 @@
    * devuelve un fragmento, mostrando la página "rota" (sin estilos y
    * con el SVG del modal escalado al tamaño de la pantalla).
    *
-   * Fix: detectar cuando el resultado es un ticket y abrirlo como
-   * MODAL HTMX (``target=#modal-root, swap=innerHTML``) — el mismo
-   * patrón que usan las tarjetas del Kanban. Para espacios y tableros
-   * sí se navega con ``window.location.href`` (sus URLs son páginas
-   * completas, no fragmentos de modal).
+   * Fix (2da ronda): el fix anterior solo cubría el caso en que AMBOS
+   * ``htmx`` y ``#modal-root`` estuvieran disponibles. Si el usuario
+   * hacía click antes de que htmx terminara de cargar (race condition),
+   * o en una página sin ``#modal-root``, el código caía al fallback
+   * genérico ``window.location.href = sel.url`` y navegaba al endpoint
+   * modal → página rota.
+   *
+   * Fix robusto: para tickets se usan hasta 3 estrategias en orden:
+   *   1) htmx.ajax si está disponible (camino preferido, mismo que kanban)
+   *   2) fetch + innerHTML si htmx no está pero #modal-root sí
+   *   3) navegación a una URL SEGURA (NO la URL modal) si nada está disponible
+   *      - Para tickets: navega a /tickets (la página de lista) en lugar de
+   *        intentar ir al detalle-html, que SIEMPRE rompería la página.
+   *
+   * Para espacios y tableros sí se navega con ``window.location.href``
+   * (sus URLs son páginas completas, no fragmentos de modal).
    */
   function openResult(sel) {
     if (!sel) return;
-    // Tickets: abrir como MODAL (HTMX), no navegar
+
+    // === Tickets: NUNCA navegar directamente a /detalle-html (rompería la página) ===
     if (sel.tipo === 'ticket' && sel.url && sel.url.indexOf('/detalle-html') >= 0) {
       const root = document.getElementById('modal-root');
-      if (root && typeof htmx !== 'undefined') {
+      const userHeaders = { 'HX-Request': 'true', 'X-User-Id': String(window.CURRENT_USER_ID || 1) };
+
+      if (root) {
         close();
-        // htmx.ajax es la API JS equivalente a hx-get + hx-target + hx-swap
-        htmx.ajax('GET', sel.url, {
-          target: '#modal-root',
-          swap: 'innerHTML',
-          headers: { 'HX-Request': 'true', 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
-        });
+
+        // Estrategia 1: htmx.ajax (preferida, equivalente a hx-get + hx-target)
+        if (typeof htmx !== 'undefined' && typeof htmx.ajax === 'function') {
+          htmx.ajax('GET', sel.url, {
+            target: '#modal-root',
+            swap: 'innerHTML',
+            headers: userHeaders,
+          });
+          return;
+        }
+
+        // Estrategia 2: fetch + innerHTML (htmx no disponible pero #modal-root sí)
+        // Esto cubre el caso del usuario que clickea antes de que htmx termine de cargar.
+        fetch(sel.url, { headers: userHeaders, credentials: 'same-origin' })
+          .then((r) => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+          })
+          .then((html) => {
+            root.innerHTML = html;
+            // Si htmx terminó de cargar mientras tanto, procesar el contenido
+            if (typeof htmx !== 'undefined' && typeof htmx.process === 'function') {
+              try { htmx.process(root); } catch (_) { /* noop */ }
+            }
+            if (typeof window.reinitModalExtras === 'function') {
+              try { window.reinitModalExtras(); } catch (_) { /* noop */ }
+            }
+          })
+          .catch((err) => {
+            console.error('[command-palette] Error al cargar detalle:', err);
+            root.innerHTML = ''
+              + '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">'
+              +   '<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">'
+              +     '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">'
+              +       '<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+              +         '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>'
+              +       '</svg>'
+              +     '</div>'
+              +     '<h3 class="text-lg font-semibold text-slate-800 mb-2">Error al cargar el ticket</h3>'
+              +     '<p class="text-sm text-slate-600 mb-4">' + String(err.message || err) + '</p>'
+              +     '<button data-close-modal class="px-4 py-2 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300">Cerrar</button>'
+              +   '</div>'
+              + '</div>';
+          });
+        return;
+      }
+
+      // Estrategia 3: NO hay #modal-root Y es un ticket → NO navegar a
+      // /api/v1/tickets/{id}/detalle-html (rompería la página). En su lugar
+      // navegar a la lista de tickets, que es una página completa válida.
+      const m = sel.url.match(/\/tickets\/(\d+)\/detalle-html/);
+      if (m) {
+        window.location.href = '/tickets';
         return;
       }
     }
-    // Usuarios, etiquetas, espacios, tableros: URL real de página completa → navegar
+
+    // === Otros tipos (usuarios, etiquetas, espacios, tableros): URL de página completa ===
     if (sel.url) {
       window.location.href = sel.url;
     }
