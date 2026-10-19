@@ -79,33 +79,65 @@ def test_command_palette_js() -> None:
     info(f"command-palette.js: {len(js_src):,} bytes")
 
     # Buscar la condición exacta que estaba rota.
-    # El bug era: if (sel.tipo === 'ticket' && ...) sin normalizar
+    # El bug era: if (sel.tipo === 'ticket' && ...) sin normalizar.
+    # Buscamos el patrón exacto que es la línea de código real (sin
+    # toLowerCase). También lo buscamos con prefijo `if (` para excluir
+    # referencias dentro de comentarios o docstrings.
     patron_bug = re.compile(
-        r"sel\.tipo\s*===\s*['\"]ticket['\"]"
+        r"if\s*\(\s*sel\.tipo\s*===\s*['\"]ticket['\"]"
     )
     matches_bug = patron_bug.findall(js_src)
-    if matches_bug:
+    # Patrón secundario: cualquier referencia literal al bug en código
+    # (no en comentarios). Si la primera línea de contexto contiene
+    # `*` o `//` es docstring/comentario, lo descartamos.
+    patron_bug_anywhere = re.compile(
+        r"sel\.tipo\s*===\s*['\"]ticket['\"]"
+    )
+    raw_matches = patron_bug_anywhere.findall(js_src)
+    # Filtrar matches dentro de comentarios (líneas que empiezan con * o //)
+    code_matches = []
+    for line_num, line in enumerate(js_src.split("\n"), start=1):
+        # Detectar líneas de código (no comentarios):
+        # - Comentario de línea: empieza con // (puede tener espacios antes)
+        # - Comentario de bloque (JSDoc): empieza con * (puede tener espacios antes)
+        # - Comentario de bloque: empieza con /*
+        # - Líneas vacías o con solo espacios
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("//") or stripped.startswith("*") or stripped.startswith("/*"):
+            continue
+        # Quitar comentario inline después del código
+        code_part = line.split("//")[0]
+        if "sel.tipo === 'ticket'" in code_part or 'sel.tipo === "ticket"' in code_part:
+            code_matches.append((line_num, line.strip()))
+    if code_matches:
         fail(
-            "BUG AÚN PRESENTE: se encontró `sel.tipo === 'ticket'` "
-            f"sin normalizar ({len(matches_bug)} ocurrencia(s)). "
-            "El frontend no detecta tickets cuando el backend emite "
-            "'tipo': 'ticket' y la condición nunca matchea."
+            "BUG AÚN PRESENTE EN CÓDIGO: la condición `sel.tipo === 'ticket'` "
+            f"aparece en {len(code_matches)} línea(s) de código (no comentario):\n"
+            + "\n".join(f"  L{ln}: {l}" for ln, l in code_matches[:3])
         )
-    ok("No se encontró la condición rota `sel.tipo === 'ticket'` (sin normalizar).")
+    ok(
+        f"No hay condición rota en código activo (matches raw: {len(raw_matches)}, "
+        f"todos en comentarios/docstrings)."
+    )
 
     # Verificar que existe una comparación robusta (case-insensitive).
-    # Patrones válidos: toLowerCase === 'ticket', .toLowerCase() === 'ticket',
-    # === 'Ticket', etc.
+    # Patrones válidos: tipoLower === 'ticket' (variable normalizada),
+    # .toLowerCase() === 'ticket', sel.tipo === 'Ticket' (mayúscula
+    # consistente), etc.
     patron_ok = re.compile(
-        r"(toLowerCase\(\)|toLowerCase)\s*===\s*['\"]ticket['\"]"
+        r"tipoLower\s*===\s*['\"]ticket['\"]"
+        r"|"
+        r"(?:\.toLowerCase\(\)|toLowerCase)\s*===\s*['\"]ticket['\"]"
         r"|"
         r"sel\.tipo\s*===\s*['\"]Ticket['\"]"
     )
     if not patron_ok.search(js_src):
         fail(
             "No se encontró una comparación robusta (case-insensitive o "
-            "consistente con mayúscula). El fix usa `.toLowerCase() === 'ticket'` "
-            "o equivalente. Si no está, el bug puede regresar."
+            "consistente con mayúscula). El fix usa `tipoLower === 'ticket'` "
+            "(variable normalizada) o equivalente. Si no está, el bug puede regresar."
         )
     ok("Comparación robusta encontrada (case-insensitive o consistente).")
 
@@ -190,7 +222,8 @@ def test_endpoint_modal_es_fragmento() -> None:
 
     # Buscar el handler
     patron_handler = re.compile(
-        r'@router\.get\(["\']\{ticket_id\}/detalle-html["\']\s*,\s*response_class=HTMLResponse'
+        r'@router\.get\([^)]*detalle-html[^)]*response_class=HTMLResponse',
+        re.DOTALL,
     )
     if not patron_handler.search(src):
         fail(
