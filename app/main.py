@@ -79,6 +79,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# === Middleware: cabeceras de seguridad + caché de estáticos ===
+@app.middleware("http")
+async def add_security_and_cache_headers(request: Request, call_next):
+    """Cabeceras de seguridad en todas las respuestas y caché corta para /static/*.
+
+    - Estáticos (``/static/*``): ``Cache-Control: public, max-age=300`` (5 min,
+      permite iterar rápido en desarrollo sin invalidación manual) +
+      ``X-Content-Type-Options: nosniff`` para evitar MIME-sniffing.
+
+    - Todas las respuestas: ``X-Frame-Options: DENY`` (anti-clickjacking),
+      ``Referrer-Policy: strict-origin-when-cross-origin`` y
+      ``X-Content-Type-Options: nosniff``. Se usan ``setdefault`` para
+      respetar cualquier cabecera ya fijada por un endpoint o middleware
+      posterior (p.ej. WhiteNoise).
+    """
+    response = await call_next(request)
+    path = request.url.path
+
+    # Cabeceras de seguridad presentes en TODAS las respuestas (HTML/JSON)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+
+    # Caché de 5 minutos + íes anti-sniffing explícito para archivos estáticos
+    if path.startswith("/static") or path.startswith("/onboarding"):
+        response.headers["Cache-Control"] = "public, max-age=300"
+
+    return response
+
+
 # === Archivos estáticos (StaticFiles siempre; WhiteNoise opcional en prod) ===
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
