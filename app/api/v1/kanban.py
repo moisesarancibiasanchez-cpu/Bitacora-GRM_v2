@@ -1,7 +1,8 @@
 """
 Endpoints para servir el tablero Kanban (HTML renderizado en servidor).
 """
-from fastapi import APIRouter, Depends, Request
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.models.usuario import Usuario
 from app.services.ticket_service import TicketService
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kanban", tags=["Kanban"])
 
 
@@ -32,29 +34,35 @@ def tablero_kanban(
     usuario: Usuario = Depends(get_current_user),
 ):
     """Renderiza el tablero Kanban completo."""
-    templates = get_templates()
-    service = TicketService(db)
-    estados = service.listar_kanban()
+    try:
+        templates = get_templates()
+        service = TicketService(db)
+        estados = service.listar_kanban()
 
-    # Pre-cargar tickets por estado
-    tickets_por_estado: dict[int, list[Ticket]] = {}
-    for estado in estados:
-        tickets_por_estado[estado.id] = (
-            db.query(Ticket)
-            .filter(Ticket.estado_id == estado.id)
-            .order_by(Ticket.created_at.desc())
-            .all()
+        # Pre-cargar tickets por estado
+        tickets_por_estado: dict[int, list[Ticket]] = {}
+        for estado in estados:
+            tickets_por_estado[estado.id] = (
+                db.query(Ticket)
+                .filter(Ticket.estado_id == estado.id)
+                .order_by(Ticket.created_at.desc())
+                .all()
+            )
+
+        return templates.TemplateResponse(
+            "kanban/index.html",
+            {
+                "request": request,
+                "usuario": usuario,
+                "estados": estados,
+                "tickets_por_estado": tickets_por_estado,
+            },
         )
-
-    return templates.TemplateResponse(
-        "kanban/index.html",
-        {
-            "request": request,
-            "usuario": usuario,
-            "estados": estados,
-            "tickets_por_estado": tickets_por_estado,
-        },
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en /kanban: %s", e)
+        raise HTTPException(status_code=500, detail=f"Error interno: {type(e).__name__}")
 
 
 @router.get("/columna/{estado_id}", response_class=HTMLResponse)
@@ -65,15 +73,21 @@ def columna_kanban(
     _: Usuario = Depends(get_current_user),
 ):
     """Devuelve el fragmento HTML de una columna (para refresco HTMX)."""
-    from app.models.estado import Estado
-    from app.templates.kanban.partials.column import render_columna
-    estado = db.query(Estado).filter(Estado.id == estado_id).first()
-    if not estado:
-        return HTMLResponse("<div>Estado no encontrado</div>", status_code=404)
-    tickets = (
-        db.query(Ticket)
-        .filter(Ticket.estado_id == estado_id)
-        .order_by(Ticket.created_at.desc())
-        .all()
-    )
-    return HTMLResponse(render_columna(estado, tickets))
+    try:
+        from app.models.estado import Estado
+        from app.templates.kanban.partials.column import render_columna
+        estado = db.query(Estado).filter(Estado.id == estado_id).first()
+        if not estado:
+            return HTMLResponse("<div>Estado no encontrado</div>", status_code=404)
+        tickets = (
+            db.query(Ticket)
+            .filter(Ticket.estado_id == estado_id)
+            .order_by(Ticket.created_at.desc())
+            .all()
+        )
+        return HTMLResponse(render_columna(estado, tickets))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en /kanban/columna/{estado_id}: %s", e)
+        raise HTTPException(status_code=500, detail=f"Error interno: {type(e).__name__}")
