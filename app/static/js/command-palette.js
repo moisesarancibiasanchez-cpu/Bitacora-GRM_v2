@@ -208,12 +208,24 @@
    *
    * Para espacios y tableros sí se navega con ``window.location.href``
    * (sus URLs son páginas completas, no fragmentos de modal).
+   *
+   * BUG FIX (case-sensitivity, commit actual): el backend emite
+   * ``"tipo": "ticket"`` (lowercase, ver ``app/api/v1/buscar.py:56``),
+   * pero el ``collectResults`` local REASIGNA ``sel.tipo`` al valor de
+   * la constante ``tipos`` ('Ticket', mayúscula). El condicional
+   * original era ``sel.tipo === 'ticket'`` (lowercase) y NUNCA
+   * matcheaba con resultados del backend, por lo que el código caía
+   * sistemáticamente al fallback ``window.location.href = sel.url`` y
+   * navegaba al endpoint modal → página rota. Se normaliza con
+   * ``.toLowerCase()`` para que sea robusto a cambios de
+   * capitalización en cualquier capa.
    */
   function openResult(sel) {
     if (!sel) return;
 
     // === Tickets: NUNCA navegar directamente a /detalle-html (rompería la página) ===
-    if (sel.tipo === 'ticket' && sel.url && sel.url.indexOf('/detalle-html') >= 0) {
+    const tipoLower = String(sel.tipo || '').toLowerCase();
+    if (tipoLower === 'ticket' && sel.url && sel.url.indexOf('/detalle-html') >= 0) {
       const root = document.getElementById('modal-root');
       const userHeaders = { 'HX-Request': 'true', 'X-User-Id': String(window.CURRENT_USER_ID || 1) };
 
