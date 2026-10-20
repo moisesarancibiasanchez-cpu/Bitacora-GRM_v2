@@ -106,6 +106,16 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
         # (BYTEA en PG, BLOB en SQLite) garantiza que la descarga siga
         # funcionando aunque el archivo físico haya desaparecido.
         "contenido": ("BYTEA", "BLOB"),
+        # FEATURE — Adjuntos dentro de comentarios.
+        # NULL → el archivo pertenece al ticket (pestaña "Adjuntos", legacy).
+        # <id> → el archivo pertenece a ese comentario (pestaña "Comentarios").
+        # ON DELETE CASCADE: al borrar el comentario se borra su archivo.
+        # IMPORTANTE: ``ticket_id`` sigue siendo NOT NULL y se rellena con el
+        # ticket del comentario, por eso la FK va solo sobre comentario_id.
+        "comentario_id": (
+            "INTEGER REFERENCES comentarios(id) ON DELETE CASCADE",
+            "INTEGER REFERENCES comentarios(id) ON DELETE CASCADE",
+        ),
     },
 }
 
@@ -136,6 +146,8 @@ INDEXES: List[Tuple[str, str]] = [
     ("ix_ref_created_at",      "CREATE INDEX IF NOT EXISTS ix_ticket_referencias_created_at ON ticket_referencias(created_at)"),
     ("ix_ref_origen_tipo",     "CREATE INDEX IF NOT EXISTS ix_ref_origen_tipo ON ticket_referencias(ticket_origen_id, tipo)"),
     ("ix_ref_destino_tipo",    "CREATE INDEX IF NOT EXISTS ix_ref_destino_tipo ON ticket_referencias(ticket_referenciado_id, tipo)"),
+    # FEATURE 6 — Adjuntos de comentarios (búsqueda por comentario dueño)
+    ("ix_adjuntos_comentario", "CREATE INDEX IF NOT EXISTS ix_adjuntos_comentario_id ON adjuntos(comentario_id)"),
 ]
 
 # Tablas que deben existir (si el modelo está presente, ``create_all``

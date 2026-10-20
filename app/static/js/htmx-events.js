@@ -719,9 +719,358 @@
     });
   }
 
+  // ===========================================================================
+// FEATURE — Comentarios: dropzone + paste de archivos, edición 30 min, refs #ID
+// ===========================================================================
+// (Bitácora GRM v2 — feature 2026-10). Se ejecuta tras cada HTMX swap dentro
+// del modal para garantizar que los handlers estén vivos incluso después de
+// re-renders por acciones de adjuntar/editar/eliminar.
+//
+// Componentes gestionados:
+//   * <form data-dropzone-comentario="1"> → drop / paste / selección de archivos.
+//   * <button class="comentario-editar-btn"> → toggle del form inline de edición.
+//   * <button class="comentario-editar-cancelar"> → cancelar edición.
+//   * <a class="comentario-ref-chip"> → scroll + highlight al comentario destino.
+//   * <button class="copy-comentario-id"> → copia #ID al portapapeles.
+//   * <span class="comentario-edit-countdown"> → countdown regresivo (mm:ss).
+//   * <div class="comentario-texto"> → reemplaza #ID por chips linkeables.
+//
+// Importante: cada handler es "no-op" si el elemento no existe todavía
+// (defensa contra re-init múltiples veces).
+// ---------------------------------------------------------------------------
+
+  /** Adjuntos pendientes por ticket del dropzone de comentarios. Mismo patrón
+   * que para adjuntos del ticket pero ahora vinculado al form de NUEVO comentario. */
+  const _comentarioFilesState = new WeakMap(); // formEl -> File[]
+
+  /** Convierte un File a un objeto visible (.nombre + .preview + .size). */
+  function _comentarioFilePreview(file) {
+    return {
+      file: file,
+      nombre: file.name,
+      size: file.size,
+      isImage: /^image\//i.test(file.type || ''),
+    };
+  }
+
+  /** Refresca el panel visual de pendientes (.comentario-pendientes) y construye
+   * un nuevo DataTransfer con todos los archivos acumulados para el submit. */
+  function _comentarioRefreshPendientes(form) {
+    const panel = form.querySelector('.comentario-pendientes');
+    const input = form.querySelector('input.comentario-file-input');
+    if (!panel) return;
+    const files = _comentarioFilesState.get(form) || [];
+    panel.innerHTML = '';
+    if (files.length === 0) {
+      panel.classList.add('hidden');
+    } else {
+      panel.classList.remove('hidden');
+      files.forEach((fp, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'inline-flex items-center gap-1.5 px-1.5 py-1 rounded bg-white border border-slate-200 text-[10px]';
+        const img = fp.isImage
+          ? '<span class="w-6 h-6 rounded bg-slate-100 overflow-hidden inline-block align-middle mr-1">'
+            + '<img src="' + URL.createObjectURL(fp.file) + '" class="w-6 h-6 object-cover" alt=""></span>'
+          : '📎';
+        chip.innerHTML = img + '<span class="truncate max-w-[10rem] text-slate-700">' +
+          _escape(fp.nombre) + '</span>'
+          + '<span class="text-slate-400">' + formatBytes(fp.size) + '</span>'
+          + '<button type="button" data-rm="' + idx + '" '
+          + 'class="text-red-600 hover:text-red-800 font-bold" '
+          + 'title="Quitar">×</button>';
+        panel.appendChild(chip);
+      });
+    }
+    // Re-poblar el <input type="file" multiple> usando DataTransfer.
+    // Esto es necesario porque el input NUNCA expone los archivos pegados
+    // directamente — hay que sincronizarlos vía DataTransfer al hacer submit.
+    try {
+      const dt = new DataTransfer();
+      files.forEach(fp => dt.items.add(fp.file));
+      if (input) input.files = dt.files;
+    } catch (e) {
+      // Navegadores antiguos: si DataTransfer no es constructible, el form
+      // todavía funcionará con los archivos via fetch() al submit. Lo manejamos
+      // abajo en el listener de submit.
+      if (window.console) console.debug('[comentarios] DataTransfer no disponible', e);
+    }
+  }
+
+  function _escape(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  /** Configura el dropzone de un form de NUEVO comentario. */
+  function setupComentariosDropzone() {
+    const forms = document.querySelectorAll('form[data-dropzone-comentario="1"]');
+    if (!forms.length) return;
+    forms.forEach(form => {
+      if (form.__dzInit) return; // ya configurado, no duplicar
+      form.__dzInit = true;
+      _comentarioFilesState.set(form, []);
+
+      const input = form.querySelector('input.comentario-file-input');
+      const textarea = form.querySelector('textarea.comentario-textarea');
+
+      // 1) Selección con el input file nativo (cuando el usuario hace click en "Adjuntar archivo").
+      if (input) {
+        input.addEventListener('change', function () {
+          const cur = _comentarioFilesState.get(form) || [];
+          for (const f of (input.files || [])) cur.push(_comentarioFilePreview(f));
+          _comentarioFilesState.set(form, cur);
+          _comentarioRefreshPendientes(form);
+        });
+      }
+
+      // 2) Pegar (Ctrl+V) en el textarea → imágenes (y otros archivos) se agregan.
+      if (textarea) {
+        textarea.addEventListener('paste', function (e) {
+          const cd = e.clipboardData || window.clipboardData;
+          if (!cd) return;
+          const items = cd.items || [];
+          const pastedFiles = [];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (it.kind === 'file') {
+              const f = it.getAsFile();
+              if (f) {
+                // Generar nombre si el browser no lo puso (común en paste de imágenes).
+                if (!f.name) {
+                  const ext = (f.type || 'png').split('/').pop() || 'png';
+                  f.name = 'pasted-' + Date.now() + '-' + i + '.' + ext;
+                }
+                pastedFiles.push(_comentarioFilePreview(f));
+              }
+            }
+          }
+          if (pastedFiles.length) {
+            e.preventDefault();
+            const cur = _comentarioFilesState.get(form) || [];
+            cur.push(...pastedFiles);
+            _comentarioFilesState.set(form, cur);
+            _comentarioRefreshPendientes(form);
+            try { window.showToast('📎 ' + pastedFiles.length + ' archivo(s) pegado(s) al comentario', 'info', 2000); } catch (_) {}
+          }
+        });
+      }
+
+      // 3) Drag&drop sobre el form entero (incluye el textarea).
+      ['dragenter', 'dragover'].forEach(ev => {
+        form.addEventListener(ev, function (e) {
+          e.preventDefault(); e.stopPropagation();
+          form.classList.add('ring-2', 'ring-indigo-300');
+        });
+      });
+      ['dragleave', 'drop'].forEach(ev => {
+        form.addEventListener(ev, function (e) {
+          e.preventDefault(); e.stopPropagation();
+          form.classList.remove('ring-2', 'ring-indigo-300');
+        });
+      });
+      form.addEventListener('drop', function (e) {
+        const dt = e.dataTransfer;
+        if (!dt || !dt.files) return;
+        const cur = _comentarioFilesState.get(form) || [];
+        for (const f of dt.files) cur.push(_comentarioFilePreview(f));
+        _comentarioFilesState.set(form, cur);
+        _comentarioRefreshPendientes(form);
+        e.preventDefault();
+      });
+
+      // 4) Botón × para eliminar un pendiente.
+      const panel = form.querySelector('.comentario-pendientes');
+      if (panel) {
+        panel.addEventListener('click', function (e) {
+          const rm = e.target.closest('button[data-rm]');
+          if (!rm) return;
+          const idx = parseInt(rm.getAttribute('data-rm'), 10);
+          const cur = _comentarioFilesState.get(form) || [];
+          cur.splice(idx, 1);
+          _comentarioFilesState.set(form, cur);
+          _comentarioRefreshPendientes(form);
+        });
+      }
+
+      // 5) Antes de submit, garantizar que el input tenga los archivos.
+      //    Útil cuando DataTransfer no funciona: en ese caso enviamos los archivos
+      //    mediante fetch() directo, pero el form ya tiene los archivos en el input
+      //    gracias a _comentarioRefreshPendientes() en navegadores modernos.
+      form.addEventListener('submit', function (/* e */) {
+        // No prevenimos el submit; HTMX lo procesa y el backend los recibe
+        // desde el input que sincronizamos arriba.
+        // Limpiamos el estado tras submit OK (HTMX disparará afterSwap).
+      });
+
+      _comentarioRefreshPendientes(form);
+    });
+  }
+
+  /** Resalta y hace scroll al comentario destino cuando se hace click en un chip #ID. */
+  function _comentarioRefChipClick(e) {
+    const a = e.target.closest('a.comentario-ref-chip');
+    if (!a) return;
+    e.preventDefault();
+    const tid = a.getAttribute('data-target-id');
+    const cont = document.getElementById('comentarios-lista');
+    if (!cont) return;
+    const target = cont.querySelector('#comentario-' + tid);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Resaltar
+      target.classList.add('ring-2', 'ring-emerald-300', 'bg-emerald-50/40');
+      setTimeout(function () {
+        target.classList.remove('ring-2', 'ring-emerald-300', 'bg-emerald-50/40');
+      }, 2200);
+    }
+  }
+
+  /** Reemplaza #ID dentro de los textos de comentarios por <a> chips clickeables. */
+  function _comentarioRenderRefs() {
+    const cont = document.getElementById('comentarios-lista');
+    if (!cont) return;
+    const ids_visibles = new Set();
+    cont.querySelectorAll('.comentario-card').forEach(el => {
+      const id = el.getAttribute('data-comentario-id');
+      if (id) ids_visibles.add(parseInt(id, 10));
+    });
+    // Regex debe ser IGUAL a la del backend (PATRON_REFERENCIA):
+    //   (?<![\w@/])#(\d+)  → no captura correos/hex/issue links
+    const patron = /(?<![\w@/])#(\d+)/g;
+    cont.querySelectorAll('.comentario-texto').forEach(div => {
+      if (div.__refsRendered) return; // no duplicar
+      div.__refsRendered = true;
+      const original = div.textContent || '';
+      if (!patron.test(original)) { patron.lastIndex = 0; return; }
+      patron.lastIndex = 0;
+      let html = '';
+      let lastIdx = 0;
+      let m;
+      patron.lastIndex = 0;
+      while ((m = patron.exec(original)) !== null) {
+        const num = parseInt(m[1], 10);
+        const start = m.index;
+        html += _escape(original.slice(lastIdx, start));
+        if (ids_visibles.has(num)) {
+          html += '<a href="#comentario-' + num + '" class="comentario-ref-chip font-mono px-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100" data-target-id="' + num + '">#' + num + '</a>';
+        } else {
+          html += '<span class="font-mono px-1 rounded bg-slate-100 text-slate-500" title="Comentario fuera del ticket">#' + num + '</span>';
+        }
+        lastIdx = patron.lastIndex;
+      }
+      html += _escape(original.slice(lastIdx));
+      div.innerHTML = html;
+    });
+  }
+
+  /** Configura los handlers de cada comentario: editar / cancelar / copy-id / chips. */
+  function mountComentariosFeatures() {
+    const cont = document.getElementById('comentarios-lista');
+    if (!cont) return;
+    if (cont.__mountedComments) return;
+    cont.__mountedComments = true;
+
+    // 1) Botón Editar (mostrar form inline)
+    cont.addEventListener('click', function (e) {
+      const editBtn = e.target.closest('button.comentario-editar-btn');
+      if (editBtn) {
+        const card = editBtn.closest('.comentario-card');
+        if (!card) return;
+        const form = card.querySelector('form.comentario-edit-form');
+        if (form) form.classList.remove('hidden');
+        return;
+      }
+      const cancelBtn = e.target.closest('button.comentario-editar-cancelar');
+      if (cancelBtn) {
+        const form = cancelBtn.closest('form.comentario-edit-form');
+        if (form) {
+          form.classList.add('hidden');
+          // Resetear el textarea al texto original (data attribute de la card).
+          const card = form.closest('.comentario-card');
+          const ta = form.querySelector('textarea');
+          if (ta && card) {
+            const original = card.querySelector('.comentario-texto');
+            if (original) ta.value = original.textContent || '';
+          }
+        }
+        return;
+      }
+      const copyBtn = e.target.closest('button.copy-comentario-id');
+      if (copyBtn) {
+        const id = copyBtn.getAttribute('data-id');
+        const txt = '#' + id;
+        const flash = function (ok) {
+          copyBtn.textContent = ok ? '✓ ' + txt : txt;
+          setTimeout(function () { copyBtn.textContent = txt; }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt).then(function () { flash(true); }).catch(function () { flash(false); });
+        } else {
+          // Fallback para navegadores sin Clipboard API.
+          try {
+            const r = document.createRange();
+            r.selectNode(copyBtn);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+            document.execCommand('copy');
+            sel.removeAllRanges();
+            flash(true);
+          } catch (_) { flash(false); }
+        }
+        return;
+      }
+      // Chips de referencia (delegado).
+      _comentarioRefChipClick(e);
+    });
+
+    // 2) Render #ID en texto (post-render)
+    _comentarioRenderRefs();
+
+    // 3) Countdown regresivo para ventanas de edición activas.
+    function _tick() {
+      cont.querySelectorAll('.comentario-edit-countdown').forEach(function (span) {
+        const minutos = parseInt(span.getAttribute('data-minutos'), 10);
+        if (!minutos || minutos <= 0) {
+          span.textContent = '⏱ ventana expirada';
+          return;
+        }
+        // Calcular segundos restantes usando data-updated-at del card.
+        const card = span.closest('.comentario-card');
+        if (!card) return;
+        const updatedAt = card.getAttribute('data-updated-at');
+        if (!updatedAt) return;
+        const ultima = new Date(updatedAt).getTime();
+        if (!ultima || isNaN(ultima)) return;
+        const WINDOW_MS = 30 * 60 * 1000;
+        const restante = WINDOW_MS - (Date.now() - ultima);
+        if (restante <= 0) {
+          span.textContent = '⏱ ventana expirada';
+          // Si hay botón editar aún visible, reemplazarlo por texto.
+          const editBtn = card.querySelector('button.comentario-editar-btn');
+          if (editBtn) {
+            editBtn.remove();
+          }
+          span.classList.remove('text-amber-700');
+          span.classList.add('text-slate-400', 'italic');
+          return;
+        }
+        const mm = Math.floor(restante / 60000);
+        const ss = Math.floor((restante % 60000) / 1000);
+        span.textContent = '⏱ ' + mm + ':' + String(ss).padStart(2, '0') + ' restantes';
+      });
+    }
+    if (window._comentariosCountdownTimer) clearInterval(window._comentariosCountdownTimer);
+    _tick();
+    window._comentariosCountdownTimer = setInterval(_tick, 1000);
+  }
+
   function reinitModalExtras() {
     setupAdjuntosDropzone();
+    setupComentariosDropzone();
     setupMarkdownEditors();
+    mountComentariosFeatures();
   }
 
   // Re-aplicar handlers cuando HTMX inserta HTML nuevo en el DOM

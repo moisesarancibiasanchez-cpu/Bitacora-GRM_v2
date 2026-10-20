@@ -37,11 +37,53 @@ class Comentario(Base, TimestampMixin):
         back_populates="comentario",
         cascade="all, delete-orphan",
     )
+    # ---------------------------------------------------------------------------
+    # FEATURE — Archivos adjuntos del comentario.
+    #
+    # ``cascade="all, delete-orphan"`` + el ``ON DELETE CASCADE`` de la FK
+    # garantizan que al borrar un comentario se borren también sus archivos
+    # (en disco se limpia vía el endpoint DELETE /adjuntos/{id}; el backup en
+    # BD desaparece solo con la fila).
+    #
+    # Nota: ``passive_deletes=True`` NO se usa a propósito — sin él, SQLAlchemy
+    # intenta poner ``adjuntos.comentario_id = NULL`` en vez de borrar filas,
+    # lo que fallaría con la columna NOT NULL histórica ``ticket_id`` en el
+    # borde de la cascada. El borrado en cascada lo resuelve la BD.
+    # ---------------------------------------------------------------------------
+    adjuntos = relationship(
+        "Adjunto",
+        back_populates="comentario",
+        cascade="all, delete-orphan",
+        order_by="Adjunto.created_at.asc()",
+    )
 
     def extraer_menciones(self) -> list:
         """Extrae los usernames mencionados con @ del texto del comentario."""
         patron = r'@(\w+)'
-        return list(set(re.findall(patron, self.texto)))
+        return list(set(re.findall(patron, self.texto or "")))
+
+    # ---------------------------------------------------------------------------
+    # FEATURE — Referencias entre comentarios (``#ID``).
+    #
+    # Un comentario puede "linkear" a otro escribiendo su ID con el prefijo
+    # ``#`` (p. ej. ``"#482 estaba equivocado, lo corrijo abajo"``). El parser
+    # usa un lookbehind negativo para NO capturar:
+    #   * correos      → ``tickets#12@x.com``
+    #   * issue de GitHub → ``ORG/repo#12``
+    #   * hexadecimales precedidos por 0x → ``0x#...`` (caso borde)
+    # Devuelve IDs únicos y ordenados, excluyendo la autorreferencia.
+    # ---------------------------------------------------------------------------
+    PATRON_REFERENCIA = r'(?<![\w@/])#(\d+)'
+
+    def extraer_referencias(self) -> list:
+        """Devuelve la lista de IDs de comentarios referenciados con ``#ID``."""
+        if not self.texto:
+            return []
+        encontrados = {
+            int(m) for m in re.findall(self.PATRON_REFERENCIA, self.texto)
+        }
+        encontrados.discard(self.id)
+        return sorted(encontrados)
 
     def __repr__(self) -> str:
         return f"<Comentario ticket={self.ticket_id} usuario={self.usuario_id}>"

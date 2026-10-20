@@ -26,6 +26,30 @@ class Adjunto(Base, TimestampMixin):
         Integer, ForeignKey("tickets.id", ondelete="CASCADE"),
         nullable=False, index=True
     )
+    # ---------------------------------------------------------------------------
+    # FEATURE — Adjuntos dentro de comentarios.
+    #
+    # ``comentario_id`` es NULLABLE a propósito:
+    #   * ``None``            → adjunto del ticket (comportamiento histórico,
+    #                           visible en la pestaña "Adjuntos").
+    #   * ``<id de comentario>``→ adjunto que pertenece a un comentario concreto,
+    #                           visible en la pestaña "Comentarios".
+    #
+    # Decisión de diseño: ``ticket_id`` sigue siendo NOT NULL y se rellena
+    # SIEMPRE con el ticket del comentario. Motivo:
+    #   1) Un archivo de un comentario sigue siendo del ticket, así que debe
+    #      seguir siendo descargable/herencia por la vía del ticket.
+    #   2) Hacer ``ticket_id`` nullable obligaría a tocar la relationship
+    #      ``Ticket.adjuntos``, ``AdjuntoService.listar_de_ticket()`` y todos
+    #      los filtros derivados, multiplicando el riesgo de regresión.
+    #   3) Permite que el adjoint sea recuperable si el comentario se borra
+    #      (ON DELETE CASCADE borra el archivo, pero el ticket nunca queda
+    #      huérfano).
+    # ---------------------------------------------------------------------------
+    comentario_id = Column(
+        Integer, ForeignKey("comentarios.id", ondelete="CASCADE"),
+        nullable=True, index=True
+    )
     usuario_id = Column(
         Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"),
         nullable=False
@@ -43,6 +67,15 @@ class Adjunto(Base, TimestampMixin):
 
     ticket = relationship("Ticket", back_populates="adjuntos", foreign_keys=[ticket_id])
     usuario = relationship("Usuario")
+    # FEATURE — relación inversa hacia el comentario dueño del archivo.
+    # Resuelta por nombre de clase (string) para evitar import circular
+    # entre ``adjunto.py`` y ``comentario.py``.
+    comentario = relationship("Comentario", back_populates="adjuntos")
+
+    @property
+    def es_de_comentario(self) -> bool:
+        """True si el archivo cuelga de un comentario (no del ticket)."""
+        return self.comentario_id is not None
 
     @property
     def tamano_legible(self) -> str:

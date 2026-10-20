@@ -82,18 +82,44 @@ def _render_detalle_modal_response(
     ticket_id = ticket.id
     db.refresh(ticket)
     estados = db.query(Estado).order_by(Estado.orden).all()
-    comentarios = (
-        db.query(Comentario)
-        .filter(Comentario.ticket_id == ticket_id)
-        .order_by(Comentario.created_at.asc())
-        .all()
-    )
+    # FEATURE — Seguridad: los comentarios INTERNOS solo los ven agentes y
+    # administradores. El SOLICITANTE jamás debe verlos (ni en el modal, ni
+    # en el JSON, ni en la respuesta HTMX).
+    mostrar_internos = user.rol != RolUsuario.SOLICITANTE
+    q_com = db.query(Comentario).filter(Comentario.ticket_id == ticket_id)
+    if not mostrar_internos:
+        q_com = q_com.filter(Comentario.es_interno == False)  # noqa: E712
+    comentarios = q_com.order_by(Comentario.created_at.asc()).all()
+    # FEATURE — Adjuntos: la pestaña "Adjuntos" solo muestra los que cuelgan
+    # del TICKET (comentario_id IS NULL). Los adjuntos de comentario se
+    # renderizan inline dentro de cada comentario en la pestaña "Comentarios".
     adjuntos = (
         db.query(Adjunto)
-        .filter(Adjunto.ticket_id == ticket_id)
+        .filter(
+            Adjunto.ticket_id == ticket_id,
+            Adjunto.comentario_id.is_(None),
+        )
         .order_by(Adjunto.created_at.desc())
         .all()
     )
+    # Precarga de adjuntos POR comentario en una sola query (N+1 fix).
+    # Esto permite que la plantilla los muestre sin disparar un SELECT por
+    # cada comentario al iterar.
+    com_ids = [c.id for c in comentarios]
+    adjuntos_por_comentario: dict = {}
+    if com_ids:
+        filas = (
+            db.query(Adjunto)
+            .filter(Adjunto.comentario_id.in_(com_ids))
+            .order_by(Adjunto.created_at.asc())
+            .all()
+        )
+        for a in filas:
+            adjuntos_por_comentario.setdefault(a.comentario_id, []).append(a)
+    # Mapa de referencias #ID entre comentarios del ticket (forward + inverse).
+    _csvc = ComentarioService(db)
+    mapa_refs_fwd = _csvc.mapa_referencias(comentarios)
+    mapa_refs_inv = _csvc.referencias_hacia(comentarios)
     checklists = (
         db.query(Checklist)
         .filter(Checklist.ticket_id == ticket_id)
@@ -138,6 +164,9 @@ def _render_detalle_modal_response(
         campos_personalizados=campos_personalizados,
         referencias=referencias,
         tipos_referencia=tipos_referencia,
+        adjuntos_por_comentario=adjuntos_por_comentario,
+        mapa_referencias_fwd=mapa_refs_fwd,
+        mapa_referencias_inv=mapa_refs_inv,
     )
     return html
 
@@ -607,18 +636,31 @@ async def crear_comentario(
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
-    """Crea un comentario en un ticket.
+    """Crea un comentario en un ticket, opcionalmente con archivos adjuntos.
 
-    Acepta ``application/x-www-form-urlencoded`` (formularios HTMX),
-    ``multipart/form-data`` y ``application/json`` (clientes programáticos).
+    Acepta ``application/x-www-form-urlencoded`` (formularios HTMX) y
+    ``multipart/form-data`` (subida con archivos). Para clientes
+    programáticos también ``application/json`` (SIN archivos, solo texto).
     Si la petición viene de HTMX (``HX-Request: true``) devuelve el modal
-    re-renderizado con el nuevo comentario.
+    re-renderizado con el nuevo comentario y sus adjuntos.
+
+    Reglas nuevas (Bitácora GRM v2 — feature 2026-10):
+      * El texto se trunca a ``COMENTARIO_MAX_LEN`` (5000) para no aceptar
+        payloads abusivos. Antes esta validación NO existía (bug latente).
+      * Si la petición trae archivos, se vinculan al comentario recién
+        creado con ``comentario_id=<nuevo>`` y ``ticket_id=<ticket_id>``.
+      * Errores por archivo se acumulan y se reportan al final SIN abortar
+        el comentario (el texto sigue siendo válido aunque falle un archivo).
     """
     is_htmx = request.headers.get("HX-Request") == "true"
     content_type = request.headers.get("content-type", "")
     texto = ""
     es_interno = "false"
     active_tab = ""
+    uploaded_files = []
+
+    # Umbral de longitud: coherente con ComentarioCreate del schema.
+    COMENTARIO_MAX_LEN = 5000
 
     if content_type.startswith("application/json"):
         import json as _json
@@ -630,12 +672,23 @@ async def crear_comentario(
         texto = (body.get("texto") or "").strip()
         es_interno = body.get("es_interno", False)
         active_tab = (body.get("active_tab") or "").strip()
+        # JSON no soporta archivos adjuntos (usar endpoint dedicado).
     else:
-        # form-data (HTMX)
+        # FEATURE — multipart/form-data + urlencoded en un solo parse.
+        # ``request.form()`` parsea AMBOS formatos y devuelve los UploadFile
+        # como elementos de ``form.getlist('archivos')``.
         form = await request.form()
         texto = (form.get("texto") or "").strip()
         es_interno = form.get("es_interno", "false")
         active_tab = (form.get("active_tab") or "").strip()
+        # Recoger archivos en 'archivos' (plural) — drag&drop y paste múltiple.
+        for f in form.getlist("archivos"):
+            if f is not None and getattr(f, "filename", None):
+                uploaded_files.append(f)
+        # Compatibilidad: aceptar también 'archivo' singular.
+        f_single = form.get("archivo")
+        if f_single is not None and getattr(f_single, "filename", None):
+            uploaded_files.append(f_single)
 
     if not texto:
         if is_htmx:
@@ -647,6 +700,19 @@ async def crear_comentario(
                 status_code=400,
             )
         raise HTTPException(status_code=400, detail="El texto del comentario no puede estar vacío")
+    if len(texto) > COMENTARIO_MAX_LEN:
+        if is_htmx:
+            return HTMLResponse(
+                content=(
+                    f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">'
+                    f'El texto del comentario supera el máximo ({COMENTARIO_MAX_LEN} chars).</div>'
+                ),
+                status_code=400,
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"El texto del comentario supera el máximo de {COMENTARIO_MAX_LEN} caracteres",
+        )
     es_interno_bool = str(es_interno).lower() in ("true", "on", "1", "yes", "si", "sí")
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
@@ -663,16 +729,73 @@ async def crear_comentario(
         texto=texto,
         es_interno=es_interno_bool,
     )
-    registrar_auditoria(db, ticket.id, user.id, "comentario_creado", valor_nuevo={"comentario_id": com.id})
+
+    # FEATURE — Vincular archivos al comentario recién creado.
+    # Usamos el servicio extendido que acepta ``comentario_id``; las validaciones
+    # de tamaño/extensión/pertenencia las hace ``guardar_archivo()``.
+    errores_adj: List[str] = []
+    subidos_adj: List[Adjunto] = []
+    if uploaded_files:
+        asvc = AdjuntoService(db)
+        for f in uploaded_files:
+            contenido = await f.read()
+            if not contenido:
+                errores_adj.append(f"'{f.filename}' está vacío")
+                continue
+            adj, error = asvc.guardar_archivo(
+                ticket=ticket,
+                usuario=user,
+                file_bytes=contenido,
+                nombre_original=f.filename or "archivo",
+                mime_type=f.content_type,
+                comentario_id=com.id,  # ← VINCULADO al comentario
+            )
+            if error:
+                errores_adj.append(f"'{f.filename}': {error}")
+                continue
+            subidos_adj.append(adj)
+            registrar_auditoria(
+                db, ticket.id, user.id, "adjunto_subido",
+                valor_nuevo={
+                    "adjunto_id": adj.id,
+                    "nombre": adj.nombre_original,
+                    "tamano": adj.tamano_bytes,
+                    "comentario_id": com.id,
+                },
+            )
+
+    registrar_auditoria(
+        db, ticket.id, user.id, "comentario_creado",
+        valor_nuevo={
+            "comentario_id": com.id,
+            "adjuntos_count": len(subidos_adj),
+            "es_interno": es_interno_bool,
+        },
+    )
     MotorAutomatizacion(db).disparar("ticket_comentado", ticket, {"comentario_id": com.id})
 
     if is_htmx:
         db.refresh(com)
         html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab or "comentarios")
+        # Si hubo errores de adjuntos, comunicárselos al cliente vía HX-Trigger.
+        if errores_adj:
+            return HTMLResponse(
+                content=html,
+                status_code=200,
+                headers={"HX-Trigger": json.dumps({
+                    "comentario-creado": {
+                        "id": com.id,
+                        "adjuntos_ok": len(subidos_adj),
+                        "adjuntos_error": errores_adj,
+                    }
+                })},
+            )
         return HTMLResponse(
             content=html,
             status_code=200,
-            headers={"HX-Trigger": "comentario-creado"},
+            headers={"HX-Trigger": json.dumps({
+                "comentario-creado": {"id": com.id, "adjuntos_ok": len(subidos_adj)}
+            })},
         )
     return com
 
@@ -684,13 +807,253 @@ def editar_comentario(
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
+    """Edita un comentario.
+
+    Reglas (FEATURE 2026-10):
+      * Solo el autor o un ADMINISTRADOR puede editar.
+      * El autor tiene una ventana máxima de
+        ``ComentarioService.EDIT_WINDOW_MINUTES`` minutos desde la
+        ÚLTIMA modificación (``updated_at``). Pasada la ventana, solo el
+        ADMINISTRADOR puede seguir editando.
+      * ``updated_at`` se refresca automáticamente en cada UPDATE (vía
+        ``TimestampMixin``), por lo que cada edición RENUEVA la ventana.
+    """
     com = db.query(Comentario).filter(Comentario.id == comentario_id).first()
     if not com:
         raise HTTPException(status_code=404, detail="Comentario no encontrado")
-    if com.usuario_id != user.id and user.rol not in (RolUsuario.ADMINISTRADOR,):
-        raise HTTPException(status_code=403, detail="No autorizado para editar")
-    com = ComentarioService(db).editar(comentario_id, datos.texto)
-    return com
+    permitido, motivo = ComentarioService(db).puede_editar(com, user)
+    if not permitido:
+        raise HTTPException(status_code=403, detail=motivo)
+    # Snapshot del texto anterior para auditoría (sin pasar por servicio).
+    texto_anterior = com.texto
+    com_actualizado = ComentarioService(db).editar(comentario_id, datos.texto)
+    registrar_auditoria(
+        db, com.ticket_id, user.id, "comentario_editado",
+        valor_anterior={
+            "comentario_id": comentario_id,
+            "texto_preview": texto_anterior[:120],
+        },
+        valor_nuevo={
+            "comentario_id": comentario_id,
+            "texto_preview": datos.texto[:120],
+            "autorizado_por": motivo,  # "Administrador" o "Autor (ventana Xm)"
+        },
+    )
+    db.commit()  # CRÍTICO: persiste la auditoría antes de cerrar la sesión
+    return com_actualizado
+
+
+@router.post("/comentarios/{comentario_id}/editar")
+async def editar_comentario_htmx(
+    comentario_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+):
+    """Edita un comentario desde HTMX (form en línea).
+
+    Equivalente a ``PATCH /comentarios/{comentario_id}`` pero pensado para
+    ser llamado desde un ``<form hx-post>`` sin recarga de página.
+    Devuelve el modal re-renderizado para que HTMX haga ``hx-swap``.
+    Si la edición NO está permitida, devuelve un fragmento de error.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = "comentarios"
+    if is_htmx:
+        try:
+            form = await request.form()
+            active_tab = (form.get("active_tab") or "comentarios").strip() or "comentarios"
+        except Exception:
+            pass
+    com = db.query(Comentario).filter(Comentario.id == comentario_id).first()
+    if not com:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Comentario no encontrado.</div>',
+                status_code=404,
+            )
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    permitido, motivo = ComentarioService(db).puede_editar(com, user)
+    if not permitido:
+        if is_htmx:
+            return HTMLResponse(
+                content=f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{motivo}</div>',
+                status_code=403,
+            )
+        raise HTTPException(status_code=403, detail=motivo)
+    # Parsear nuevo texto (soporta JSON o form).
+    content_type = request.headers.get("content-type", "")
+    nuevo_texto = ""
+    if content_type.startswith("application/json"):
+        import json as _json
+        try:
+            body = _json.loads((await request.body()).decode("utf-8") or "{}")
+            nuevo_texto = (body.get("texto") or "").strip()
+        except Exception:
+            nuevo_texto = ""
+    else:
+        form = await request.form()
+        nuevo_texto = (form.get("texto") or "").strip()
+    if not nuevo_texto:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">El texto no puede estar vacío.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="El texto no puede estar vacío")
+    if len(nuevo_texto) > 5000:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">El texto supera el máximo de 5000 caracteres.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="El texto supera el máximo de 5000 caracteres")
+    texto_anterior = com.texto
+    com_act = ComentarioService(db).editar(comentario_id, nuevo_texto)
+    registrar_auditoria(
+        db, com.ticket_id, user.id, "comentario_editado",
+        valor_anterior={"comentario_id": comentario_id, "texto_preview": texto_anterior[:120]},
+        valor_nuevo={
+            "comentario_id": comentario_id,
+            "texto_preview": nuevo_texto[:120],
+            "autorizado_por": motivo,
+        },
+    )
+    db.commit()
+    if is_htmx:
+        ticket = db.query(Ticket).filter(Ticket.id == com_act.ticket_id).first()
+        if ticket:
+            html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab)
+            return HTMLResponse(
+                content=html,
+                status_code=200,
+                headers={"HX-Trigger": json.dumps({
+                    "comentario-editado": {"id": comentario_id, "autorizado_por": motivo}
+                })},
+            )
+    return com_act
+
+
+@router.post("/comentarios/{comentario_id}/adjuntos")
+async def subir_adjuntos_a_comentario(
+    comentario_id: int,
+    request: Request,
+    archivo: Optional[UploadFile] = File(None),
+    archivos: Optional[List[UploadFile]] = File(None),
+    active_tab: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+):
+    """Sube uno o varios archivos a un comentario existente.
+
+    Este endpoint existe SEPARADO de ``POST /tickets/{ticket_id}/adjuntos``
+    para no romper la pestaña "Adjuntos" histórica (siempre tickets-level)
+    y para permitir que el flujo de "editar comentario → agregar más archivos"
+    tenga un destino claro.
+    """
+    is_htmx = request.headers.get("HX-Request") == "true"
+    active_tab = (active_tab or "").strip()
+    com = db.query(Comentario).filter(Comentario.id == comentario_id).first()
+    if not com:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Comentario no encontrado.</div>',
+                status_code=404,
+            )
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    ticket = db.query(Ticket).filter(Ticket.id == com.ticket_id).first()
+    if not ticket:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Ticket no encontrado.</div>',
+                status_code=404,
+            )
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    # Solo el autor del comentario o un ADMIN puede agregar más archivos.
+    if com.usuario_id != user.id and user.rol != RolUsuario.ADMINISTRADOR:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">Solo el autor o un administrador puede adjuntar archivos.</div>',
+                status_code=403,
+            )
+        raise HTTPException(status_code=403, detail="Solo el autor o un administrador puede adjuntar archivos")
+
+    # Normalizar archivos (singular/plural).
+    files_to_upload: List[UploadFile] = []
+    if archivos:
+        files_to_upload.extend([f for f in archivos if f and f.filename])
+    if archivo and archivo.filename:
+        files_to_upload.append(archivo)
+    seen = set()
+    files_unique = []
+    for f in files_to_upload:
+        key = (f.filename, id(f))
+        if key not in seen:
+            seen.add(key)
+            files_unique.append(f)
+    files_to_upload = files_unique
+
+    if not files_to_upload:
+        if is_htmx:
+            return HTMLResponse(
+                content='<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">No se envió ningún archivo.</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail="No se envió ningún archivo")
+
+    errores: List[str] = []
+    subidos: List[Adjunto] = []
+    asvc = AdjuntoService(db)
+    for f in files_to_upload:
+        contenido = await f.read()
+        if not contenido:
+            errores.append(f"'{f.filename}' está vacío")
+            continue
+        adj, error = asvc.guardar_archivo(
+            ticket=ticket, usuario=user,
+            file_bytes=contenido,
+            nombre_original=f.filename or "archivo",
+            mime_type=f.content_type,
+            comentario_id=comentario_id,
+        )
+        if error:
+            errores.append(f"'{f.filename}': {error}")
+            continue
+        subidos.append(adj)
+        registrar_auditoria(
+            db, ticket.id, user.id, "adjunto_subido",
+            valor_nuevo={
+                "adjunto_id": adj.id,
+                "nombre": adj.nombre_original,
+                "tamano": adj.tamano_bytes,
+                "comentario_id": comentario_id,
+            },
+        )
+
+    if not subidos and errores:
+        msg = "; ".join(errores)
+        if is_htmx:
+            return HTMLResponse(
+                content=f'<div class="rounded-md bg-red-50 border border-red-200 p-2 text-xs text-red-700">{msg}</div>',
+                status_code=400,
+            )
+        raise HTTPException(status_code=400, detail=msg)
+
+    if is_htmx:
+        html = _render_detalle_modal_response(db, ticket, user, active_tab=active_tab or "comentarios")
+        return HTMLResponse(
+            content=html,
+            status_code=200,
+            headers={"HX-Trigger": json.dumps({
+                "adjunto-subido-comentario": {
+                    "comentario_id": comentario_id,
+                    "count": len(subidos),
+                    "errores": errores,
+                }
+            })},
+        )
+    return subidos[0] if len(subidos) == 1 else subidos
 
 
 @router.delete("/comentarios/{comentario_id}")

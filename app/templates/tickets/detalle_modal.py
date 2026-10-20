@@ -624,12 +624,49 @@ DETALLE_TEMPLATE = Template(r"""
       <!-- Tab: Comentarios -->
       <div class="tab-panel {% if _active != 'comentarios' %}hidden{% endif %} p-5 space-y-3" data-panel="comentarios">
         <!-- Listado -->
-        <div class="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+        <div id="comentarios-lista" class="space-y-2.5 max-h-[28rem] overflow-y-auto pr-1">
           {% if comentarios %}
             {% for c in comentarios %}
               {% set nc = (c.usuario.nombre_completo if c.usuario else '') %}
               {% set ini = (nc.split(' ')[:2]|map('first')|join|upper) if nc else '?' %}
-              <div class="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+              {% set _is_admin = (usuario and usuario.rol.value == 'administrador') %}
+              {% set _is_autor = (usuario and usuario.id == c.usuario_id) %}
+              {# Ventana de edición: 30 min desde la última actualización del comentario.
+                 Renderizamos el botón solo si el usuario tiene permisos para editar AHORA. #}
+              {% set _updated = c.updated_at %}
+              {% set _created = c.created_at %}
+              {# Calculamos minutos restantes usando la misma fórmula que el servicio.
+                 Se hace en Python para evitar un GET extra; el backend re-validará. #}
+              {% if _is_admin %}
+                {% set _can_edit = True %}
+                {% set _edit_reason = 'admin' %}
+                {% set _min_left = 30 %}
+              {% elif _is_autor and _updated %}
+                {% set _delta = ((_updated - _created).total_seconds() / 60.0) %}
+                {% set _consumed = (30 - (_delta|int)) %}
+                {% set _min_left = _consumed if _consumed > 0 else 0 %}
+                {% set _can_edit = (_min_left > 0) %}
+                {% set _edit_reason = 'autor' if _can_edit else 'expirado' %}
+              {% else %}
+                {% set _can_edit = False %}
+                {% set _min_left = 0 %}
+                {% set _edit_reason = 'no_permitido' %}
+              {% endif %}
+              {# Adjuntos del comentario (pre-cargados por N+1 fix en backend) #}
+              {% set _com_adj = (adjuntos_por_comentario.get(c.id) or []) %}
+              {# Referencias SALIENTES (este comentario menciona a …) #}
+              {% set _refs_fwd = (mapa_referencias_fwd.get(c.id) or []) %}
+              {# Referencias ENTRANTES (comentarios que citan este) #}
+              {% set _refs_inv = (mapa_referencias_inv.get(c.id) or []) %}
+
+              <div id="comentario-{{ c.id }}"
+                   class="rounded-lg border border-slate-200 bg-slate-50/40 p-3 comentario-card"
+                   data-comentario-id="{{ c.id }}"
+                   data-author-id="{{ c.usuario_id }}"
+                   data-edit-window="{{ _min_left }}"
+                   data-is-admin="{{ '1' if _is_admin else '0' }}"
+                   data-is-author="{{ '1' if _is_autor else '0' }}"
+                   data-updated-at="{{ _updated.isoformat() if _updated else '' }}">
                 <div class="flex items-center justify-between mb-1">
                   <div class="flex items-center gap-1.5">
                     <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold" title="{{ nc or 'Anónimo' }}">
@@ -639,10 +676,122 @@ DETALLE_TEMPLATE = Template(r"""
                     {% if c.es_interno %}
                       <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">INTERNO</span>
                     {% endif %}
+                    {# FEATURE — Identificador del comentario para poder referenciarlo en otro #}
+                    <button type="button"
+                            class="copy-comentario-id text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 font-mono"
+                            data-id="{{ c.id }}"
+                            title="Copiar #{{ c.id }} al portapapeles (para pegarlo en otro comentario como #{{ c.id }})">#{{ c.id }}</button>
                   </div>
-                  <span class="text-[10px] text-slate-400">{{ c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '' }}</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-slate-400">{{ c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '' }}</span>
+                    {% if c.editado %}
+                      <span class="text-[10px] text-amber-600" title="Editado · original guardado">editado</span>
+                    {% endif %}
+                  </div>
                 </div>
-                <p class="text-xs text-slate-700 whitespace-pre-wrap">{{ c.texto }}</p>
+                {# FEATURE — Texto con chips #ID clickeables (render-time resolution) #}
+                <div class="text-xs text-slate-700 whitespace-pre-wrap comentario-texto">{{ c.texto|e }}</div>
+
+                {# FEATURE — Adjuntos inline (los del propio comentario). Los del TICKET van en su pestaña. #}
+                {% if _com_adj %}
+                  <div class="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                    <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Adjuntos del comentario</div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {% for a in _com_adj %}
+                        <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
+                           target="_blank" rel="noopener"
+                           class="flex items-center gap-2 p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50">
+                          {% if a.es_imagen %}
+                            <img src="/api/v1/adjuntos/{{ a.id }}/descargar" alt="{{ a.nombre_original }}"
+                                 class="w-10 h-10 object-cover rounded border border-slate-200"
+                                 loading="lazy">
+                          {% else %}
+                            <span class="inline-flex items-center justify-center w-10 h-10 rounded bg-slate-100 text-slate-500 text-[10px]">📎</span>
+                          {% endif %}
+                          <div class="min-w-0 flex-1">
+                            <div class="text-[11px] font-medium text-slate-700 truncate" title="{{ a.nombre_original }}">{{ a.nombre_original }}</div>
+                            <div class="text-[10px] text-slate-400">{{ a.tamano_legible }}</div>
+                          </div>
+                        </a>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {# FEATURE — Chips #ID que el comentario MENCIONA (salientes) + indicadores de CITADO POR (entrantes) #}
+                {% if _refs_fwd or _refs_inv %}
+                  <div class="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                    {% if _refs_fwd %}
+                      <span class="text-[10px] text-slate-500">Refiere a:</span>
+                      {% for rid in _refs_fwd %}
+                        <a href="#comentario-{{ rid }}"
+                           class="comentario-ref-chip inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-mono hover:bg-indigo-100"
+                           data-target-id="{{ rid }}">#{{ rid }}</a>
+                      {% endfor %}
+                    {% endif %}
+                    {% if _refs_inv %}
+                      <span class="text-[10px] text-slate-500 ml-2">Citado por:</span>
+                      {% for rid in _refs_inv %}
+                        <a href="#comentario-{{ rid }}"
+                           class="comentario-ref-chip inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-mono hover:bg-emerald-100"
+                           data-target-id="{{ rid }}">#{{ rid }}</a>
+                      {% endfor %}
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                {# FEATURE — Acciones del comentario: Editar (con countdown) / Eliminar #}
+                <div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    {% if _can_edit %}
+                      <button type="button"
+                              class="comentario-editar-btn text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700"
+                              data-id="{{ c.id }}"
+                              title="Editar (ventana restante: {{ _min_left }} min)">
+                        ✏️ Editar
+                      </button>
+                      {% if _edit_reason == 'autor' %}
+                        <span class="comentario-edit-countdown text-[10px] text-amber-700 font-mono"
+                              data-minutos="{{ _min_left }}">
+                          ⏱ {{ _min_left }} min restantes
+                        </span>
+                      {% endif %}
+                    {% elif _edit_reason == 'expirado' %}
+                      <span class="text-[10px] text-slate-400 italic"
+                            title="Ventana de edición expirada. Solo un administrador puede editarlo.">⏱ ventana expirada</span>
+                    {% endif %}
+                  </div>
+                  {# Eliminar: solo admin o autor #}
+                  {% if _is_admin or _is_autor %}
+                    <button hx-delete="/api/v1/comentarios/{{ c.id }}"
+                            hx-vals='{"active_tab": "comentarios"}'
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-confirm="¿Eliminar este comentario y sus adjuntos?"
+                            class="text-[10px] px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700">
+                      🗑 Eliminar
+                    </button>
+                  {% endif %}
+                </div>
+
+                {# FEATURE — Form de edición INLINE (oculto por defecto). Se activa con el botón ✏️ #}
+                <form hx-post="/api/v1/comentarios/{{ c.id }}/editar"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      class="comentario-edit-form hidden mt-2 pt-2 border-t border-slate-100 space-y-2">
+                  <input type="hidden" name="active_tab" value="comentarios">
+                  <textarea name="texto" rows="3" required
+                            class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            maxlength="5000">{{ c.texto }}</textarea>
+                  <div class="flex items-center justify-end gap-2">
+                    <button type="button"
+                            class="comentario-editar-cancelar text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
+                      Cancelar
+                    </button>
+                    <button type="submit"
+                            class="text-[10px] px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white">
+                      💾 Guardar
+                    </button>
+                  </div>
+                </form>
               </div>
             {% endfor %}
           {% else %}
@@ -650,24 +799,43 @@ DETALLE_TEMPLATE = Template(r"""
           {% endif %}
         </div>
 
-        <!-- Form nuevo comentario -->
+        {# FEATURE — Form nuevo comentario CON SOPORTE DE ARCHIVOS (paste/drop/selección) #}
         <form hx-post="/api/v1/tickets/{{ ticket.id }}/comentarios"
               hx-target="#modal-root" hx-swap="innerHTML"
-              class="pt-3 border-t border-slate-100 space-y-2">
+              enctype="multipart/form-data"
+              id="form-nuevo-comentario"
+              class="pt-3 border-t border-slate-100 space-y-2"
+              data-dropzone-comentario="1">
           <input type="hidden" name="active_tab" value="comentarios">
           <textarea name="texto" rows="3" required
-                    placeholder="Escribe un comentario..."
-                    class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
-          <div class="flex items-center justify-between">
-            <label class="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
-              <input type="checkbox" name="es_interno" value="true"
-                     class="h-3 w-3 text-indigo-600 focus:ring-indigo-500">
-              Marcar como comentario interno
-            </label>
+                    placeholder="Escribe un comentario… (Ctrl+V para pegar imágenes)"
+                    class="comentario-textarea w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    maxlength="5000"></textarea>
+
+          {# Indicador de archivos pendientes de subir (sin submit) #}
+          <div class="comentario-pendientes hidden flex flex-wrap gap-2 p-1.5 rounded border border-dashed border-slate-300 bg-slate-50/60"></div>
+
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+              <label class="inline-flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
+                <input type="checkbox" name="es_interno" value="true"
+                       class="h-3 w-3 text-indigo-600 focus:ring-indigo-500">
+                Interno
+              </label>
+              <label class="comentario-file-trigger inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-indigo-600 cursor-pointer">
+                📎 Adjuntar archivo
+                <input type="file" name="archivos" multiple
+                       class="comentario-file-input hidden"
+                       accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.log,.json,.xml,.yaml,.yml,.zip,.rar,.7z,.tar,.gz,.mp4,.webm,.mov">
+              </label>
+            </div>
             <button type="submit"
                     class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">
               Agregar comentario
             </button>
+          </div>
+          <div class="text-[10px] text-slate-500">
+            Tip: puedes arrastrar archivos al cuadro de texto o pegar (Ctrl+V) imágenes desde el portapapeles. Se vincularán al comentario.
           </div>
         </form>
       </div>
@@ -1476,6 +1644,9 @@ def render_detalle_modal(
     catalogo_etapas: Iterable = (),
     referencias: Iterable = (),
     tipos_referencia: Iterable = (),
+    adjuntos_por_comentario: dict = None,
+    mapa_referencias_fwd: dict = None,
+    mapa_referencias_inv: dict = None,
 ) -> str:
     """Renderiza el modal completo de detalle de un ticket.
 
@@ -1550,4 +1721,7 @@ def render_detalle_modal(
         catalogo_etapas=list(catalogo_etapas),
         referencias=list(referencias),
         tipos_referencia=list(tipos_referencia),
+        adjuntos_por_comentario=dict(adjuntos_por_comentario or {}),
+        mapa_referencias_fwd=dict(mapa_referencias_fwd or {}),
+        mapa_referencias_inv=dict(mapa_referencias_inv or {}),
     )

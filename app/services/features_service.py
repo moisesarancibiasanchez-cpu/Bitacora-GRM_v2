@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func, desc, asc
 
 from app.models.ticket import Ticket
-from app.models.usuario import Usuario
+from app.models.usuario import Usuario, RolUsuario
 from app.models.etiqueta import Etiqueta
 from app.models.checklist import Checklist, ChecklistItem
 from app.models.comentario import Comentario, MencionUsuario
@@ -173,6 +173,19 @@ class ChecklistService:
 # COMENTARIOS + MENCIONES
 # ==========================================
 class ComentarioService:
+    """Servicio de comentarios con @menciones, ventana de edición y referencias.
+
+    Reglas (Bitácora GRM v2 — feature 2026-10):
+      * Editar comentario:  solo ADMINISTRADOR o el autor.
+      * Ventana de edición: 30 minutos desde la última modificación
+        (``updated_at`` se refresca en cada UPDATE vía ``TimestampMixin``).
+      * Si supera la ventana → solo ADMINISTRADOR puede seguir editando.
+    """
+
+    # Ventana máxima (minutos) en la que el AUTOR puede editar su comentario.
+    # El ADMIN siempre puede editar, independientemente de esta ventana.
+    EDIT_WINDOW_MINUTES = 30
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -181,6 +194,48 @@ class ComentarioService:
         if not incluir_internos:
             q = q.filter(Comentario.es_interno == False)  # noqa: E712
         return q.order_by(Comentario.created_at.desc()).all()
+
+    def minutos_restantes(self, com: Comentario) -> Optional[int]:
+        """Minutos restantes de la ventana de edición para el AUTOR.
+
+        Devuelve ``None`` si la ventana ya expiró (<= 0). Es ``int`` cuando
+        aún queda tiempo. Para administradores siempre devolvemos ``None``
+        (no tienen restricción). Esta función NO considera la identidad del
+        usuario, solo el tiempo → úsela para pintar el cronómetro en la UI.
+        """
+        if com is None or com.updated_at is None:
+            return None
+        ahora = datetime.utcnow()
+        delta = (com.updated_at - ahora).total_seconds() / 60.0
+        # Usar updated_at (no created_at) para que cada edición RENUEVE la ventana
+        restantes = self.EDIT_WINDOW_MINUTES + delta
+        if restantes <= 0:
+            return None
+        return int(restantes) + (1 if restantes - int(restantes) > 0 else 0)
+
+    def puede_editar(self, com: Comentario, usuario: Usuario) -> Tuple[bool, str]:
+        """Decide si ``usuario`` puede editar el comentario ``com``.
+
+        Reglas:
+          * admin  → siempre.
+          * autor + dentro de la ventana → sí.
+          * autor + ventana expirada → no.
+          * otro usuario → no.
+
+        Returns ``(True/False, motivo)``.
+        """
+        if com is None or usuario is None:
+            return False, "Comentario o usuario inválido"
+        # 1) Admin siempre puede.
+        if usuario.rol == RolUsuario.ADMINISTRADOR:
+            return True, "Administrador"
+        # 2) Autor puede solo dentro de la ventana.
+        if com.usuario_id == usuario.id:
+            restantes = self.minutos_restantes(com)
+            if restantes is None or restantes <= 0:
+                return False, "La ventana de edición expiró"
+            return True, f"Autor (ventana {restantes}m)"
+        return False, "Solo el autor o un administrador puede editar"
 
     def crear(self, ticket_id: int, usuario_id: int, texto: str, es_interno: bool = False) -> Comentario:
         com = Comentario(
@@ -221,6 +276,39 @@ class ComentarioService:
         self.db.commit()
         self.db.refresh(com)
         return com
+
+    def mapa_referencias(self, comentarios: List[Comentario]) -> dict:
+        """Devuelve ``{id_origen: [ids_referenciados]}`` para una lista de comentarios.
+
+        Construye el grafo inverso de referencias ``#ID``:
+          * Para cada ``comentario`` se extraen los ``#N`` mencionados en su texto.
+          * Se descartan IDs que NO existen en la lista pasada (referencias
+            rotas o a comentarios fuera del scope de la vista).
+
+        Útil para pintar el árbol "este comentario referencia a…" y resolver
+        chips clickables sin hacer una query por cada referencia en el template.
+        """
+        ids_validos = {c.id for c in comentarios if c.id is not None}
+        resultado: dict = {}
+        for c in comentarios:
+            if c.id is None:
+                continue
+            refs = [r for r in c.extraer_referencias() if r in ids_validos and r != c.id]
+            if refs:
+                resultado[c.id] = refs
+        return resultado
+
+    def referencias_hacia(self, comentarios: List[Comentario]) -> dict:
+        """Inverso de ``mapa_referencias``: ``{id_destino: [ids_que_lo_apuntan]}``.
+
+        Útil para la UI: "¿quiénes citaron este comentario?".
+        """
+        fwd = self.mapa_referencias(comentarios)
+        inv: dict = {}
+        for origen, destinos in fwd.items():
+            for d in destinos:
+                inv.setdefault(d, []).append(origen)
+        return inv
 
     def eliminar(self, comentario_id: int) -> bool:
         com = self.db.query(Comentario).filter(Comentario.id == comentario_id).first()
@@ -277,12 +365,32 @@ class AdjuntoService:
         self, ticket: Ticket, usuario: Usuario, file_bytes: bytes,
         nombre_original: str, mime_type: Optional[str] = None,
         descripcion: Optional[str] = None,
+        comentario_id: Optional[int] = None,
     ) -> Tuple[Optional[Adjunto], Optional[str]]:
         """Guarda el archivo en disco y en BD (respaldo) y registra el adjunto.
 
-        Retorna (adjunto, error). El archivo binario siempre queda persistido
-        en PostgreSQL/SQLite (``Adjunto.contenido``) de modo que sobreviva a
-        reinicios del contenedor (Railway borra el filesystem en cada redeploy).
+        Parámetros:
+          * ``ticket``         → ticket al que pertenece el adjunto.
+          * ``usuario``        → quien lo sube (para ``usuario_id``).
+          * ``file_bytes``     → contenido binario del archivo.
+          * ``nombre_original``→ nombre visible (con extensión).
+          * ``mime_type``      → opcional.
+          * ``descripcion``    → opcional.
+          * ``comentario_id``  → si se proporciona, el adjunto cuelga del
+                                 comentario (visible en la pestaña Comentarios).
+                                 Si es ``None``, cuelga del ticket (pestaña Adjuntos).
+
+        Reglas:
+          * Adjuntos del TICKET:   ``comentario_id IS NULL`` (compatibilidad).
+          * Adjuntos del COMENTARIO: ambos ``ticket_id`` Y ``comentario_id``
+            rellenos. ``ticket_id`` siempre se rellena con el ticket dueño del
+            comentario para no romper ``listar_de_ticket`` ni el borrado en
+            cascada del ticket.
+
+        Retorna ``(adjunto, error)``. El archivo binario siempre queda
+        persistido en ``Adjunto.contenido`` (BYTEA en PostgreSQL / BLOB en SQLite)
+        de modo que sobreviva a reinicios del contenedor (Railway borra el
+        filesystem en cada redeploy).
         """
         if not file_bytes:
             return None, "Archivo vacío"
@@ -292,6 +400,14 @@ class AdjuntoService:
         ext = self._extension(nombre_original)
         if ext and ext not in ALLOWED_EXT:
             return None, f"Extensión no permitida: {ext}"
+
+        # Si viene comentario_id, validar que el comentario sea del mismo ticket.
+        if comentario_id is not None:
+            com = self.db.query(Comentario).filter(Comentario.id == comentario_id).first()
+            if not com:
+                return None, f"Comentario #{comentario_id} no existe"
+            if com.ticket_id != ticket.id:
+                return None, f"El comentario no pertenece al ticket {ticket.id}"
 
         # Crear estructura de carpetas (raíz siempre absoluta)
         dir_destino = os.path.join(UPLOAD_ROOT, f"ticket_{ticket.id}")
@@ -318,6 +434,7 @@ class AdjuntoService:
 
         adj = Adjunto(
             ticket_id=ticket.id,
+            comentario_id=comentario_id,
             usuario_id=usuario.id,
             nombre_original=nombre_original,
             nombre_storage=nombre_storage,
@@ -334,10 +451,23 @@ class AdjuntoService:
         return adj, None
 
     def listar_de_ticket(self, ticket_id: int) -> List[Adjunto]:
+        """Adjuntos que cuelgan del TICKET (no de un comentario)."""
         return (
             self.db.query(Adjunto)
-            .filter(Adjunto.ticket_id == ticket_id)
+            .filter(
+                Adjunto.ticket_id == ticket_id,
+                Adjunto.comentario_id.is_(None),
+            )
             .order_by(Adjunto.created_at.desc())
+            .all()
+        )
+
+    def listar_de_comentario(self, comentario_id: int) -> List[Adjunto]:
+        """Adjuntos que pertenecen a un comentario concreto."""
+        return (
+            self.db.query(Adjunto)
+            .filter(Adjunto.comentario_id == comentario_id)
+            .order_by(Adjunto.created_at.asc())
             .all()
         )
 
