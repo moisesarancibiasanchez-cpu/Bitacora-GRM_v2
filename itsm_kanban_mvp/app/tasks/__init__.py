@@ -1,0 +1,1 @@
+"""Tareas asíncronas de Celery."""
