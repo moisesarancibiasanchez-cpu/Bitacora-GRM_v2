@@ -1,0 +1,23 @@
+{# Fragmento que se inyecta al expandir el botón "auditoría" de una tarjeta. #}
+<div class="bg-slate-50 border border-slate-200 rounded p-2 text-[11px] text-slate-600 max-h-48 overflow-y-auto">
+    <h4 class="font-semibold text-slate-700 mb-1">Auditoría — {{ ticket.codigo }}</h4>
+    {% if eventos %}
+    <ul class="space-y-1">
+        {% for e in eventos[:8] %}
+        <li class="flex items-start gap-1.5 border-l-2 border-slate-300 pl-1.5">
+            <span class="font-mono text-slate-400 w-20 flex-shrink-0">{{ e.created_at.strftime('%H:%M:%S') }}</span>
+            <span class="font-medium text-slate-700">{{ e.tipo.value }}</span>
+            <span class="text-slate-500">por {{ e.actor_username }}</span>
+            {% if e.comentario %}
+            <span class="italic text-slate-500 truncate">— {{ e.comentario[:60] }}</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% if eventos|length > 8 %}
+    <p class="text-slate-400 mt-1">… y {{ eventos|length - 8 }} más</p>
+    {% endif %}
+    {% else %}
+    <p class="text-slate-400">Sin eventos aún.</p>
+    {% endif %}
+</div>

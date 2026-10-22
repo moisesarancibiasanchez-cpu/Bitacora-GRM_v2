@@ -1,0 +1,1445 @@
+"""
+Endpoints de métricas y dashboard.
+Sprint 1 - Feature Trello premium: Dashboard con KPIs.
+Sprint 2 - Mejoras: filtros por tipo Incidencia, Cuenta de Resultado, riesgo SLA, top agentes con stats.
+Sprint 2 (restaurado) - Endpoint dedicado /cuenta-resultado con pivot módulo ×
+resultado_pruebas (réplica del rango A64:H81 de la hoja REPORTE del Excel UAT)
++ drill-down por celda, exportación CSV y filtrado por ambiente (QA/PRODUCCION).
+"""
+import logging
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import String, func, case, and_, or_
+from sqlalchemy.orm import Session
+
+from app.api.v1.deps import get_current_user
+from app.core.timezone import now_utc, fmt_cl_iso, fmt_cl
+from app.db.session import get_db
+from app.models.ticket import Ticket, Prioridad, TipoIncidencia
+from app.models.estado import Estado
+from app.models.usuario import Usuario
+from app.models.auditoria import Auditoria
+from app.models.comentario import Comentario
+from app.models.etiqueta import Etiqueta, ticket_etiquetas
+
+# =============================================================================
+# Helper compartido: filtro de tipo de ticket (DRY)
+# =============================================================================
+# FIX-PREFIX-DRY(metricas): tras detectar que el KPI "Incidencias levantadas"
+# del dashboard principal mostraba 14 cuando debería incluir todos los tickets
+# con prefijo histórico "INC-" o "INC_", se centraliza toda la lógica de
+# filtrado por tipo en una sola función. Antes había 8 lugares con el filtro
+# antiguo (Ticket.tipo == TipoIncidencia.INCIDENCIA) y solo 2 con el filtro
+# completo; ahora todos usan esta misma función.
+#
+# Caso especial ``tipo="incidencia"``:
+#   - Enum Ticket.tipo == 'INCIDENCIA' (case-insensitive)
+#   - OR codigo ILIKE 'INC-%'   (prefijo histórico con guion)
+#   - OR codigo ILIKE 'INC\_%' ESCAPE '\' (prefijo histórico con underscore)
+#
+# El ``ESCAPE '\'`` es crítico: en SQL el `_` es un wildcard de "un solo
+# carácter". Si no se escapara, "INC_%" matchearía también "INCX%" etc.
+#
+# Esta expresión es portable entre SQLite (tests) y PostgreSQL (producción):
+# - func.upper(<Enum>.cast(String)) funciona en ambos (SQLite ignora el cast).
+# - ilike() se compila a LIKE en SQLite y a ILIKE en PostgreSQL.
+
+_TIPOS_VALIDOS = {
+    "incidencia":         "INCIDENCIA",
+    "resultado_pruebas":  "RESULTADO_PRUEBAS",
+    "solicitud":          "SOLICITUD",
+    "cambio":             "CAMBIO",
+    "problema":           "PROBLEMA",
+}
+
+
+def _build_tipo_filter(tipo: str):
+    """
+    Devuelve una cláusula SQLAlchemy que filtra tickets por tipo.
+
+    Args:
+        tipo: Uno de ``"incidencia"``, ``"resultado_pruebas"``, ``"solicitud"``,
+              ``"cambio"``, ``"problema"``, ``"todos"``, o cualquier otro valor
+              (en cuyo caso se comporta como ``"todos"``).
+
+    Returns:
+        Expresión SQLAlchemy combinable con .filter() / .where().
+    """
+    if tipo == "incidencia":
+        return or_(
+            func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
+            Ticket.codigo.ilike("INC-%"),
+            Ticket.codigo.ilike("INC\\_%", escape="\\"),
+        )
+    if tipo in _TIPOS_VALIDOS:
+        return func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
+    # 'todos' o cualquier valor desconocido: union de los 5 tipos del LOV
+    return func.upper(Ticket.tipo.cast(String)).in_(list(_TIPOS_VALIDOS.values()))
+
+
+# Columnas esperadas para la tabla pivote "Cuenta de Resultado"
+# Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+#
+# NOTA: Incluye TODOS los valores del LOV de ``resultado_pruebas``
+# (N/A, NOK, OK, OK CON OBS., POSTERGADA, DESESTIMADA) más la
+# categoría derivada "(en blanco)" para valores NULL/vacíos. Si
+# el LOV crece en el futuro, basta con agregar el nuevo valor aquí
+# y darlo de alta en ``sql_columnas`` más abajo para que el pivot
+# lo refleje sin perder tickets.
+_RESULTADOS_PIVOTE = (
+    "N/A",
+    "NOK",
+    "OK",
+    "OK CON OBS.",
+    "POSTERGADA",
+    "DESESTIMADA",
+    "",  # (en blanco) — sin resultado
+)
+
+# Normalización de etiquetas de módulo para la tabla pivote.
+# Mapea variantes conocidas (ej: heredadas de la migración UAT) a
+# su forma canónica. Si en el futuro aparecen nuevas variantes, se
+# agregan aquí para que el pivot muestre una fila única y consistente.
+MODULO_ALIAS = {
+    "Registro Información": "Registro de Información",
+}
+
+
+def _normalizar_modulo(modulo: str) -> str:
+    """Devuelve la etiqueta canónica del módulo para mostrar en el pivot."""
+    if not modulo or not modulo.strip():
+        return "(en blanco)"
+    return MODULO_ALIAS.get(modulo, modulo)
+
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/metricas", tags=["Métricas"])
+
+
+@router.get("/resumen")
+def resumen_dashboard(
+    dias: int = 30,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Resumen agregado de métricas para el dashboard.
+
+    - total_tickets, abiertos, cerrados, archivados
+    - distribucion_por_estado, por_prioridad
+    - tickets_por_dia (para grafico de actividad)
+    - tiempo_promedio_resolucion (horas)
+    - sla_cumplido_pct
+    - top_etiquetas
+    - top_agentes
+    """
+    # === Conteos básicos ===
+    total = db.query(func.count(Ticket.id)).scalar() or 0
+    archivados = db.query(func.count(Ticket.id)).filter(Ticket.archivado == True).scalar() or 0  # noqa: E712
+    activos = total - archivados
+
+    # === Conteos específicos por tipo Incidencia (Sprint 2) ===
+    # total: incluye todos los tipos de tickets
+    # incidencias: solo tipo Incidencia
+    # FIX-PREFIX-DRY(metricas): uso helper compartido para incluir tickets
+    # con prefijo histórico INC-/INC_ además del enum INCIDENCIA.
+    _tipo_inc = _build_tipo_filter("incidencia")
+    incidencias_total = (
+        db.query(func.count(Ticket.id))
+        .filter(_tipo_inc)
+        .scalar() or 0
+    )
+    incidencias_activas = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            _tipo_inc,
+            Ticket.archivado == False,  # noqa: E712
+        )
+        .scalar() or 0
+    )
+    # Nuevas incidencias en los últimos 7 días
+    hace_7d = datetime.utcnow() - timedelta(days=7)
+    nuevas_7d = (
+        db.query(func.count(Ticket.id))
+        .filter(Ticket.created_at >= hace_7d)
+        .scalar() or 0
+    )
+    incidencias_nuevas_7d = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            _tipo_inc,
+            Ticket.created_at >= hace_7d,
+        )
+        .scalar() or 0
+    )
+    # Incidencias Abiertas: incidencias activas (no archivadas) que AÚN NO
+    # se han abordado o solucionado. Es decir, NO cuentan las que ya pasaron
+    # a un estado terminal/ cerrado:
+    #   - "Producción OK"  → resuelta y desplegada en producción
+    #   - "DESESTIMADA"    → rechazada/cancelada, no procede
+    #
+    # FIX-BACKLOG-SEMANTICA(metricas):
+    #   v1: filtro `created_at < hace_7d` → "abiertas >7d" (Backlog=13)
+    #       Inconsistente con el stat-bar "Abiertas" (=17) y excluía 4
+    #       INCIDENCIA legítimas creadas en los últimos 7 días.
+    #   v2: eliminamos el filtro de fecha → "todas las activas" (Backlog=17)
+    #       Pero ahora contaba 13 tickets ya finalizados en Producción OK.
+    #   v3: helper _tipo_inc + archivado=false + estado != "produccion ok"
+    #       (Backlog=4) pero seguía contando INC-008 que está DESESTIMADA.
+    #   v4 (actual): helper _tipo_inc + archivado=false + estado NOT IN
+    #       ("produccion ok", "desestimada"). El KPI se renombra a
+    #       "Incidencias Abiertas" y representa "incidencias en gestión"
+    #       (no archivadas, no resueltas, no rechazadas).
+    #
+    # Detección de estados terminales:
+    #   - Se compara contra `estados.nombre` (NO contra `estados.categoria`,
+    #     que en producción NUNCA toma el valor 'produccion_ok'; ver
+    #     commit 4bac32d para más detalle).
+    #   - Los valores almacenados en la BD son lowercase y sin acento
+    #     ('produccion ok', 'desestimada'), por lo que `func.lower()` es
+    #     suficiente y portable entre SQLite y PostgreSQL.
+    backlog_7d = (
+        db.query(func.count(Ticket.id))
+        .join(Estado, Estado.id == Ticket.estado_id)
+        .filter(
+            _tipo_inc,
+            Ticket.archivado == False,  # noqa: E712
+            func.lower(Estado.nombre).notin_(["produccion ok", "desestimada"]),
+        )
+        .scalar() or 0
+    )
+
+    # === Distribución por estado ===
+    estados_count = (
+        db.query(Estado.nombre, Estado.color, func.count(Ticket.id))
+        .outerjoin(Ticket, Ticket.estado_id == Estado.id)
+        .group_by(Estado.id, Estado.nombre, Estado.color, Estado.orden)
+        .order_by(Estado.orden)
+        .all()
+    )
+    distribucion_estado = [
+        {"nombre": nombre, "color": color, "total": cnt}
+        for nombre, color, cnt in estados_count
+    ]
+
+    # === Distribución por prioridad ===
+    prioridades_count = (
+        db.query(Ticket.prioridad, func.count(Ticket.id))
+        .filter(Ticket.archivado == False)  # noqa: E712
+        .group_by(Ticket.prioridad)
+        .all()
+    )
+    distribucion_prioridad = [
+        {"prioridad": p.value if p else "sin_prioridad", "total": cnt}
+        for p, cnt in prioridades_count
+    ]
+
+    # === Tickets creados por día (últimos N días) ===
+    fecha_limite = datetime.utcnow() - timedelta(days=dias)
+    tickets_por_dia = (
+        db.query(
+            func.date(Ticket.created_at).label("fecha"),
+            func.count(Ticket.id).label("total"),
+        )
+        .filter(Ticket.created_at >= fecha_limite)
+        .group_by(func.date(Ticket.created_at))
+        .order_by(func.date(Ticket.created_at))
+        .all()
+    )
+    serie_actividad = [
+        {"fecha": str(fecha), "total": total}
+        for fecha, total in tickets_por_dia
+    ]
+
+    # === SLA cumplimiento ===
+    sla_si = db.query(func.count(Ticket.id)).filter(Ticket.sla_cumplido == 1).scalar() or 0
+    sla_no = db.query(func.count(Ticket.id)).filter(Ticket.sla_cumplido == 0).scalar() or 0
+    sla_pendiente = db.query(func.count(Ticket.id)).filter(
+        Ticket.sla_cumplido == -1, Ticket.fecha_vencimiento_sla.isnot(None)
+    ).scalar() or 0
+    sla_total = sla_si + sla_no
+    sla_pct = (sla_si / sla_total * 100) if sla_total > 0 else 0
+
+    # === Top etiquetas ===
+    top_etiquetas = (
+        db.query(Etiqueta.nombre, Etiqueta.color, func.count(ticket_etiquetas.c.ticket_id).label("total"))
+        .join(ticket_etiquetas, ticket_etiquetas.c.etiqueta_id == Etiqueta.id)
+        .group_by(Etiqueta.id, Etiqueta.nombre, Etiqueta.color)
+        .order_by(func.count(ticket_etiquetas.c.ticket_id).desc())
+        .limit(5)
+        .all()
+    )
+    top_etiquetas_list = [
+        {"nombre": n, "color": c, "total": t} for n, c, t in top_etiquetas
+    ]
+
+    # === Top agentes (asignados) ===
+    top_agentes = (
+        db.query(Usuario.nombre_completo, func.count(Ticket.id).label("total"))
+        .join(Ticket, Ticket.asignado_id == Usuario.id)
+        .filter(Ticket.archivado == False)  # noqa: E712
+        .group_by(Usuario.id, Usuario.nombre_completo)
+        .order_by(func.count(Ticket.id).desc())
+        .limit(5)
+        .all()
+    )
+    top_agentes_list = [
+        {"nombre": n, "total": t} for n, t in top_agentes
+    ]
+
+    # === Tickets críticos sin asignar ===
+    criticos_sin_asignar = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            Ticket.prioridad == Prioridad.CRITICA,
+            Ticket.asignado_id.is_(None),
+            Ticket.archivado == False,  # noqa: E712
+        )
+        .scalar()
+    ) or 0
+
+    return {
+        "periodo_dias": dias,
+        "totales": {
+            "total": total,
+            "activos": activos,
+            "archivados": archivados,
+            "criticos_sin_asignar": criticos_sin_asignar,
+        },
+        # === Conteos Sprint 2 (no rompen consumidores existentes) ===
+        "incidencias": {
+            "total": incidencias_total,
+            "activas": incidencias_activas,
+            "nuevas_7d": incidencias_nuevas_7d,
+            "backlog_7d": backlog_7d,
+        },
+        "nuevas_7d": nuevas_7d,
+        "sla": {
+            "cumplidos": sla_si,
+            "incumplidos": sla_no,
+            "pendientes": sla_pendiente,
+            "porcentaje_cumplimiento": round(sla_pct, 1),
+        },
+        "distribucion_estado": distribucion_estado,
+        "distribucion_prioridad": distribucion_prioridad,
+        "actividad_por_dia": serie_actividad,
+        "top_etiquetas": top_etiquetas_list,
+        "top_agentes": top_agentes_list,
+    }
+
+
+@router.get("/dashboard-completo")
+def dashboard_completo(
+    dias: int = 30,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Endpoint extendido para el dashboard rediseñado (Sprint 2).
+
+    Devuelve todos los datos que consume el dashboard nuevo:
+    - totales, incidencias, sla (igual que /resumen)
+    - distribuciones por estado y prioridad
+    - serie de actividad por día (para sparklines y chart)
+    - funnel de avance por estado
+    - próximos a vencer SLA (lista de tickets)
+    - cuenta de resultado (pivot módulo × resultado de pruebas)
+    - top agentes enriquecido (asignados, abiertas, cerradas)
+    """
+    # Reutilizamos la lógica del resumen para evitar duplicación
+    resumen = resumen_dashboard(dias=dias, db=db, usuario=usuario)
+
+    # === Funnel: total por estado (orden estable por orden del estado) ===
+    funnel_rows = (
+        db.query(Estado.nombre, Estado.color, Estado.es_final, func.count(Ticket.id))
+        .outerjoin(Ticket, and_(Ticket.estado_id == Estado.id, Ticket.archivado == False))  # noqa: E712
+        .group_by(Estado.id, Estado.nombre, Estado.color, Estado.es_final, Estado.orden)
+        .order_by(Estado.orden)
+        .all()
+    )
+    funnel = [
+        {"estado": n, "color": c, "total": cnt}
+        for n, c, _es_final, cnt in funnel_rows
+    ]
+
+    # === Próximos a vencer SLA (default 72h) ===
+    ahora = datetime.utcnow()
+    hasta_72h = ahora + timedelta(hours=72)
+    # FIX-PREFIX-DRY(metricas): helper compartido incluye prefijo INC-/INC_.
+    _tipo_inc = _build_tipo_filter("incidencia")
+    riesgo_rows = (
+        db.query(Ticket, Estado.color.label("estado_color"))
+        .join(Estado, Estado.id == Ticket.estado_id)
+        .filter(
+            _tipo_inc,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.fecha_vencimiento_sla.isnot(None),
+            Ticket.fecha_vencimiento_sla <= hasta_72h,
+            Ticket.sla_cumplido != 1,
+        )
+        .order_by(Ticket.fecha_vencimiento_sla.asc())
+        .limit(20)
+        .all()
+    )
+    riesgo = []
+    for t, estado_color in riesgo_rows:
+        horas = (t.fecha_vencimiento_sla - ahora).total_seconds() / 3600.0
+        riesgo.append({
+            "id": t.id,
+            "codigo": t.codigo,
+            "titulo": t.titulo,
+            "prioridad": t.prioridad.value if t.prioridad else "media",
+            "estado": t.estado.nombre if t.estado else "",
+            "estado_color": estado_color or "#94a3b8",
+            "asignado": t.asignado.nombre_completo if t.asignado else None,
+            "horas_restantes": round(horas, 1),
+        })
+
+    # === Cuenta de Resultado: pivot módulo × resultado de pruebas (sólo incidencias cerradas) ===
+    # Filtramos tickets con fecha_completado (i.e., cerrados/resueltos)
+    # FIX-PREFIX-DRY(metricas): helper compartido incluye prefijo INC-/INC_.
+    cuenta_rows = (
+        db.query(
+            Ticket.modulo,
+            Ticket.resultado_pruebas,
+            func.count(Ticket.id).label("total"),
+        )
+        .filter(
+            _tipo_inc,
+            Ticket.fecha_completado.isnot(None),
+            Ticket.resultado_pruebas.isnot(None),
+            Ticket.archivado == False,  # noqa: E712
+        )
+        .group_by(Ticket.modulo, Ticket.resultado_pruebas)
+        .all()
+    )
+
+    # Mapeo de módulo → dict con conteo por resultado
+    cuenta_dict = {}
+    for modulo, resultado, total in cuenta_rows:
+        mod_key = modulo or "(sin módulo)"
+        if mod_key not in cuenta_dict:
+            cuenta_dict[mod_key] = {"modulo": mod_key, "total": 0}
+        cuenta_dict[mod_key]["total"] += total
+        cuenta_dict[mod_key][resultado] = cuenta_dict[mod_key].get(resultado, 0) + total
+
+    cuenta_resultado = sorted(
+        cuenta_dict.values(), key=lambda x: x["total"], reverse=True
+    )
+
+    # === Top agentes enriquecido (asignados, abiertas, cerradas en el periodo) ===
+    fecha_limite = ahora - timedelta(days=dias)
+    top_agentes_rows = (
+        db.query(
+            Usuario.id,
+            Usuario.nombre_completo,
+            func.count(Ticket.id).filter(
+                Ticket.archivado == False  # noqa: E712
+            ).label("abiertas"),
+            func.count(Ticket.id).filter(
+                Ticket.archivado == False,  # noqa: E712
+                Ticket.fecha_completado.isnot(None),
+                Ticket.fecha_completado >= fecha_limite,
+            ).label("cerradas_periodo"),
+            func.count(Ticket.id).label("total_asignados"),
+        )
+        .join(Ticket, Ticket.asignado_id == Usuario.id)
+        .filter(Usuario.is_active == True)  # noqa: E712
+        .group_by(Usuario.id, Usuario.nombre_completo)
+        .order_by(func.count(Ticket.id).desc())
+        .limit(5)
+        .all()
+    )
+    top_agentes = [
+        {
+            "id": uid,
+            "nombre": nombre,
+            "abiertas": abiertas or 0,
+            "cerradas": cerradas_periodo or 0,
+            "total": total_asignados or 0,
+        }
+        for uid, nombre, abiertas, cerradas_periodo, total_asignados in top_agentes_rows
+    ]
+
+    # === Series de actividad por día (con split levantadas/cerradas) ===
+    serie_actividad = []
+    for i in range(dias - 1, -1, -1):
+        d_ini = ahora - timedelta(days=i)
+        d_ini = d_ini.replace(hour=0, minute=0, second=0, microsecond=0)
+        d_fin = d_ini.replace(hour=23, minute=59, second=59, microsecond=999000)
+
+        levantadas = (
+            db.query(func.count(Ticket.id))
+            .filter(Ticket.created_at >= d_ini, Ticket.created_at <= d_fin)
+            .scalar() or 0
+        )
+        cerradas = (
+            db.query(func.count(Ticket.id))
+            .filter(
+                Ticket.fecha_completado.isnot(None),
+                Ticket.fecha_completado >= d_ini,
+                Ticket.fecha_completado <= d_fin,
+            )
+            .scalar() or 0
+        )
+        serie_actividad.append({
+            "fecha": d_ini.strftime("%Y-%m-%d"),
+            "levantadas": levantadas,
+            "cerradas": cerradas,
+        })
+
+    # === Distribución por estado / prioridad (alias para el dashboard nuevo) ===
+    dist_estado = resumen["distribucion_estado"]
+    dist_prioridad = resumen["distribucion_prioridad"]
+
+    # === Series para sparklines (sintéticas desde la serie de actividad) ===
+    spark_levantadas = [s["levantadas"] for s in serie_actividad]
+    # FIX-PREFIX-DRY(metricas): helper compartido incluye prefijo INC-/INC_.
+    spark_incidencias = [
+        (
+            db.query(func.count(Ticket.id))
+            .filter(
+                _tipo_inc,
+                Ticket.created_at >= (
+                    ahora - timedelta(days=i)
+                ).replace(hour=0, minute=0, second=0, microsecond=0),
+                Ticket.created_at <= (
+                    ahora - timedelta(days=i)
+                ).replace(hour=23, minute=59, second=59, microsecond=999000),
+            ).scalar() or 0
+        )
+        for i in range(dias - 1, -1, -1)
+    ]
+    # SLA sparkline: porcentaje de cumplimiento sobre tickets cerrados en cada día (suavizado)
+    spark_sla = []
+    spark_backlog = []
+    for i in range(dias - 1, -1, -1):
+        d_fin = (ahora - timedelta(days=i)).replace(hour=23, minute=59, second=59, microsecond=999000)
+        cerrados_hasta = (
+            db.query(func.count(Ticket.id))
+            .filter(
+                Ticket.fecha_completado.isnot(None),
+                Ticket.fecha_completado <= d_fin,
+                Ticket.sla_cumplido.in_([0, 1]),
+            ).scalar() or 0
+        )
+        sla_ok = (
+            db.query(func.count(Ticket.id))
+            .filter(
+                Ticket.fecha_completado.isnot(None),
+                Ticket.fecha_completado <= d_fin,
+                Ticket.sla_cumplido == 1,
+            ).scalar() or 0
+        )
+        sla_pct_dia = (sla_ok / cerrados_hasta * 100) if cerrados_hasta > 0 else 0
+        spark_sla.append(round(sla_pct_dia, 1))
+        backlog_dia = (
+            db.query(func.count(Ticket.id))
+            .filter(
+                _tipo_inc,
+                Ticket.archivado == False,  # noqa: E712
+                Ticket.created_at <= d_fin,
+                Ticket.fecha_completado.is_(None),
+            ).scalar() or 0
+        )
+        spark_backlog.append(backlog_dia)
+
+    return {
+        "periodo_dias": dias,
+        "timestamp": ahora.isoformat(),
+        "timestamp_cl": fmt_cl_iso(ahora),
+        "timezone": "America/Santiago",
+        "totales": resumen["totales"],
+        "incidencias": resumen["incidencias"],
+        "nuevas_7d": resumen["nuevas_7d"],
+        "sla": resumen["sla"],
+        "distribucion_estado": dist_estado,
+        "distribucion_prioridad": dist_prioridad,
+        "actividad_por_dia": serie_actividad,
+        "funnel": funnel,
+        "riesgo_sla": riesgo,
+        "cuenta_resultado": cuenta_resultado,
+        "top_agentes": top_agentes,
+        "top_etiquetas": resumen["top_etiquetas"],
+        # Series listas para sparklines
+        "sparklines": {
+            "levantadas": spark_levantadas,
+            "incidencias": spark_incidencias,
+            "sla": spark_sla,
+            "backlog": spark_backlog,
+        },
+    }
+
+
+# =============================================================================
+# Cuenta de Resultado — endpoint dedicado (restaurado).
+#
+# Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+#   - Pivot módulo (filas) × resultado_pruebas (columnas).
+#   - Filtro por ``ambiente`` (default QA).
+#   - Acepta TODAS las variantes del LOV (incluye mayúsculas mixtas, con/sin
+#     punto final, plurales y nombres legacy de la migración UAT) para no
+#     perder tickets por nomenclatura heredada.
+#   - Incluye la columna derivada "(en blanco)" que agrupa NULL/vacíos.
+#   - Drill-down por celda vía /cuenta-resultado/detalle (HTMX → modal).
+# =============================================================================
+
+
+@router.get("/cuenta-resultado")
+def cuenta_resultado(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Tabla pivote "Cuenta de Resultado" — réplica del rango A64:H81 del Excel.
+
+    Devuelve el conteo de tickets agrupados por módulo y resultado_pruebas
+    filtrado por ``ambiente`` (default ``QA``). La respuesta se serializa
+    con la forma exacta esperada por el componente del dashboard:
+      {
+        "ambiente": "QA",
+        "columnas": ["N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "DESESTIMADA", "(en blanco)"],
+        "filas": [
+          {"modulo": "Auditoría", "valores": {"N/A": 1, "NOK": 0, ...}, "total": 9},
+          ...
+        ],
+        "totales_por_columna": {"N/A": 130, "NOK": 10, "OK": 635, ...},
+        "total_general": 877
+      }
+    """
+    ambiente_filtro = "QA"
+
+    # Columnas dinámicas: mismas que el front (incluye "(en blanco)" para
+    # agrupar NULL/vacíos en resultado_pruebas). DESESTIMADA se incluye
+    # explícitamente para que esos tickets NO queden excluidos del pivot.
+    columnas_front = [
+        "N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "DESESTIMADA",
+        "(en blanco)",
+    ]
+
+    def _eq_ci(*literales):
+        """SQL case-insensitive y tolerante a espacios."""
+        norm = func.upper(func.trim(Ticket.resultado_pruebas))
+        return or_(*[norm == lit.upper() for lit in literales])
+
+    sql_columnas = [
+        ("N/A",         _eq_ci("N/A")),
+        ("NOK",         _eq_ci("NOK")),
+        ("OK",          _eq_ci("OK")),
+        ("OK CON OBS.", _eq_ci(
+            "OK CON OBS.", "OK CON OBS", "OK CON OBSERVACIONES",
+            "OK CON OBSERVACIÓN", "OK CON OBSERVACION",
+            "OK CON OBSERV.", "OK C/OBS", "OK COBS",
+        )),
+        ("POSTERGADA",  _eq_ci(
+            "POSTERGADA", "POSTERGADA A GARANTÍA",
+            "POSTERGADA A GARANTIA", "POSTERGADO",
+        )),
+        ("DESESTIMADA", _eq_ci("DESESTIMADA", "DESESTIMADO")),
+        ("(en blanco)", Ticket.resultado_pruebas.is_(None) | (func.trim(Ticket.resultado_pruebas) == "")),
+    ]
+
+    sums = []
+    for nombre, cond in sql_columnas:
+        sums.append(
+            func.coalesce(
+                func.sum(case((cond, 1), else_=0)),
+                0,
+            ).label(nombre)
+        )
+
+    rows = (
+        db.query(
+            Ticket.modulo.label("modulo"),
+            *sums,
+            func.count(Ticket.id).label("total"),
+        )
+        .filter(Ticket.ambiente == ambiente_filtro)
+        .group_by(Ticket.modulo)
+        .order_by(Ticket.modulo.asc())
+        .all()
+    )
+
+    filas = {}
+    totales_por_columna = {c: 0 for c in columnas_front}
+    total_general = 0
+
+    for r in rows:
+        modulo_canonico = _normalizar_modulo(r.modulo)
+        valores = {}
+        fila_total = 0
+        for nombre_col, _ in sql_columnas:
+            v = int(getattr(r, nombre_col, 0) or 0)
+            valores[nombre_col] = v
+            fila_total += v
+        if modulo_canonico in filas:
+            existente = filas[modulo_canonico]
+            for col, v in valores.items():
+                existente["valores"][col] = existente["valores"].get(col, 0) + v
+            existente["total"] += fila_total
+        else:
+            filas[modulo_canonico] = {
+                "modulo": modulo_canonico,
+                "valores": valores,
+                "total": fila_total,
+            }
+        for col, v in valores.items():
+            totales_por_columna[col] += v
+        total_general += fila_total
+
+    filas_ordenadas = sorted(
+        filas.values(),
+        key=lambda f: (f["modulo"] == "(en blanco)", f["modulo"]),
+    )
+
+    if not any(f["modulo"] == "(en blanco)" for f in filas_ordenadas):
+        filas_ordenadas.append({
+            "modulo": "(en blanco)",
+            "valores": {c: 0 for c in columnas_front},
+            "total": 0,
+        })
+
+    return {
+        "ambiente": ambiente_filtro,
+        "columnas": columnas_front,
+        "filas": filas_ordenadas,
+        "totales_por_columna": totales_por_columna,
+        "total_general": total_general,
+        "fuente": "tickets",
+        "filtro_ambiente_default": "QA",
+        "nota_postergada": (
+            "POSTERGADA es la normalización del valor original "
+            "'POSTERGADA A GARANTÍA' en la migración UAT."
+        ),
+    }
+
+
+# Mapa de colores para el badge del modal (sincronizado con el front).
+CUENTA_RESULTADO_COLORES_PARA_MODAL = {
+    "N/A":         {"bg": "#94a3b8", "text": "#ffffff"},
+    "NOK":         {"bg": "#dc2626", "text": "#ffffff"},
+    "OK":          {"bg": "#16a34a", "text": "#ffffff"},
+    "OK CON OBS.": {"bg": "#eab308", "text": "#1f2937"},
+    "POSTERGADA":  {"bg": "#ea580c", "text": "#ffffff"},
+    "DESESTIMADA": {"bg": "#7c3aed", "text": "#ffffff"},
+    "(en blanco)": {"bg": "#cbd5e1", "text": "#475569"},
+}
+
+
+@router.get("/cuenta-resultado/detalle")
+def cuenta_resultado_detalle(
+    modulo: str,
+    resultado: str,
+    ambiente: str = "QA",
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Drill-down: HTML con el detalle de tickets de una celda del pivot.
+
+    Consumido por HTMX al hacer clic en cualquier celda numérica de la tabla
+    "Cuenta de Resultado". Devuelve el modal con la lista de tickets que
+    componen el valor agregado de la celda, con filtros módulo/resultado/
+    ambiente preservados.
+    """
+    from fastapi.responses import HTMLResponse
+
+    modulo_filtro = (modulo or "").strip()
+    resultado_filtro = (resultado or "").strip()
+    ambiente_filtro = (ambiente or "QA").strip().upper()
+    if ambiente_filtro not in ("QA", "PRODUCCION"):
+        ambiente_filtro = "QA"
+
+    # === Filtro de MÓDULO ===
+    if modulo_filtro == "(en blanco)":
+        modulo_cond = Ticket.modulo.is_(None) | (func.trim(Ticket.modulo) == "")
+    else:
+        variantes = [modulo_filtro]
+        for alias, canonico in MODULO_ALIAS.items():
+            if canonico == modulo_filtro:
+                variantes.append(alias)
+        for alias, canonico in MODULO_ALIAS.items():
+            if alias == modulo_filtro:
+                variantes.append(canonico)
+        modulo_cond = or_(*[
+            func.upper(func.trim(Ticket.modulo)) == v.upper()
+            for v in variantes
+        ])
+
+    # === Filtro de RESULTADO PRUEBAS ===
+    resultado_norm = func.upper(func.trim(Ticket.resultado_pruebas))
+
+    if resultado_filtro == "(en blanco)":
+        resultado_cond = (
+            Ticket.resultado_pruebas.is_(None)
+            | (func.trim(Ticket.resultado_pruebas) == "")
+        )
+    elif resultado_filtro.upper() == "N/A":
+        resultado_cond = resultado_norm == "N/A"
+    elif resultado_filtro.upper() == "NOK":
+        resultado_cond = resultado_norm == "NOK"
+    elif resultado_filtro.upper() == "OK":
+        resultado_cond = resultado_norm == "OK"
+    elif resultado_filtro.upper() in ("OK CON OBS.", "OK CON OBS"):
+        resultado_cond = resultado_norm.in_([
+            "OK CON OBS.", "OK CON OBS", "OK CON OBSERVACIONES",
+            "OK CON OBSERVACIÓN", "OK CON OBSERVACION",
+            "OK CON OBSERV.", "OK C/OBS", "OK COBS",
+        ])
+    elif resultado_filtro.upper() == "POSTERGADA":
+        resultado_cond = resultado_norm.in_([
+            "POSTERGADA", "POSTERGADA A GARANTÍA",
+            "POSTERGADA A GARANTIA", "POSTERGADO",
+        ])
+    elif resultado_filtro.upper() == "DESESTIMADA":
+        resultado_cond = resultado_norm.in_(["DESESTIMADA", "DESESTIMADO"])
+    else:
+        resultado_cond = func.upper(func.trim(Ticket.resultado_pruebas)) == resultado_filtro.upper()
+
+    tickets_q = (
+        db.query(Ticket, Estado, Usuario)
+        .outerjoin(Estado, Ticket.estado_id == Estado.id)
+        .outerjoin(Usuario, Ticket.asignado_id == Usuario.id)
+        .filter(Ticket.ambiente == ambiente_filtro)
+        .filter(modulo_cond)
+        .filter(resultado_cond)
+        .order_by(Ticket.codigo.asc())
+        .all()
+    )
+
+    def _color_prioridad(p):
+        return {
+            "critica": ("bg-red-100 text-red-700", "CRÍTICA"),
+            "alta":    ("bg-orange-100 text-orange-700", "ALTA"),
+            "media":   ("bg-yellow-100 text-yellow-700", "MEDIA"),
+            "baja":    ("bg-slate-100 text-slate-600", "BAJA"),
+        }.get(getattr(p, "value", "") or "", ("bg-slate-100 text-slate-600", "—"))
+
+    def _fmt_fecha(dt):
+        if not dt:
+            return '<span class="text-slate-400">—</span>'
+        try:
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return str(dt)
+
+    def _fmt_resultado(val):
+        if val is None or (isinstance(val, str) and val.strip() == ""):
+            return '<span class="text-slate-400 italic">(en blanco)</span>'
+        return val
+
+    def _fmt_item(val):
+        if val is None or (isinstance(val, str) and val.strip() == ""):
+            return '<span class="text-slate-400">—</span>'
+        return val
+
+    rows_html = []
+    for t, estado, asignado in tickets_q:
+        prio_cls, prio_label = _color_prioridad(t.prioridad)
+        estado_nombre = estado.nombre if estado else "—"
+        estado_color = estado.color if (estado and estado.color) else "#94a3b8"
+        asignado_nombre = asignado.nombre_completo if asignado else "—"
+        ticket_id = getattr(t, "id", None)
+        if ticket_id is not None:
+            accion_html = (
+                "<td class='px-3 py-2 text-center whitespace-nowrap'>"
+                f"<button type='button' "
+                f"data-ticket-id='{ticket_id}' "
+                f"data-drill-cr-row='1' "
+                f"hx-get='/api/v1/tickets/{ticket_id}/detalle-html?tab=detalles' "
+                f"hx-target='#modal-cuenta-resultado-root' "
+                f"hx-swap='innerHTML' "
+                f"title='Ver y editar ticket {t.codigo or ticket_id}' "
+                f"class='inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 transition'>"
+                "<svg class='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>"
+                "<path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M15 12a3 3 0 11-6 0 3 3 0 016 0z'/>"
+                "<path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'/>"
+                "</svg>"
+                "</button>"
+                "</td>"
+            )
+        else:
+            accion_html = "<td class='px-3 py-2 text-center text-slate-300'>—</td>"
+        rows_html.append(
+            "<tr class='hover:bg-slate-50'>"
+            f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{t.codigo or ''}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-800 max-w-xs truncate' title='{t.titulo or ''}'>{t.titulo or ''}</td>"
+            "<td class='px-3 py-2 text-xs'>"
+            f"<span class='inline-flex items-center gap-1.5'>"
+            f"<span class='w-2 h-2 rounded-full' style='background:{estado_color}'></span>"
+            f"<span class='text-slate-700'>{estado_nombre}</span>"
+            "</span></td>"
+            f"<td class='px-3 py-2 text-xs'>{_fmt_resultado(t.resultado_pruebas)}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600'>{_fmt_item(t.item)}</td>"
+            "<td class='px-3 py-2 text-xs'>"
+            f"<span class='px-2 py-0.5 text-[10px] font-semibold rounded-full {prio_cls}'>{prio_label}</span>"
+            "</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600'>{asignado_nombre}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600 whitespace-nowrap'>{_fmt_fecha(t.fecha_vencimiento_sla)}</td>"
+            f"{accion_html}"
+            "</tr>"
+        )
+
+    total_count = len(rows_html)
+    rows_str = "\n".join(rows_html) if rows_html else (
+        "<tr><td colspan='9' class='px-4 py-10 text-center text-slate-400 text-sm'>"
+        "No se encontraron tickets para esta combinación de módulo y resultado.</td></tr>"
+    )
+
+    color_cfg = CUENTA_RESULTADO_COLORES_PARA_MODAL.get(resultado_filtro)
+    if color_cfg is None:
+        color_cfg = {"bg": "#475569", "text": "#ffffff"}
+    resultado_badge = (
+        f"<span class='inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold' "
+        f"style='background:{color_cfg['bg']}; color:{color_cfg['text']};'>{resultado_filtro}</span>"
+    )
+
+    html = f"""
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 modal-backdrop"
+     onclick="if(event.target===this) cerrarModalCuentaResultado()">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200"
+       onclick="event.stopPropagation()">
+
+    <!-- Header -->
+    <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap bg-slate-50">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h3 class="text-sm font-semibold text-slate-800">Detalle de Cuenta de Resultado</h3>
+        <div class="flex items-center gap-2 text-xs text-slate-500">
+          <span class="text-[10px] uppercase tracking-wide text-slate-400">Módulo:</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{modulo_filtro}</span>
+          <span class="text-[10px] uppercase tracking-wide text-slate-400">Resultado:</span>
+          {resultado_badge}
+          <span class="text-[10px] uppercase tracking-wide text-slate-400">Ambiente:</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{ambiente_filtro}</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-500 font-mono">{total_count} ticket(s)</span>
+        <button type="button" onclick="cerrarModalCuentaResultado()"
+                class="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                title="Cerrar">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-auto flex-1">
+      <table class="w-full text-xs border-collapse">
+        <thead class="bg-slate-100 text-[10px] uppercase text-slate-600 sticky top-0 z-10">
+          <tr>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Código</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Título</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Estado</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Resultado Prueba</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Ítem</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Prioridad</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Asignado</th>
+            <th class="px-3 py-2 text-left border-b border-slate-200">Fecha Vencimiento</th>
+            <th class="px-3 py-2 text-center border-b border-slate-200" title="Ver y editar ticket individual">Acciones</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {rows_str}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div class="px-5 py-2.5 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-500 flex items-center justify-between">
+      <span>Drill-down generado el {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</span>
+      <span>Esc para cerrar</span>
+    </div>
+  </div>
+</div>
+"""
+    return HTMLResponse(html)
+
+
+# =============================================================================
+# Incidencias Recientes — endpoint dedicado para la nueva card del dashboard.
+#
+# Devuelve una lista plana de tickets tipo INC-0XX con los campos que pide la
+# nueva sección (Código, Título, Estado, Prioridad, Asignado, Fecha Vencimiento,
+# SLA Activo) más un bloque de métricas asociadas para darle contexto al
+# usuario sin saturar el listado.
+#
+# Filtros:
+#   - periodo_dias (default 30): ventana hacia atrás desde ahora.
+#   - tipo: 'incidencia' (default) | 'resultado_pruebas' | 'todos'.
+#   - limite: 1..200 (default 50) tope duro para que el endpoint sea barato.
+# =============================================================================
+
+
+@router.get("/incidencias-recientes")
+def incidencias_recientes(
+    periodo_dias: int = 30,
+    tipo: str = "incidencia",
+    limite: int = 50,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    """Listado de incidencias recientes con métricas asociadas.
+
+    Pensado para alimentar la card 'Lista de Incidencias Recientes' del
+    dashboard. Devuelve tickets + métricas asociadas (totales, vencidas,
+    % SLA, % sin asignar, TTR, etc.).
+
+    Filtros temporales:
+      * ``periodo_dias``: ventana hacia atrás desde ahora (default 30).
+      * ``fecha_desde`` / ``fecha_hasta``: rango explícito ISO (YYYY-MM-DD).
+        Si se envía cualquiera de los dos, **tienen precedencia** sobre
+        ``periodo_dias``. ``fecha_hasta`` es inclusivo (se compara contra
+        el final del día en UTC).
+      * El filtro temporal se aplica sobre ``Ticket.created_at`` (fecha
+        de apertura/creación de la incidencia), que es el uso más
+        habitual del dashboard. Si la fecha de inicio ``Ticket.fecha_inicio``
+        está presente se prefiere para mostrar el "inicio real" del trabajo.
+    """
+    periodo_dias = max(1, min(periodo_dias, 365))
+    limite = max(1, min(limite, 200))
+    ahora = datetime.utcnow()
+
+    # === Rango explícito tiene precedencia ===
+    rango_explicito = False
+    fecha_desde_dt = None
+    fecha_hasta_dt = None
+    if fecha_desde:
+        try:
+            fecha_desde_dt = datetime.fromisoformat(fecha_desde)
+            rango_explicito = True
+        except ValueError:
+            fecha_desde_dt = None
+    if fecha_hasta:
+        try:
+            # inclusivo: hasta el final del día 23:59:59
+            fecha_hasta_dt = datetime.fromisoformat(fecha_hasta)
+            fecha_hasta_dt = fecha_hasta_dt.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+            rango_explicito = True
+        except ValueError:
+            fecha_hasta_dt = None
+
+    if rango_explicito:
+        # Cuando el usuario define un rango explícito, el "periodo_dias"
+        # deja de tener efecto. Mantenemos el valor informativo para el
+        # front pero la consulta usa el rango.
+        fecha_limite = fecha_desde_dt or datetime.min
+    else:
+        # FIX(metricas): sin rango explícito caemos al comportamiento
+        # legacy (ventana de N días hacia atrás). Sin este else el
+        # filtro `Ticket.created_at >= fecha_limite` lanzaba
+        # UnboundLocalError y el dashboard quedaba colgado en
+        # "Cargando métricas...".
+        fecha_limite = ahora - timedelta(days=periodo_dias)
+    fecha_hasta_limite = fecha_hasta_dt or ahora
+
+    # === Filtro de tipo ===
+    # FIX(metricas): el Enum Python (TipoIncidencia.INCIDENCIA.value = 'incidencia')
+    # está en minúsculas, pero la BD tiene los valores en MAYÚSCULAS
+    # ('INCIDENCIA', 'RESULTADO_PRUEBAS', 'SOLICITUD', 'CAMBIO', 'PROBLEMA').
+    # Comparar literal-en-minúsculas contra columna-en-mayúsculas siempre
+    # devolvía 0 filas, dejando la lista "vacía" aunque hubiera tickets.
+    # Aplicamos func.upper() en el lado de la BD para hacer la comparación
+    # robusta al case actual de los datos, sin alterar el Enum en el modelo.
+    #
+    # FIX-PG(metricas): en PostgreSQL las columnas `tipo` y `prioridad` están
+    # definidas como ENUM nativos (`tipoincidencia`, `prioridad`). Aplicar
+    # `upper(<enum>)` falla con `function upper(tipoincidencia) does not exist`
+    # porque no existe sobrecarga para esos tipos. Hay que castear a TEXT
+    # primero con `Ticket.tipo.cast(String)`. SQLite ignora el cast, así que
+    # esta misma expresión es portable.
+    #
+    # FIX-PREFIX(metricas): además del tipo enum, se consideran INCIDENCIA
+    # todos los tickets cuyo `codigo` empieza con `INC-` o `INC_` (prefijo
+    # histórico del proyecto). El `_` es un wildcard en SQL LIKE, así que
+    # se escapa con `\\`. Toda esta lógica vive ahora en
+    # ``_build_tipo_filter()`` (helper compartido a nivel módulo) para
+    # evitar inconsistencias entre endpoints.
+    tipo_filter = _build_tipo_filter(tipo)
+
+    # === Listado de tickets ===
+    q = (
+        db.query(Ticket, Estado)
+        .join(Estado, Estado.id == Ticket.estado_id)
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
+        )
+        .order_by(Ticket.created_at.desc())
+        .limit(limite)
+    )
+    tickets_out = []
+    for t, est in q.all():
+        # SLA activo = ticket no completado y con fecha de vencimiento futura
+        sla_activo = (
+            t.fecha_completado is None
+            and t.fecha_vencimiento_sla is not None
+        )
+        if sla_activo and t.fecha_vencimiento_sla is not None:
+            horas_rest = (t.fecha_vencimiento_sla - ahora).total_seconds() / 3600.0
+        else:
+            horas_rest = None
+
+        if horas_rest is None:
+            sla_label = "N/A"
+        elif horas_rest < 0:
+            sla_label = "VENCIDO"
+        elif horas_rest < 24:
+            sla_label = "HOY"
+        elif horas_rest < 72:
+            sla_label = "EN RIESGO"
+        else:
+            sla_label = "EN TIEMPO"
+
+        tickets_out.append({
+            "id": t.id,
+            "codigo": t.codigo,
+            "titulo": t.titulo,
+            "estado": {
+                "id": est.id,
+                "nombre": est.nombre,
+                "color": est.color or "#94a3b8",
+                "es_final": bool(est.es_final),
+            },
+            "prioridad": t.prioridad.value if t.prioridad else "media",
+            "asignado": (
+                {"id": t.asignado.id, "nombre": t.asignado.nombre_completo}
+                if t.asignado else None
+            ),
+            "modulo": t.modulo,
+            "ambiente": t.ambiente,
+            "fecha_vencimiento_sla": (
+                t.fecha_vencimiento_sla.isoformat()
+                if t.fecha_vencimiento_sla else None
+            ),
+            "fecha_vencimiento_sla_cl": (
+                fmt_cl_iso(t.fecha_vencimiento_sla)
+                if t.fecha_vencimiento_sla else None
+            ),
+            "sla_activo": sla_activo,
+            "horas_restantes": (
+                round(horas_rest, 1) if horas_rest is not None else None
+            ),
+            "sla_cumplido_label": sla_label,
+            "resultado_pruebas": t.resultado_pruebas,
+            "fecha_creacion": t.created_at.isoformat() if t.created_at else None,
+        })
+
+    # === Métricas asociadas (sobre TODO el periodo, no solo el top-N) ===
+    base = (
+        db.query(Ticket)
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
+        )
+    )
+    total_periodo = base.count()
+
+    criticas_o_altas = base.filter(
+        # FIX(metricas): Enum en minúsculas vs BD en MAYÚSCULAS.
+        # Comparamos en upper-case para que el KPI refleje los
+        # datos reales aunque no se haya migrado el Enum.
+        #
+        # FIX-PG(metricas): castear a TEXT antes de UPPER() para que
+        # funcione en PostgreSQL (la columna `prioridad` es ENUM nativo).
+        func.upper(Ticket.prioridad.cast(String)).in_([
+            Prioridad.CRITICA.value.upper(),
+            Prioridad.ALTA.value.upper(),
+        ])
+    ).count()
+
+    vencidas = base.filter(
+        Ticket.fecha_completado.is_(None),
+        Ticket.fecha_vencimiento_sla.isnot(None),
+        Ticket.fecha_vencimiento_sla < ahora,
+    ).count()
+
+    en_riesgo_72h = base.filter(
+        Ticket.fecha_completado.is_(None),
+        Ticket.fecha_vencimiento_sla.isnot(None),
+        Ticket.fecha_vencimiento_sla >= ahora,
+        Ticket.fecha_vencimiento_sla <= ahora + timedelta(hours=72),
+    ).count()
+
+    asignadas = base.filter(Ticket.asignado_id.isnot(None)).count()
+    sin_asignar = base.filter(Ticket.asignado_id.is_(None)).count()
+    con_resultado = base.filter(
+        Ticket.resultado_pruebas.isnot(None),
+        func.trim(Ticket.resultado_pruebas) != "",
+    ).count()
+
+    edad_rows = (
+        db.query(
+            func.avg(
+                func.extract("epoch", ahora - Ticket.created_at) / 3600.0
+            )
+        )
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
+            Ticket.fecha_completado.is_(None),
+        )
+        .scalar()
+    )
+    promedio_edad_horas = float(edad_rows) if edad_rows is not None else 0.0
+
+    ttr_rows = (
+        db.query(
+            func.avg(
+                func.extract("epoch", Ticket.fecha_completado - Ticket.created_at) / 3600.0
+            )
+        )
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
+            Ticket.fecha_completado.isnot(None),
+        )
+        .scalar()
+    )
+    ttr_horas = float(ttr_rows) if ttr_rows is not None else 0.0
+
+    # FIX(metricas): el denominador del % SLA OK antes filtraba por
+    # `sla_cumplido IN (0, 1)`, excluyendo los tickets cerrados con
+    # `sla_cumplido = -1` (pendiente de clasificar). El denominador
+    # correcto es TODOS los tickets CERRADOS del periodo (los -1
+    # cuentan como "no cumplido" al calcular el numerador sobre los
+    # explícitamente OK).
+    sla_cumplido_rows = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
+            Ticket.fecha_completado.isnot(None),
+        ).scalar() or 0
+    )
+    sla_ok_rows = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
+            Ticket.fecha_completado.isnot(None),
+            Ticket.sla_cumplido == 1,
+        ).scalar() or 0
+    )
+    pct_sla = (sla_ok_rows / sla_cumplido_rows * 100) if sla_cumplido_rows > 0 else 0.0
+
+    def _pct(numer, denom):
+        return round((numer / denom * 100), 1) if denom > 0 else 0.0
+
+    metricas = {
+        "total_listado": len(tickets_out),
+        "total_periodo": total_periodo,
+        "criticas_o_altas": criticas_o_altas,
+        "vencidas": vencidas,
+        "en_riesgo_72h": en_riesgo_72h,
+        "asignadas": asignadas,
+        "sin_asignar": sin_asignar,
+        "con_resultado_pruebas": con_resultado,
+        "promedio_edad_horas": round(promedio_edad_horas, 1),
+        "tiempo_promedio_resolucion_horas": round(ttr_horas, 1),
+        "porcentaje_sla_cumplido": round(pct_sla, 1),
+        "porcentaje_sin_asignar": _pct(sin_asignar, total_periodo),
+        "porcentaje_con_resultado": _pct(con_resultado, total_periodo),
+    }
+
+    return {
+        "periodo_dias": periodo_dias,
+        "tipo": tipo,
+        "limite": limite,
+        "fecha_desde": fecha_desde_dt.isoformat() if fecha_desde_dt else None,
+        "fecha_hasta": fecha_hasta_dt.isoformat() if fecha_hasta_dt else None,
+        "fecha_desde_cl": fmt_cl_iso(fecha_desde_dt) if fecha_desde_dt else None,
+        "fecha_hasta_cl": fmt_cl_iso(fecha_hasta_dt) if fecha_hasta_dt else None,
+        "rango_explicito": rango_explicito,
+        "generado_en": ahora.isoformat(),
+        "generado_en_cl": fmt_cl_iso(ahora),
+        "timezone": "America/Santiago",
+        "tickets": tickets_out,
+        "metricas": metricas,
+    }
+
+
+# =============================================================================
+# Detalle de tickets por KPI (drill-down modal del dashboard)
+# =============================================================================
+# FIX-KPI(metricas): endpoint dedicado para alimentar el modal de drill-down
+# de la franja "Lista de Incidencias Recientes". Cada uno de los 7 KPI
+# (Total periodo, Vencidas, En riesgo 72h, Crít/Altas, % SLA OK,
+# % Sin asignar, TTR prom.) muestra un modal al hacer clic con los
+# tickets que componen ese KPI. Para KPIs ambiguos (TTR, % SLA OK,
+# % Sin asignar) devolvemos un subconjunto razonable para que el modal
+# no quede vacío ni devuelva "todos".
+# -----------------------------------------------------------------------------
+
+# Catálogo de KPIs soportados. Cada entrada describe:
+#   - filtro: callable(db, Session) -> SQLAlchemy filter expression
+#   - descripcion: texto que aparece en el modal
+#   - titulo: título del modal
+_KPI_DETALLE = {
+    "total_periodo": {
+        "titulo": "Total periodo",
+        "descripcion": "Todos los tickets del período (tipo y filtros aplicados).",
+        "filtro": lambda base: base,
+    },
+    "vencidas": {
+        "titulo": "Tickets vencidos",
+        "descripcion": "Tickets sin completar cuya fecha de vencimiento SLA ya pasó.",
+        "filtro": lambda base: base.filter(
+            Ticket.fecha_completado.is_(None),
+            Ticket.fecha_vencimiento_sla.isnot(None),
+            Ticket.fecha_vencimiento_sla < datetime.utcnow(),
+        ),
+    },
+    "en_riesgo_72h": {
+        "titulo": "Tickets en riesgo (próximas 72h)",
+        "descripcion": "Tickets sin completar cuya fecha de vencimiento SLA está dentro de las próximas 72 horas.",
+        "filtro": lambda base: base.filter(
+            Ticket.fecha_completado.is_(None),
+            Ticket.fecha_vencimiento_sla.isnot(None),
+            Ticket.fecha_vencimiento_sla >= datetime.utcnow(),
+            Ticket.fecha_vencimiento_sla <= datetime.utcnow() + timedelta(hours=72),
+        ),
+    },
+    "criticas_o_altas": {
+        "titulo": "Tickets Crít/Altas",
+        "descripcion": "Tickets del período con prioridad Crítica o Alta.",
+        "filtro": lambda base: base.filter(
+            func.upper(Ticket.prioridad.cast(String)).in_([
+                Prioridad.CRITICA.value.upper(),
+                Prioridad.ALTA.value.upper(),
+            ])
+        ),
+    },
+    "porcentaje_sla_cumplido": {
+        # Para % SLA OK no hay una "categoría" clara; mostramos los
+        # tickets CERRADOS del período (la base del cálculo), con su
+        # flag sla_cumplido visible para que el usuario pueda auditar
+        # los OK=1 vs NOK=0 vs pendientes=-1.
+        "titulo": "Tickets base del % SLA OK",
+        "descripcion": "Tickets cerrados del período. El % SLA OK se calcula sobre este conjunto.",
+        "filtro": lambda base: base.filter(Ticket.fecha_completado.isnot(None)),
+    },
+    "porcentaje_sin_asignar": {
+        "titulo": "Tickets sin asignar",
+        "descripcion": "Tickets del período sin responsable asignado.",
+        "filtro": lambda base: base.filter(Ticket.asignado_id.is_(None)),
+    },
+    "tiempo_promedio_resolucion_horas": {
+        # TTR prom. no tiene categoría clara: mostramos los cerrados
+        # del período (la base del cálculo TTR).
+        "titulo": "Tickets base del TTR promedio",
+        "descripcion": "Tickets cerrados del período (base del cálculo de tiempo promedio de resolución).",
+        "filtro": lambda base: base.filter(Ticket.fecha_completado.isnot(None)),
+    },
+}
+
+
+@router.get("/detalle-kpi")
+def detalle_kpi(
+    kpi: str = "total_periodo",
+    periodo_dias: int = 30,
+    tipo: str = "incidencia",
+    limite: int = 200,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+):
+    """
+    Retorna los tickets del período que componen un KPI específico
+    del dashboard. Usado por el modal de drill-down al hacer clic
+    en una de las 7 casillas KPI de la "Lista de Incidencias Recientes".
+
+    Parámetros:
+      - kpi: uno de los 7 nombres de métrica del dashboard
+             (total_periodo | vencidas | en_riesgo_72h | criticas_o_altas
+              | porcentaje_sla_cumplido | porcentaje_sin_asignar
+              | tiempo_promedio_resolucion_horas).
+      - periodo_dias: ventana hacia atrás (1..365).
+      - tipo: filtro de tipo. 'incidencia' incluye también los tickets
+              con prefijo INC- / INC_ (ver FIX-PREFIX en
+              ``incidencias_recientes``).
+      - limite: máximo de tickets devueltos (1..500).
+    """
+    if kpi not in _KPI_DETALLE:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "kpi inválido. Valores soportados: "
+                + ", ".join(sorted(_KPI_DETALLE.keys()))
+            ),
+        )
+
+    periodo_dias = max(1, min(periodo_dias, 365))
+    limite = max(1, min(limite, 500))
+    ahora = datetime.utcnow()
+    fecha_limite = ahora - timedelta(days=periodo_dias)
+
+    # === Filtro de tipo ===
+    # FIX-PREFIX-DRY(metricas): se usa el helper compartido
+    # ``_build_tipo_filter()`` para mantener la lógica del prefijo INC-/INC_
+    # en un único lugar.
+    tipo_filter = _build_tipo_filter(tipo)
+
+    # === Base + filtro de período + archivado ===
+    base = (
+        db.query(Ticket, Estado)
+        .join(Estado, Estado.id == Ticket.estado_id)
+        .filter(
+            tipo_filter,
+            Ticket.archivado == False,  # noqa: E712
+            Ticket.created_at >= fecha_limite,
+        )
+    )
+
+    # === Aplicar el filtro específico del KPI ===
+    base = _KPI_DETALLE[kpi]["filtro"](base)
+
+    # === Orden: vencidas primero, luego más recientes ===
+    base = base.order_by(
+        Ticket.fecha_vencimiento_sla.asc().nullslast(),
+        Ticket.created_at.desc(),
+    ).limit(limite)
+
+    tickets_out = []
+    for t, est in base.all():
+        tickets_out.append({
+            "id":            t.id,
+            "codigo":        t.codigo,
+            "titulo":        t.titulo,
+            "estado":        est.nombre if est else "—",
+            "estado_color":  est.color if (est and est.color) else "#64748b",
+            "prioridad":     t.prioridad.value if hasattr(t.prioridad, "value") else str(t.prioridad),
+            "asignado":      (t.asignado.nombre_completo if t.asignado else None),
+            "tipo":          t.tipo.value if hasattr(t.tipo, "value") else str(t.tipo),
+            "fecha_creacion": t.created_at.isoformat() if t.created_at else None,
+            "fecha_creacion_cl": fmt_cl_iso(t.created_at) if t.created_at else None,
+            "fecha_vencimiento_sla": t.fecha_vencimiento_sla.isoformat() if t.fecha_vencimiento_sla else None,
+            "fecha_vencimiento_sla_cl": fmt_cl_iso(t.fecha_vencimiento_sla) if t.fecha_vencimiento_sla else None,
+            "fecha_completado":      t.fecha_completado.isoformat() if t.fecha_completado else None,
+            "fecha_completado_cl": fmt_cl_iso(t.fecha_completado) if t.fecha_completado else None,
+            "sla_cumplido":   int(t.sla_cumplido) if t.sla_cumplido is not None else None,
+        })
+
+    return {
+        "kpi":          kpi,
+        "titulo":       _KPI_DETALLE[kpi]["titulo"],
+        "descripcion":  _KPI_DETALLE[kpi]["descripcion"],
+        "periodo_dias": periodo_dias,
+        "tipo":         tipo,
+        "limite":       limite,
+        "total":        len(tickets_out),
+        "tickets":      tickets_out,
+    }

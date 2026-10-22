@@ -1,0 +1,1727 @@
+"""
+Renderizador Jinja2 para el modal de detalle de un ticket.
+
+El endpoint ``GET /api/v1/tickets/{id}/detalle-html`` invoca
+``render_detalle_modal`` y devuelve el HTML al frontend, donde HTMX lo
+inserta en ``#modal-root``.
+
+El modal contiene 7 pestañas:
+  1. Detalles       -> datos del ticket + cambio de estado / asignación
+  2. Comentarios    -> listado + formulario para agregar
+  3. Adjuntos       -> lista + dropzone para subir archivos
+  4. Checklist      -> tareas con checkboxes
+  5. Etapas UAT     -> fases UAT del proyecto
+  6. Trazabilidad   -> bitácora de auditoría del ticket
+  7. Referencias    -> issue links (relacionado, duplicado, padre/hijo,
+                       bloquea, bloqueado_por) — FEATURE 5
+
+Los formularios internos usan ``hx-post`` y ``hx-target`` configurados
+para recargar solo el modal tras cada acción, sin recargar la página
+completa.
+"""
+from datetime import datetime
+from typing import Iterable
+
+from jinja2 import Template
+
+
+# ---------------------------------------------------------------------------
+#  Sub-renderers (cada bloque del modal)
+# ---------------------------------------------------------------------------
+
+DETALLE_TEMPLATE = Template(r"""
+<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop"
+     data-modal="detalle-ticket" data-ticket-id="{{ ticket.id }}">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden flex flex-col max-h-[92vh]">
+
+    <!-- ============== HEADER ============== -->
+    <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3 flex-shrink-0">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="font-mono text-xs text-slate-500">{{ ticket.codigo }}</span>
+          <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold
+                       {% if ticket.prioridad.value == 'critica' %}bg-red-100 text-red-700
+                       {% elif ticket.prioridad.value == 'alta' %}bg-orange-100 text-orange-700
+                       {% elif ticket.prioridad.value == 'media' %}bg-yellow-100 text-yellow-700
+                       {% else %}bg-slate-100 text-slate-600{% endif %}">
+            {{ ticket.prioridad.value|upper }}
+          </span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-slate-500">
+            <span class="inline-block w-2 h-2 rounded-full" style="background-color: {{ ticket.estado.color }}"></span>
+            {{ ticket.estado.nombre }}
+          </span>
+        </div>
+        {# Título editable: input asociado al formulario principal del tab Detalles (form="..."). Se guarda con el botón "Guardar cambios" junto con el resto de campos, sin auto-save. #}
+        <div class="m-0 p-0 flex items-center gap-1">
+          <input type="text" form="form-detalles-{{ ticket.id }}" name="valor_titulo" value="{{ ticket.titulo }}"
+                 aria-label="Título del ticket"
+                 oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                 class="flex-1 min-w-0 text-base font-semibold text-slate-800 leading-snug bg-transparent border-0 border-b border-transparent
+                        hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 transition-colors" />
+        </div>
+      </div>
+      <button data-close-modal
+              class="w-10 h-10 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0"
+              aria-label="Cerrar ventana de detalle de incidencia"
+              title="Cerrar">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- ============== TABS ============== -->
+    {% set _active = active_tab or 'detalles' %}
+    <div class="border-b border-slate-200 px-5 flex items-center gap-1 flex-shrink-0" role="tablist">
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'detalles' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="detalles">Detalles</button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'comentarios' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="comentarios">
+        Comentarios
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ comentarios|length }}</span>
+      </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'adjuntos' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="adjuntos">
+        Adjuntos
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ adjuntos|length }}</span>
+      </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'checklist' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="checklist">
+        Checklist
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ checklists|length }}</span>
+      </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'etapas' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="etapas">
+        Etapas UAT
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ etapas|length }}/10</span>
+      </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'trazabilidad' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="trazabilidad">
+        Trazabilidad
+        <span class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ auditorias|length }}</span>
+      </button>
+      <button class="tab-btn px-3 py-2.5 text-xs font-medium border-b-2 {% if _active == 'referencias' %}border-indigo-600 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}"
+              data-tab="referencias">
+        Referencias
+        <span id="referencias-count-{{ ticket.id }}"
+              class="ml-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">{{ referencias|length }}</span>
+      </button>
+    </div>
+
+    <!-- ============== BODY ============== -->
+    <div class="flex-1 overflow-y-auto overflow-x-auto">
+
+      <!-- Tab: Detalles -->
+      <div class="tab-panel {% if _active != 'detalles' %}hidden{% endif %} p-5 space-y-4" data-panel="detalles">
+
+        {# ----- Formulario único que guarda todos los campos en una sola transacción ----- #}
+        <form hx-post="/api/v1/tickets/{{ ticket.id }}/guardar"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              hx-indicator="#guardar-spinner-{{ ticket.id }}"
+              class="space-y-4"
+              id="form-detalles-{{ ticket.id }}"
+              data-cambios-pendientes="false">
+
+          {# ----- Descripción editable con Markdown ----- #}
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Descripción (Markdown)</h4>
+              <span class="text-[10px] text-slate-400 italic">**negrita** *itálica* `código` # título - lista</span>
+            </div>
+            <input type="hidden" name="active_tab" value="{{ _active }}">
+            <textarea id="textarea-descripcion-{{ ticket.id }}" name="valor_descripcion" rows="4" data-markdown="true"
+                      oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                      placeholder="Detalla el problema, pasos para reproducir, mensajes de error, etc. Soporta **Markdown**."
+                      class="w-full text-sm text-slate-700 border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y">{{ ticket.descripcion or '' }}</textarea>
+          </div>
+
+          {# ----- Grid de campos ----- #}
+          <div class="grid grid-cols-2 gap-3 text-xs">
+
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tipo</span>
+              <span class="text-slate-700">{{ ticket.tipo.value }}</span>
+            </div>
+
+            {# Prioridad editable #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Prioridad</span>
+              <select name="valor_prioridad"
+                      onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                      class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                {% for p in ['baja','media','alta','critica'] %}
+                <option value="{{ p }}" {% if ticket.prioridad.value == p %}selected{% endif %}>{{ p|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Creador</span>
+              <span class="text-slate-700">{{ ticket.creador.nombre_completo if ticket.creador else '—' }}</span>
+            </div>
+
+            {# Asignado editable #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Asignado</span>
+              <select name="valor_asignado_id"
+                      onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                      class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                <option value="0">— sin asignar —</option>
+                {% for u in usuarios %}
+                <option value="{{ u.id }}" {% if ticket.asignado_id == u.id %}selected{% endif %}>{{ u.nombre_completo }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            {# Fecha de inicio (Gantt) editable #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+                Fecha de inicio
+                <span class="group relative inline-flex">
+                  <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                    Inicio planificado del trabajo. Combinado con la fecha de vencimiento
+                    forma la barra del ticket en el
+                    <strong class="text-amber-300">Gantt</strong>. Si la dejas vacía, el
+                    ticket no aparecerá en el Gantt aunque tenga fecha de vencimiento.
+                  </span>
+                </span>
+              </span>
+              <input type="date" name="valor_fecha_inicio"
+                     value="{{ ticket.fecha_inicio.strftime('%Y-%m-%d') if ticket.fecha_inicio else '' }}"
+                     onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                     class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+            </div>
+
+            {# Fecha de vencimiento editable con glosa SLA #}
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+                Fecha de vencimiento (SLA)
+                <span class="group relative inline-flex">
+                  <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                    <strong class="block mb-1 text-amber-300">¿Qué es el SLA?</strong>
+                    El SLA (<em>Service Level Agreement</em>) es el plazo máximo para resolver esta incidencia antes de que se considere incumplida.
+                    <br><br>
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 align-middle"></span> <strong>Cumplido:</strong> resuelto dentro del plazo.
+                    <br>
+                    <span class="inline-block w-2 h-2 rounded-full bg-amber-500 align-middle"></span> <strong>Próximo:</strong> el plazo se acerca.
+                    <br>
+                    <span class="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> <strong>Vencido:</strong> el plazo ya pasó.
+                    <br><br>
+                    Si lo dejas vacío, se usa el SLA por defecto del estado actual.
+                  </span>
+                </span>
+              </span>
+              <input type="date" name="valor_fecha_vencimiento"
+                     value="{{ ticket.fecha_vencimiento_sla.strftime('%Y-%m-%d') if ticket.fecha_vencimiento_sla else '' }}"
+                     onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                     class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+              {% if ticket.fecha_vencimiento_sla %}
+              <div class="text-[10px] text-slate-400 mt-0.5">
+                Estado SLA:
+                {% if ticket.sla_cumplido == 1 %}
+                  <span class="text-emerald-600 font-medium">● Cumplido</span>
+                {% elif ticket.sla_cumplido == 0 %}
+                  <span class="text-red-600 font-medium">● Vencido</span>
+                {% else %}
+                  <span class="text-amber-600 font-medium">● Pendiente</span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+
+            <div>
+              <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Creado</span>
+              <span class="text-slate-700">{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') if ticket.created_at else '—' }}</span>
+            </div>
+          </div>
+
+          {# ----- Campos extendidos del módulo de Incidencias (LOVs) ----- #}
+          <div class="pt-3 border-t border-slate-100">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+              Clasificación y pruebas
+            </h4>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+
+              {# Módulo (LOV fijo).
+                 IMPORTANTE: Si el ticket ya tiene un valor de módulo que NO está
+                 en la lista canónica (ej: "Registro Información" sin "de",
+                 heredado de la migración UAT), agregamos una opción fallback
+                 seleccionada para preservar el valor original. Sin esta opción
+                 fallback, el <select> enviaría value="" (porque ninguna opción
+                 coincide) y el backend borraría el módulo, haciendo que el ticket
+                 desaparezca de la fila "Registro Información" y aparezca en la fila
+                 "(en blanco)" del pivot "Cuenta de Resultado" del Dashboard. #}
+              {% set _modulos_canonicos = (
+                'Control ERM', 'Gobierno', 'Incidencias', 'Validación',
+                'Auditoria', 'Filiales', 'Información Inventario',
+                'Registro de Información', 'Documentación',
+                'Mejoras Transversales', 'Seguimiento y Control',
+              ) %}
+              {% set _modulo_es_canonico = ticket.modulo in _modulos_canonicos %}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Módulo</span>
+                <select name="valor_modulo"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin módulo —</option>
+                  <option value="Control ERM" {% if ticket.modulo == 'Control ERM' %}selected{% endif %}>Control ERM</option>
+                  <option value="Gobierno" {% if ticket.modulo == 'Gobierno' %}selected{% endif %}>Gobierno</option>
+                  <option value="Incidencias" {% if ticket.modulo == 'Incidencias' %}selected{% endif %}>Incidencias</option>
+                  <option value="Validación" {% if ticket.modulo == 'Validación' %}selected{% endif %}>Validación</option>
+                  <option value="Auditoria" {% if ticket.modulo == 'Auditoria' %}selected{% endif %}>Auditoria</option>
+                  <option value="Filiales" {% if ticket.modulo == 'Filiales' %}selected{% endif %}>Filiales</option>
+                  <option value="Información Inventario" {% if ticket.modulo == 'Información Inventario' %}selected{% endif %}>Información Inventario</option>
+                  <option value="Registro de Información" {% if ticket.modulo == 'Registro de Información' %}selected{% endif %}>Registro de Información</option>
+                  <option value="Documentación" {% if ticket.modulo == 'Documentación' %}selected{% endif %}>Documentación</option>
+                  <option value="Mejoras Transversales" {% if ticket.modulo == 'Mejoras Transversales' %}selected{% endif %}>Mejoras Transversales</option>
+                  <option value="Seguimiento y Control" {% if ticket.modulo == 'Seguimiento y Control' %}selected{% endif %}>Seguimiento y Control</option>
+                  {# Fallback: si el módulo actual no está en la lista canónica, lo
+                     agregamos como opción seleccionada para preservar el valor. #}
+                  {% if ticket.modulo and not _modulo_es_canonico %}
+                    <option value="{{ ticket.modulo }}" selected>{{ ticket.modulo }} (valor heredado)</option>
+                  {% endif %}
+                </select>
+                {% if ticket.modulo and not _modulo_es_canonico %}
+                  <p class="text-[10px] text-amber-600 mt-0.5 italic">
+                    Valor heredado de la migración UAT. Para normalizar, selecciona la opción canónica correspondiente.
+                  </p>
+                {% endif %}
+              </div>
+
+              {# Ambiente (LOV cerrado QA / PRODUCCION). Reemplaza al antiguo campo "Categoría". #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Ambiente</span>
+                <select name="valor_ambiente"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin ambiente —</option>
+                  <option value="QA" {% if ticket.ambiente == 'QA' %}selected{% endif %}>QA</option>
+                  <option value="PRODUCCION" {% if ticket.ambiente == 'PRODUCCION' %}selected{% endif %}>PRODUCCION</option>
+                </select>
+              </div>
+
+              {# Ítem (LOV cerrado Portal WEB APEX / Email / Base de Datos). #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Ítem</span>
+                <select name="valor_item"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin ítem —</option>
+                  <option value="Portal WEB APEX" {% if ticket.item == 'Portal WEB APEX' %}selected{% endif %}>Portal WEB APEX</option>
+                  <option value="Email" {% if ticket.item == 'Email' %}selected{% endif %}>Email</option>
+                  <option value="Base de Datos" {% if ticket.item == 'Base de Datos' %}selected{% endif %}>Base de Datos</option>
+                </select>
+              </div>
+
+              {# Vista (texto libre) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Vista</span>
+                <input type="text" name="valor_vista" value="{{ ticket.vista or '' }}" maxlength="200"
+                       placeholder="Pantalla o vista donde ocurre"
+                       oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                       class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+              </div>
+
+              {# HU o caso de prueba (texto libre) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">HU o Caso de Prueba Asociado</span>
+                <input type="text" name="valor_hu_o_caso_prueba" value="{{ ticket.hu_o_caso_prueba or '' }}" maxlength="200"
+                       placeholder="Identificador de HU o caso de prueba"
+                       oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                       class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+              </div>
+
+              {# Resultado de pruebas (LOV fijo) #}
+              <div>
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Resultado Pruebas</span>
+                <select name="valor_resultado_pruebas"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin resultado —</option>
+                  <option value="OK" {% if ticket.resultado_pruebas == 'OK' %}selected{% endif %}>OK</option>
+                  <option value="N/A" {% if ticket.resultado_pruebas == 'N/A' %}selected{% endif %}>N/A</option>
+                  <option value="OK CON OBS." {% if ticket.resultado_pruebas == 'OK CON OBS.' %}selected{% endif %}>OK CON OBS.</option>
+                  <option value="POSTERGADA" {% if ticket.resultado_pruebas == 'POSTERGADA' %}selected{% endif %}>POSTERGADA</option>
+                  <option value="DESESTIMADA" {% if ticket.resultado_pruebas == 'DESESTIMADA' %}selected{% endif %}>DESESTIMADA</option>
+                  <option value="NOK" {% if ticket.resultado_pruebas == 'NOK' %}selected{% endif %}>NOK</option>
+                </select>
+              </div>
+
+              {# Nota u Observación (texto largo) - ocupa fila completa #}
+              <div class="col-span-2">
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Nota u Observación</span>
+                <textarea name="valor_nota_observacion" rows="2"
+                          placeholder="Comentarios, contexto adicional o detalles relevantes…"
+                          oninput="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                          class="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5 resize-y">{{ ticket.nota_observacion or '' }}</textarea>
+              </div>
+
+              {# QA Tester responsable de las pruebas del ticket (LOV cerrado).
+                 Cada opción se almacena en formato canónico
+                 "Nombre <email>" para preservar la trazabilidad.
+                 Si el valor guardado no pertenece al LOV actual (por ejemplo,
+                 un valor heredado de una versión anterior), se incluye
+                 como opción "selected" para no perderlo al re-renderizar. #}
+              {% set _qa_canonicos = (
+                'Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>',
+                'Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>',
+                'Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>',
+                'Jorge Andres Signe Pou <jsigne@bancochile.cl>',
+              ) %}
+              {% set _qa_legibles = {
+                'Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>'|string: 'Sergio Daniel Torrealba Venegas',
+                'Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>'|string: 'Alex Ignacio Peraita Rodriguez',
+                'Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>'|string: 'Jose Miguel Sepulveda Morales',
+                'Jorge Andres Signe Pou <jsigne@bancochile.cl>'|string: 'Jorge Andres Signe Pou',
+              } %}
+              {% set _qa_es_canonico = (ticket.qa_tester or '') in _qa_canonicos %}
+              <div class="col-span-2">
+                <span class="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 flex items-center gap-1">
+                  QA Tester (responsable de pruebas)
+                  <span class="group relative inline-flex">
+                    <svg class="w-3 h-3 text-slate-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute z-20 left-0 top-4 w-72 p-2.5 rounded-md bg-slate-800 text-white text-[10px] leading-snug shadow-lg pointer-events-none">
+                      Persona del equipo de QA responsable de ejecutar las pruebas sobre este ticket.
+                      El equipo de QA recibe notificación cuando un ticket entra a la etapa
+                      de <strong class="text-amber-300">Validación / QA</strong>.
+                    </span>
+                  </span>
+                </span>
+                <select name="valor_qa_tester"
+                        onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
+                        class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                  <option value="">— Sin QA Tester asignado —</option>
+                  <option value="Sergio Daniel Torrealba Venegas &lt;storrealba@bancochile.cl&gt;" {% if ticket.qa_tester == 'Sergio Daniel Torrealba Venegas <storrealba@bancochile.cl>' %}selected{% endif %}>Sergio Daniel Torrealba Venegas</option>
+                  <option value="Alex Ignacio Peraita Rodriguez &lt;aperaita@bancochile.cl&gt;" {% if ticket.qa_tester == 'Alex Ignacio Peraita Rodriguez <aperaita@bancochile.cl>' %}selected{% endif %}>Alex Ignacio Peraita Rodriguez</option>
+                  <option value="Jose Miguel Sepulveda Morales &lt;jsepulvemo@bancochile.cl&gt;" {% if ticket.qa_tester == 'Jose Miguel Sepulveda Morales <jsepulvemo@bancochile.cl>' %}selected{% endif %}>Jose Miguel Sepulveda Morales</option>
+                  <option value="Jorge Andres Signe Pou &lt;jsigne@bancochile.cl&gt;" {% if ticket.qa_tester == 'Jorge Andres Signe Pou <jsigne@bancochile.cl>' %}selected{% endif %}>Jorge Andrés Signe Pou</option>
+                  {# Fallback: si el QA Tester actual no está en el LOV, lo agregamos como opción seleccionada. #}
+                  {% if ticket.qa_tester and not _qa_es_canonico %}
+                    <option value="{{ ticket.qa_tester }}" selected>{{ ticket.qa_tester }} (valor heredado)</option>
+                  {% endif %}
+                </select>
+                {% if ticket.qa_tester and not _qa_es_canonico %}
+                  <p class="text-[10px] text-amber-600 mt-0.5 italic">
+                    Valor heredado de versiones anteriores. Para normalizarlo, selecciona una opción del LOV.
+                  </p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {# ----- Botón único "Guardar cambios" + "Archivar" ----- #}
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <div class="flex items-center gap-2">
+              {# Botón archivar / desarchivar (soft-delete ITSM) #}
+              {% if ticket.archivado %}
+                <button type="button"
+                        hx-post="/api/v1/tickets/{{ ticket.id }}/desarchivar"
+                        hx-target="#modal-root" hx-swap="innerHTML"
+                        hx-confirm="¿Restaurar el ticket {{ ticket.codigo }} al tablero? Volverá a aparecer entre las tarjetas activas."
+                        class="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 inline-flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M3 10h11M9 21V3l11 9-11 9z"></path>
+                  </svg>
+                  Restaurar
+                </button>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                  </svg>
+                  Archivado
+                </span>
+              {% else %}
+                <button type="button"
+                        hx-post="/api/v1/tickets/{{ ticket.id }}/archivar"
+                        hx-target="#modal-root" hx-swap="innerHTML"
+                        hx-confirm="¿Archivar el ticket {{ ticket.codigo }}?\\n\\nEl ticket NO se eliminará de la base de datos, solo dejará de mostrarse en el tablero Kanban.\\nPodrás restaurarlo después desde la vista de Archivados."
+                        class="px-3 py-1.5 text-xs font-medium rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 inline-flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                  </svg>
+                  Archivar
+                </button>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-slate-400 italic flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Todos los cambios se aplican en una sola transacción.
+              </span>
+              <span id="guardar-spinner-{{ ticket.id }}" class="htmx-indicator w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></span>
+              <button type="button"
+                      data-action="descartar-cambios"
+                      data-form-id="form-detalles-{{ ticket.id }}"
+                      class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+                Descartar
+              </button>
+              <button type="submit"
+                      class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Guardar cambios
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {# ----- Campos personalizados (fuera del form principal: cada uno con su propio auto-save) ----- #}
+        {% if campos_personalizados %}
+        <div class="pt-3 border-t border-slate-100">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Campos personalizados</h4>
+          <div class="space-y-2">
+            {% for cp in campos_personalizados %}
+              <div class="flex items-center gap-2 text-xs">
+                <span class="text-slate-600 font-medium min-w-[120px] flex items-center gap-1">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full" style="background-color: {{ cp.color or '#6366f1' }}"></span>
+                  {{ cp.nombre }}
+                  {% if cp.requerido %}<span class="text-red-500">*</span>{% endif %}
+                </span>
+                <form hx-patch="/api/v1/tickets/{{ ticket.id }}/campos/{{ cp.id }}"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      hx-trigger="change from:select[name='valor_campo'], input delay:600ms from:input[name='valor_campo'], change from:input[type='checkbox'][name='valor_campo']"
+                      class="m-0 p-0 flex-1">
+                  <input type="hidden" name="active_tab" value="{{ _active }}">
+                  {% if cp.tipo == 'texto' or cp.tipo == 'url' %}
+                    <input type="{{ 'url' if cp.tipo == 'url' else 'text' }}"
+                           name="valor_campo"
+                           value="{{ cp.valor_texto or '' }}"
+                           placeholder="{{ (cp.configuracion or {}).get('placeholder', '') }}"
+                           {% if cp.requerido %}required{% endif %}
+                           class="w-full text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+                  {% elif cp.tipo == 'numero' %}
+                    <input type="number"
+                           name="valor_campo"
+                           value="{{ cp.valor_numero if cp.valor_numero is not none else '' }}"
+                           {% if (cp.configuracion or {}).get('min') is not none %}min="{{ (cp.configuracion or {}).get('min') }}"{% endif %}
+                           {% if (cp.configuracion or {}).get('max') is not none %}max="{{ (cp.configuracion or {}).get('max') }}"{% endif %}
+                           step="{{ (cp.configuracion or {}).get('decimales', 1) }}"
+                           {% if cp.requerido %}required{% endif %}
+                           class="w-full text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+                  {% elif cp.tipo == 'dropdown' %}
+                    <select name="valor_campo"
+                            class="w-full text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
+                      <option value="">— Seleccionar —</option>
+                      {% for opcion in (cp.configuracion or {}).get('opciones', []) %}
+                        <option value="{{ opcion }}" {% if cp.valor_texto == opcion %}selected{% endif %}>{{ opcion }}</option>
+                      {% endfor %}
+                    </select>
+                  {% elif cp.tipo == 'checkbox' %}
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" name="valor_campo" value="true"
+                             {% if cp.valor_booleano %}checked{% endif %}
+                             class="h-3.5 w-3.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded" />
+                      <span class="text-xs text-slate-600">Sí</span>
+                    </label>
+                  {% elif cp.tipo == 'fecha' %}
+                    <input type="date"
+                           name="valor_campo"
+                           value="{{ cp.valor_fecha[:10] if cp.valor_fecha else '' }}"
+                           {% if cp.requerido %}required{% endif %}
+                           class="w-full text-xs bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5" />
+                  {% endif %}
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {# ----- Etiquetas editables (fuera del form principal: se gestionan con sus propios endpoints) ----- #}
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Etiquetas</h4>
+            {% if etiquetas_disponibles %}
+            <details class="relative">
+              <summary class="list-none cursor-pointer text-[10px] text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-0.5">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Gestionar
+              </summary>
+              <div class="absolute right-0 mt-1 w-64 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg z-10 p-1.5 space-y-1">
+                {% set _etiquetas_actuales_ids = ticket.etiquetas|map(attribute='id')|list %}
+                {% for et in etiquetas_disponibles %}
+                <div class="flex items-center justify-between gap-2 px-2 py-1 hover:bg-slate-50 rounded">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background-color: {{ et.color }}"></span>
+                    <span class="text-xs text-slate-700 truncate">{{ et.nombre }}</span>
+                  </div>
+                  {% if et.id in _etiquetas_actuales_ids %}
+                    <button class="text-[10px] text-red-600 hover:text-red-800 font-medium"
+                            hx-delete="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-trigger="click"
+                            onclick="event.stopPropagation()">
+                      Quitar
+                    </button>
+                  {% else %}
+                    <button class="text-[10px] text-emerald-600 hover:text-emerald-800 font-medium"
+                            hx-post="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-trigger="click"
+                            onclick="event.stopPropagation()">
+                      Agregar
+                    </button>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </details>
+            {% endif %}
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            {% if ticket.etiquetas %}
+              {% for et in ticket.etiquetas %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
+                      style="background-color: {{ et.color }}20; color: {{ et.color }};">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full" style="background-color: {{ et.color }}"></span>
+                  {{ et.nombre }}
+                  <button class="ml-0.5 text-slate-400 hover:text-red-500"
+                          hx-delete="/api/v1/tickets/{{ ticket.id }}/etiquetas/{{ et.id }}"
+                          hx-target="#modal-root" hx-swap="innerHTML"
+                          title="Quitar etiqueta">×</button>
+                </span>
+              {% endfor %}
+            {% else %}
+              <span class="text-[11px] text-slate-400 italic">Sin etiquetas</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Cambio de estado rápido -->
+        <div class="pt-3 border-t border-slate-100">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Cambiar estado</h4>
+          <div class="flex flex-wrap gap-1.5">
+            {% for e in estados %}
+              {% if e.id != ticket.estado_id %}
+                <button class="px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                        hx-get="/api/v1/tickets/{{ ticket.id }}/transicion-info/{{ e.id }}"
+                        hx-trigger="click"
+                        hx-vals='{"estado_id": "{{ e.id }}"}'
+                        onclick="window.cambiarEstadoRapido && window.cambiarEstadoRapido({{ ticket.id }}, {{ e.id }})">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full mr-1" style="background-color: {{ e.color }}"></span>
+                  {{ e.nombre }}
+                </button>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Comentarios -->
+      <div class="tab-panel {% if _active != 'comentarios' %}hidden{% endif %} p-5 space-y-3" data-panel="comentarios">
+        <!-- Listado -->
+        <div id="comentarios-lista" class="space-y-2.5 max-h-[28rem] overflow-y-auto pr-1">
+          {% if comentarios %}
+            {% for c in comentarios %}
+              {% set nc = (c.usuario.nombre_completo if c.usuario else '') %}
+              {% set ini = (nc.split(' ')[:2]|map('first')|join|upper) if nc else '?' %}
+              {% set _is_admin = (usuario and usuario.rol.value == 'administrador') %}
+              {% set _is_autor = (usuario and usuario.id == c.usuario_id) %}
+              {# Ventana de edición: 30 min desde la última actualización del comentario.
+                 Renderizamos el botón solo si el usuario tiene permisos para editar AHORA. #}
+              {% set _updated = c.updated_at %}
+              {% set _created = c.created_at %}
+              {# Calculamos minutos restantes usando la misma fórmula que el servicio.
+                 Se hace en Python para evitar un GET extra; el backend re-validará. #}
+              {% if _is_admin %}
+                {% set _can_edit = True %}
+                {% set _edit_reason = 'admin' %}
+                {% set _min_left = 30 %}
+              {% elif _is_autor and _updated %}
+                {% set _delta = ((_updated - _created).total_seconds() / 60.0) %}
+                {% set _consumed = (30 - (_delta|int)) %}
+                {% set _min_left = _consumed if _consumed > 0 else 0 %}
+                {% set _can_edit = (_min_left > 0) %}
+                {% set _edit_reason = 'autor' if _can_edit else 'expirado' %}
+              {% else %}
+                {% set _can_edit = False %}
+                {% set _min_left = 0 %}
+                {% set _edit_reason = 'no_permitido' %}
+              {% endif %}
+              {# Adjuntos del comentario (pre-cargados por N+1 fix en backend) #}
+              {% set _com_adj = (adjuntos_por_comentario.get(c.id) or []) %}
+              {# Referencias SALIENTES (este comentario menciona a …) #}
+              {% set _refs_fwd = (mapa_referencias_fwd.get(c.id) or []) %}
+              {# Referencias ENTRANTES (comentarios que citan este) #}
+              {% set _refs_inv = (mapa_referencias_inv.get(c.id) or []) %}
+
+              <div id="comentario-{{ c.id }}"
+                   class="rounded-lg border border-slate-200 bg-slate-50/40 p-3 comentario-card"
+                   data-comentario-id="{{ c.id }}"
+                   data-author-id="{{ c.usuario_id }}"
+                   data-edit-window="{{ _min_left }}"
+                   data-is-admin="{{ '1' if _is_admin else '0' }}"
+                   data-is-author="{{ '1' if _is_autor else '0' }}"
+                   data-updated-at="{{ _updated.isoformat() if _updated else '' }}">
+                <div class="flex items-center justify-between mb-1">
+                  <div class="flex items-center gap-1.5">
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold" title="{{ nc or 'Anónimo' }}">
+                      {{ ini }}
+                    </span>
+                    <span class="text-xs font-medium text-slate-700">{{ nc or 'Anónimo' }}</span>
+                    {% if c.es_interno %}
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">INTERNO</span>
+                    {% endif %}
+                    {# FEATURE — Identificador del comentario para poder referenciarlo en otro #}
+                    <button type="button"
+                            class="copy-comentario-id text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 font-mono"
+                            data-id="{{ c.id }}"
+                            title="Copiar #{{ c.id }} al portapapeles (para pegarlo en otro comentario como #{{ c.id }})">#{{ c.id }}</button>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-slate-400">{{ c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '' }}</span>
+                    {% if c.editado %}
+                      <span class="text-[10px] text-amber-600" title="Editado · original guardado">editado</span>
+                    {% endif %}
+                  </div>
+                </div>
+                {# FEATURE — Texto con chips #ID clickeables (render-time resolution) #}
+                <div class="text-xs text-slate-700 whitespace-pre-wrap comentario-texto">{{ c.texto|e }}</div>
+
+                {# FEATURE — Adjuntos inline (los del propio comentario). Los del TICKET van en su pestaña. #}
+                {% if _com_adj %}
+                  <div class="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                    <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Adjuntos del comentario</div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {% for a in _com_adj %}
+                        <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
+                           target="_blank" rel="noopener"
+                           class="flex items-center gap-2 p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50">
+                          {% if a.es_imagen %}
+                            <img src="/api/v1/adjuntos/{{ a.id }}/descargar" alt="{{ a.nombre_original }}"
+                                 class="w-10 h-10 object-cover rounded border border-slate-200"
+                                 loading="lazy">
+                          {% else %}
+                            <span class="inline-flex items-center justify-center w-10 h-10 rounded bg-slate-100 text-slate-500 text-[10px]">📎</span>
+                          {% endif %}
+                          <div class="min-w-0 flex-1">
+                            <div class="text-[11px] font-medium text-slate-700 truncate" title="{{ a.nombre_original }}">{{ a.nombre_original }}</div>
+                            <div class="text-[10px] text-slate-400">{{ a.tamano_legible }}</div>
+                          </div>
+                        </a>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {# FEATURE — Chips #ID que el comentario MENCIONA (salientes) + indicadores de CITADO POR (entrantes) #}
+                {% if _refs_fwd or _refs_inv %}
+                  <div class="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                    {% if _refs_fwd %}
+                      <span class="text-[10px] text-slate-500">Refiere a:</span>
+                      {% for rid in _refs_fwd %}
+                        <a href="#comentario-{{ rid }}"
+                           class="comentario-ref-chip inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-mono hover:bg-indigo-100"
+                           data-target-id="{{ rid }}">#{{ rid }}</a>
+                      {% endfor %}
+                    {% endif %}
+                    {% if _refs_inv %}
+                      <span class="text-[10px] text-slate-500 ml-2">Citado por:</span>
+                      {% for rid in _refs_inv %}
+                        <a href="#comentario-{{ rid }}"
+                           class="comentario-ref-chip inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-mono hover:bg-emerald-100"
+                           data-target-id="{{ rid }}">#{{ rid }}</a>
+                      {% endfor %}
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                {# FEATURE — Acciones del comentario: Editar (con countdown) / Eliminar #}
+                <div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    {% if _can_edit %}
+                      <button type="button"
+                              class="comentario-editar-btn text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700"
+                              data-id="{{ c.id }}"
+                              title="Editar (ventana restante: {{ _min_left }} min)">
+                        ✏️ Editar
+                      </button>
+                      {% if _edit_reason == 'autor' %}
+                        <span class="comentario-edit-countdown text-[10px] text-amber-700 font-mono"
+                              data-minutos="{{ _min_left }}">
+                          ⏱ {{ _min_left }} min restantes
+                        </span>
+                      {% endif %}
+                    {% elif _edit_reason == 'expirado' %}
+                      <span class="text-[10px] text-slate-400 italic"
+                            title="Ventana de edición expirada. Solo un administrador puede editarlo.">⏱ ventana expirada</span>
+                    {% endif %}
+                  </div>
+                  {# Eliminar: solo admin o autor #}
+                  {% if _is_admin or _is_autor %}
+                    <button hx-delete="/api/v1/comentarios/{{ c.id }}"
+                            hx-vals='{"active_tab": "comentarios"}'
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-confirm="¿Eliminar este comentario y sus adjuntos?"
+                            class="text-[10px] px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700">
+                      🗑 Eliminar
+                    </button>
+                  {% endif %}
+                </div>
+
+                {# FEATURE — Form de edición INLINE (oculto por defecto). Se activa con el botón ✏️ #}
+                <form hx-post="/api/v1/comentarios/{{ c.id }}/editar"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      class="comentario-edit-form hidden mt-2 pt-2 border-t border-slate-100 space-y-2">
+                  <input type="hidden" name="active_tab" value="comentarios">
+                  <textarea name="texto" rows="3" required
+                            class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            maxlength="5000">{{ c.texto }}</textarea>
+                  <div class="flex items-center justify-end gap-2">
+                    <button type="button"
+                            class="comentario-editar-cancelar text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700">
+                      Cancelar
+                    </button>
+                    <button type="submit"
+                            class="text-[10px] px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white">
+                      💾 Guardar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-6">No hay comentarios aún.</div>
+          {% endif %}
+        </div>
+
+        {# FEATURE — Form nuevo comentario CON SOPORTE DE ARCHIVOS (paste/drop/selección) #}
+        <form hx-post="/api/v1/tickets/{{ ticket.id }}/comentarios"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              enctype="multipart/form-data"
+              id="form-nuevo-comentario"
+              class="pt-3 border-t border-slate-100 space-y-2"
+              data-dropzone-comentario="1">
+          <input type="hidden" name="active_tab" value="comentarios">
+          <textarea name="texto" rows="3" required
+                    placeholder="Escribe un comentario… (Ctrl+V para pegar imágenes)"
+                    class="comentario-textarea w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    maxlength="5000"></textarea>
+
+          {# Indicador de archivos pendientes de subir (sin submit) #}
+          <div class="comentario-pendientes hidden flex flex-wrap gap-2 p-1.5 rounded border border-dashed border-slate-300 bg-slate-50/60"></div>
+
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+              <label class="inline-flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
+                <input type="checkbox" name="es_interno" value="true"
+                       class="h-3 w-3 text-indigo-600 focus:ring-indigo-500">
+                Interno
+              </label>
+              <label class="comentario-file-trigger inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-indigo-600 cursor-pointer">
+                📎 Adjuntar archivo
+                <input type="file" name="archivos" multiple
+                       class="comentario-file-input hidden"
+                       accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.log,.json,.xml,.yaml,.yml,.zip,.rar,.7z,.tar,.gz,.mp4,.webm,.mov">
+              </label>
+            </div>
+            <button type="submit"
+                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white">
+              Agregar comentario
+            </button>
+          </div>
+          <div class="text-[10px] text-slate-500">
+            Tip: puedes arrastrar archivos al cuadro de texto o pegar (Ctrl+V) imágenes desde el portapapeles. Se vincularán al comentario.
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab: Adjuntos -->
+      <div class="tab-panel {% if _active != 'adjuntos' %}hidden{% endif %} p-5 space-y-3" data-panel="adjuntos">
+        <div class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          {% if adjuntos %}
+            {% for a in adjuntos %}
+              {# Detección robusta: prioriza mime_type del backend; cae a extensión como fallback. #}
+              {% set _mime = (a.mime_type or '') %}
+              {% set _ext = (a.nombre_original or a.filename or a.nombre or '').split('.')[-1].lower() if (a.nombre_original or a.filename or a.nombre) else '' %}
+              {% set es_imagen = a.es_imagen if a.es_imagen is defined else (_mime.startswith('image/') or _ext in ['png','jpg','jpeg','gif','webp','bmp','svg','avif']) %}
+              {# Disponible: propiedad del modelo OR fallback por existencia de ruta. #}
+              {% set _disponible = (a.disponible if a.disponible is defined else None) %}
+              {# -----------------------------------------------------------------
+                 FIX-ELIMINAR-ADJUNTOS: permiso para eliminar un adjunto.
+                 Backend ya valida en /api/v1/adjuntos/{id} (DELETE) que solo
+                 el Admin o el usuario que subió el archivo pueden borrarlo.
+                 Acá replicamos la misma regla en la UI para mostrar/ocultar
+                 el botón y emitir el badge que indica POR QUÉ está permitido
+                 eliminar ese adjunto (trazabilidad visible para el usuario).
+                 ----------------------------------------------------------------- #}
+              {% set _es_admin  = (usuario is not none and usuario.rol is defined and (usuario.rol.value if usuario.rol is defined and usuario.rol is not string else usuario.rol) == 'administrador') %}
+              {% set _es_creador = (usuario is not none and a.usuario_id is defined and usuario.id == a.usuario_id) %}
+              {% set _puede_borrar = (_es_admin or _es_creador) %}
+              <div class="flex items-center justify-between rounded-lg border {% if _disponible is sameas false %}border-amber-300 bg-amber-50/40{% else %}border-slate-200 bg-slate-50/40{% endif %} p-2.5">
+                <div class="flex items-center gap-2 min-w-0">
+                  {% if es_imagen and _disponible is not sameas false %}
+                    {# data-preview-image activa el lightbox de app/static/js/image-preview.js #}
+                    <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
+                       data-preview-image
+                       data-preview-title="{{ a.nombre_original or a.filename or a.nombre }}"
+                       title="Click para vista previa"
+                       class="flex-shrink-0">
+                      <img src="/api/v1/adjuntos/{{ a.id }}/descargar"
+                           alt="{{ a.nombre_original or a.filename or a.nombre }}"
+                           loading="lazy"
+                           class="w-12 h-12 object-cover rounded border border-slate-200 hover:ring-2 hover:ring-indigo-400 transition-shadow cursor-zoom-in" />
+                    </a>
+                  {% elif es_imagen %}
+                    <div class="w-12 h-12 rounded border border-amber-200 bg-amber-50 flex items-center justify-center flex-shrink-0" title="Archivo no disponible">
+                      <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"></path>
+                      </svg>
+                    </div>
+                  {% else %}
+                    <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                    </svg>
+                  {% endif %}
+                  <div class="min-w-0">
+                    <span class="text-xs text-slate-700 truncate block">{{ a.nombre_original or a.filename or a.nombre }}</span>
+                    {% if _disponible is sameas false %}
+                      <span class="text-[10px] text-amber-700">Archivo no disponible — vuelve a subirlo</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <span class="text-[10px] text-slate-400">{{ a.tamano_legible }}</span>
+                  {% if _disponible is sameas false %}
+                    <span class="text-[11px] text-amber-600 font-medium italic" title="El archivo físico fue purgado. Vuelve a subirlo.">No disponible</span>
+                  {% else %}
+                    <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
+                       class="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium">Descargar</a>
+                  {% endif %}
+                  {# ----------------------------------------------------------------
+                     Botón ELIMINAR adjunto + badge que explica POR QUÉ está
+                     permitido. Reglas de visibilidad (idénticas a la validación
+                     del backend en features.py:902):
+                       * Admin                   -> siempre puede borrar.
+                       * Quien subió el archivo  -> puede borrar el suyo.
+                     El DELETE crea automáticamente un registro en la tabla
+                     ``auditorias`` con accion="adjunto_eliminado" y
+                     valor_anterior={"adjunto_id": ...} (trazabilidad).
+                     ---------------------------------------------------------------- #}
+                  {% if _puede_borrar %}
+                    {% if _es_admin %}
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200"
+                            title="El administrador puede eliminar cualquier adjunto. Quedará registro en la pestaña Trazabilidad.">
+                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        Admin
+                      </span>
+                    {% else %}
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-100 text-sky-800 border border-sky-200"
+                            title="Eres el autor de este adjunto, por eso puedes eliminarlo. Quedará registro en la pestaña Trazabilidad.">
+                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                        Creador
+                      </span>
+                    {% endif %}
+                    <button type="button"
+                            hx-delete="/api/v1/adjuntos/{{ a.id }}"
+                            hx-confirm="¿Eliminar el archivo &quot;{{ a.nombre_original or a.filename or a.nombre }}&quot;? Esta acción no se puede deshacer y quedará registrada en la trazabilidad del ticket."
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-vals='{"active_tab": "adjuntos"}'
+                            title="Eliminar adjunto (se registra en trazabilidad)"
+                            class="inline-flex items-center justify-center w-6 h-6 rounded text-rose-600 hover:bg-rose-50 hover:text-rose-800 border border-transparent hover:border-rose-200 transition-colors"
+                            aria-label="Eliminar adjunto">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"></path>
+                      </svg>
+                    </button>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-6">No hay archivos adjuntos.</div>
+          {% endif %}
+        </div>
+
+        <form hx-post="/api/v1/tickets/{{ ticket.id }}/adjuntos"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              hx-encoding="multipart/form-data"
+              class="pt-3 border-t border-slate-100 space-y-2"
+              id="adjuntos-form-{{ ticket.id }}">
+          <input type="hidden" name="active_tab" value="adjuntos">
+          <div class="adjuntos-dropzone flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-colors relative"
+               data-ticket-id="{{ ticket.id }}">
+            <svg class="w-6 h-6 text-slate-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+            </svg>
+            <span class="text-xs text-slate-500">Click para seleccionar o arrastra y suelta aquí</span>
+            <span class="text-[10px] text-slate-400 mt-0.5">Múltiples archivos permitidos</span>
+            {# ---- NUEVO: hint de copy-paste (Ctrl+V) ---- #}
+            <span class="text-[10px] text-indigo-600 font-medium mt-1 inline-flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+              También puedes pegar imágenes con
+              <kbd class="px-1 py-0.5 bg-white border border-slate-300 rounded text-[9px] font-mono">Ctrl</kbd>+<kbd class="px-1 py-0.5 bg-white border border-slate-300 rounded text-[9px] font-mono">V</kbd>
+            </span>
+            <input id="adjunto-file-{{ ticket.id }}" name="archivos" type="file" multiple class="hidden">
+          </div>
+          {# ---- Preview existente (drag/drop/click) ---- #}
+          <div id="adjuntos-preview-{{ ticket.id }}" class="hidden flex flex-wrap gap-1.5 text-xs text-slate-600"></div>
+          {# ---- NUEVO: preview específico de archivos pegados (con thumbnail + X) ---- #}
+          <div id="adjuntos-paste-list-{{ ticket.id }}" class="hidden space-y-1"></div>
+          {# ---- NUEVO: descripción batch (opcional, se aplica a todos los archivos) ---- #}
+          <textarea id="adjuntos-paste-desc-{{ ticket.id }}"
+                    name="descripcion"
+                    rows="2"
+                    maxlength="500"
+                    placeholder="Descripción opcional para los archivos pegados (se aplica a todos)…"
+                    class="hidden w-full text-xs border border-slate-200 rounded p-2 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300 resize-y"
+                    data-paste-desc></textarea>
+          <div class="flex items-center justify-between">
+            <span id="adjuntos-info-{{ ticket.id }}" class="text-[11px] text-slate-500"></span>
+            <button type="submit"
+                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+              </svg>
+              Subir archivo(s)
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab: Checklist -->
+      <div class="tab-panel {% if _active != 'checklist' %}hidden{% endif %} p-5 space-y-3" data-panel="checklist">
+        <div class="space-y-3 max-h-96 overflow-y-auto pr-1">
+          {% if checklists %}
+            {% for cl in checklists %}
+              {% set _total = cl.items|length %}
+              {% set _completados = cl.items|selectattr('completado')|list|length %}
+              {% set _pct = (100 * _completados / _total)|int if _total > 0 else 0 %}
+              <div class="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <h5 class="text-xs font-semibold text-slate-700">{{ cl.titulo }}</h5>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] text-slate-500">{{ _completados }}/{{ _total }} ({{ _pct }}%)</span>
+                    <button type="button"
+                            hx-delete="/api/v1/checklists/{{ cl.id }}"
+                            hx-target="#modal-root" hx-swap="innerHTML"
+                            hx-trigger="click"
+                            hx-confirm="¿Eliminar este checklist completo?"
+                            class="text-[10px] text-red-500 hover:text-red-700 font-medium">
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+                {% if _total > 0 %}
+                <div class="w-full bg-slate-200 rounded-full h-1 mb-2 overflow-hidden">
+                  <div class="bg-indigo-500 h-1 rounded-full transition-all duration-300" style="width: {{ _pct }}%"></div>
+                </div>
+                {% endif %}
+                <ul class="space-y-1.5 mb-2">
+                  {% for item in cl.items %}
+                    <li class="flex items-center gap-2 text-xs text-slate-700 group">
+                      <input type="checkbox"
+                             class="h-3.5 w-3.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded cursor-pointer"
+                             {% if item.completado %}checked{% endif %}
+                             hx-post="/api/v1/checklist-items/{{ item.id }}/toggle"
+                             hx-trigger="change"
+                             hx-target="#modal-root" hx-swap="innerHTML">
+                      <span class="flex-1 {% if item.completado %}line-through text-slate-400{% endif %}">
+                        {{ item.texto }}
+                      </span>
+                      <button type="button"
+                              hx-delete="/api/v1/checklist-items/{{ item.id }}"
+                              hx-target="#modal-root" hx-swap="innerHTML"
+                              hx-trigger="click"
+                              hx-confirm="¿Eliminar esta tarea?"
+                              class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-opacity">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
+                    </li>
+                  {% endfor %}
+                </ul>
+                <form hx-post="/api/v1/checklists/{{ cl.id }}/items"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      class="flex items-center gap-1.5 pt-2 border-t border-slate-100">
+                  <input type="hidden" name="active_tab" value="checklist">
+                  <input type="text" name="texto" required
+                         placeholder="Añadir nueva tarea..."
+                         class="flex-1 text-xs border border-slate-200 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" />
+                  <button type="submit"
+                          class="px-2 py-1 text-[11px] font-medium rounded bg-slate-100 hover:bg-slate-200 text-slate-700 inline-flex items-center gap-0.5">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Añadir
+                  </button>
+                </form>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-6">No hay tareas registradas.</div>
+          {% endif %}
+        </div>
+
+        <form hx-post="/api/v1/tickets/{{ ticket.id }}/checklists"
+              hx-target="#modal-root" hx-swap="innerHTML"
+              class="pt-3 border-t border-slate-100 space-y-2">
+          <input type="hidden" name="active_tab" value="checklist">
+          <div class="flex items-center gap-1.5">
+            <input type="text" name="titulo" required
+                   placeholder="Título del nuevo checklist (ej: 'Tareas de cierre')..."
+                   class="flex-1 text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <button type="submit"
+                    class="px-3 py-2 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              Crear checklist
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab: Etapas UAT (sub-bars del Gantt) -->
+      <div class="tab-panel {% if _active != 'etapas' %}hidden{% endif %} p-5 space-y-3" data-panel="etapas">
+        {# Encabezado con acción principal: auto-asignar 10 etapas si no hay ninguna #}
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Etapas del proyecto UAT</h4>
+            <p class="text-[10px] text-slate-400 mt-0.5">
+              {% if etapas %}
+                {{ etapas|length }} de 10 etapas asignadas. Edita fechas, marca como completada o agrega notas.
+              {% else %}
+                Este ticket aún no tiene etapas asignadas. Genera las 10 fases del flujo UAT para que se dibujen como sub-barras en el Gantt.
+              {% endif %}
+            </p>
+          </div>
+          {% if not etapas %}
+            <button type="button"
+                    hx-post="/api/v1/etapas/ticket/{{ ticket.id }}/auto-asignar"
+                    hx-target="#modal-root" hx-swap="innerHTML"
+                    hx-trigger="click"
+                    hx-confirm="¿Asignar las 10 etapas UAT a este ticket? Se crearán 10 filas de planificación (sin fechas, listas para editar)."
+                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1 flex-shrink-0">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              Auto-asignar 10 etapas UAT
+            </button>
+          {% endif %}
+        </div>
+
+        {# Listado de etapas: cada fila es editable inline.
+           SIN max-h interno: el scroll vertical del BODY del modal (línea 102)
+           debe cubrir las 10 tarjetas + footer sin clipping. #}
+        <div class="space-y-1.5 pr-1 overflow-x-auto">
+          {% if etapas %}
+            {# Ordenar por etapa_orden ASC para que se vean siempre 1..10 #}
+            {% set _etapas_sorted = etapas|sort(attribute='etapa_orden') %}
+            {% for te in _etapas_sorted %}
+              <div class="rounded-lg border border-slate-200 bg-white p-2.5 hover:border-slate-300 transition-colors overflow-x-auto">
+                <form hx-patch="/api/v1/etapas/ticket/{{ ticket.id }}/{{ te.etapa_id }}"
+                      hx-target="#modal-root" hx-swap="innerHTML"
+                      hx-trigger="change from:input, change from:select, click from:input[type='checkbox']"
+                      class="space-y-2">
+                  <input type="hidden" name="active_tab" value="etapas">
+                  <div class="flex items-center gap-2">
+                    {# Color dot + nombre + orden #}
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white flex-shrink-0"
+                          style="background-color: {{ te.etapa_color }}"
+                          title="Etapa {{ te.etapa_orden }}">{{ te.etapa_orden }}</span>
+                    <span class="text-xs font-semibold text-slate-700 flex-1 min-w-0 truncate" title="{{ te.etapa_nombre }}">
+                      {{ te.etapa_nombre }}
+                    </span>
+                    <span class="text-[10px] font-mono text-slate-400 flex-shrink-0">{{ te.etapa_codigo }}</span>
+                    {# Checkbox completado #}
+                    <label class="inline-flex items-center gap-1 cursor-pointer flex-shrink-0" title="Marcar como completada">
+                      <input type="checkbox" name="completado" value="true"
+                             {% if te.completado %}checked{% endif %}
+                             class="h-3.5 w-3.5 text-emerald-600 focus:ring-emerald-500 border-slate-300 rounded">
+                      <span class="text-[10px] text-slate-500">OK</span>
+                    </label>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 pl-8">
+                    <div>
+                      <label class="block text-[9px] uppercase tracking-wide text-slate-400 mb-0.5">Inicio</label>
+                      <input type="date" name="fecha_inicio"
+                             value="{{ te.fecha_inicio or '' }}"
+                             class="w-full text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                      <label class="block text-[9px] uppercase tracking-wide text-slate-400 mb-0.5">Fin</label>
+                      <input type="date" name="fecha_fin"
+                             value="{{ te.fecha_fin or '' }}"
+                             class="w-full text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                  </div>
+                  <div class="pl-8">
+                    <textarea name="notas" rows="1" placeholder="Notas de la etapa (PR, build, link)..."
+                              class="w-full text-[11px] bg-white border border-slate-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 resize-none">{{ te.notas or '' }}</textarea>
+                  </div>
+                </form>
+              </div>
+            {% endfor %}
+          {% else %}
+            {# Estado vacío: no hay etapas. Mostrar ayuda + catálogo resumido para que el usuario sepa qué se va a crear. #}
+            <div class="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/30 p-4">
+              <div class="text-center mb-3">
+                <svg class="w-8 h-8 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                </svg>
+                <p class="text-xs text-slate-600 font-medium">No hay etapas asignadas</p>
+                <p class="text-[10px] text-slate-400 mt-1">Al auto-asignar, se crearán estas 10 fases:</p>
+              </div>
+              {% if catalogo_etapas %}
+                <ol class="space-y-1 text-[11px] text-slate-600 max-w-md mx-auto">
+                  {% for e in catalogo_etapas %}
+                    <li class="flex items-center gap-2">
+                      <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background-color: {{ e.color }}"></span>
+                      <span class="font-mono text-[10px] text-slate-400 w-4">{{ e.orden }}</span>
+                      <span class="flex-1 truncate">{{ e.nombre }}</span>
+                    </li>
+                  {% endfor %}
+                </ol>
+              {% else %}
+                <p class="text-[10px] text-center text-amber-600 italic">
+                  El catálogo de etapas está vacío. Contacta al administrador para inicializarlo.
+                </p>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+
+        {# Pie con totales #}
+        {% if etapas %}
+          {% set _etapas_total = etapas|length %}
+          {% set _etapas_done = etapas|selectattr('completado')|list|length %}
+          {% set _etapas_planificadas = etapas|selectattr('fecha_inicio')|list|length %}
+          {% set _etapas_pct = (100 * _etapas_done / _etapas_total)|int if _etapas_total > 0 else 0 %}
+          <div class="pt-2 border-t border-slate-100 space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>{{ _etapas_done }}/{{ _etapas_total }} etapas completadas ({{ _etapas_pct }}%)</span>
+              <span>{{ _etapas_planificadas }}/{{ _etapas_total }} con fecha planificada</span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
+              <div class="bg-emerald-500 h-1 rounded-full transition-all duration-300" style="width: {{ _etapas_pct }}%"></div>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Tab: Trazabilidad -->
+      <div class="tab-panel {% if _active != 'trazabilidad' %}hidden{% endif %} p-5 space-y-3" data-panel="trazabilidad">
+        <div class="flex items-center justify-between mb-1">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Historial de cambios</h4>
+          <span class="text-[10px] text-slate-400">Total: {{ auditorias|length }} evento(s)</span>
+        </div>
+        <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          {% if auditorias %}
+            <ol class="relative border-l-2 border-slate-200 ml-1 space-y-3">
+              {% for a in auditorias %}
+                {% set nc = (a.usuario.nombre_completo if a.usuario else 'Sistema') %}
+                {% set ini = (nc.split(' ')[:2]|map('first')|join|upper) if nc and nc != 'Sistema' else 'SY' %}
+                {% set accion_legible = {
+                    'CAMBIO_ESTADO': 'Cambió el estado',
+                    'TICKET_CREADO': 'Creó el ticket',
+                    'ASIGNACION': 'Reasignó el ticket',
+                    'COMENTARIO_CREADO': 'Comentario creado',
+                    'COMENTARIO_ELIMINADO': 'Comentario eliminado',
+                    'CHECKLIST_CREADA': 'Checklist creado',
+                    'CHECKLIST_ELIMINADA': 'Checklist eliminado',
+                    'CHECKLIST_ITEM_TOGGLE': 'Actualizó checklist',
+                    'ADJUNTO_SUBIDO': 'Subió adjunto',
+                    'ADJUNTO_ELIMINADO': 'Eliminó adjunto',
+                    'ETIQUETA_ASIGNADA': 'Etiqueta asignada',
+                    'ETIQUETA_REMOVIDA': 'Etiqueta removida',
+                    'TICKET_DUPLICADO': 'Ticket duplicado',
+                  }.get(a.accion|upper, a.accion) %}
+                <li class="ml-4 relative">
+                  <span class="absolute -left-[1.45rem] top-0.5 w-5 h-5 rounded-full flex items-center justify-center
+                               {% if a.accion|upper == 'CAMBIO_ESTADO' %}bg-indigo-100 text-indigo-700
+                               {% elif a.accion|upper == 'TICKET_CREADO' %}bg-emerald-100 text-emerald-700
+                               {% elif a.accion|upper == 'COMENTARIO_CREADO' %}bg-sky-100 text-sky-700
+                               {% elif a.accion|upper == 'ADJUNTO_SUBIDO' %}bg-amber-100 text-amber-700
+                               {% elif a.accion|upper == 'CHECKLIST_CREADA' or a.accion|upper == 'CHECKLIST_ITEM_TOGGLE' %}bg-violet-100 text-violet-700
+                               {% else %}bg-slate-100 text-slate-600{% endif %}">
+                    <span class="text-[8px] font-bold">{{ ini[:2] }}</span>
+                  </span>
+                  <div class="rounded-lg border border-slate-200 bg-white p-2.5">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="text-xs font-semibold text-slate-700 truncate">{{ nc }}</span>
+                        <span class="text-xs text-slate-500">·</span>
+                        <span class="text-xs text-slate-600">{{ accion_legible }}</span>
+                      </div>
+                      <span class="text-[10px] text-slate-400 whitespace-nowrap"
+                            title="{{ a.created_at.isoformat() if a.created_at else '' }}">
+                        {{ a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '—' }}
+                      </span>
+                    </div>
+                    {% if a.valor_anterior or a.valor_nuevo %}
+                      <div class="text-[11px] text-slate-600 mt-1 space-y-0.5">
+                        {% if a.valor_anterior %}
+                          <div class="flex items-start gap-1.5">
+                            <span class="text-red-600 font-mono flex-shrink-0">−</span>
+                            <span class="font-mono break-all">{{ a.valor_anterior | tojson if a.valor_anterior is mapping else a.valor_anterior }}</span>
+                          </div>
+                        {% endif %}
+                        {% if a.valor_nuevo %}
+                          <div class="flex items-start gap-1.5">
+                            <span class="text-emerald-600 font-mono flex-shrink-0">+</span>
+                            <span class="font-mono break-all">{{ a.valor_nuevo | tojson if a.valor_nuevo is mapping else a.valor_nuevo }}</span>
+                          </div>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                    {% if a.comentario %}
+                      <div class="mt-1.5 pt-1.5 border-t border-slate-100">
+                        <p class="text-[11px] italic text-slate-500">"{{ a.comentario }}"</p>
+                      </div>
+                    {% endif %}
+                  </div>
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-6">No hay cambios registrados para este ticket.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Tab: Referencias (FEATURE 5 — issue links) -->
+      <div class="tab-panel {% if _active != 'referencias' %}hidden{% endif %} p-5 space-y-4" data-panel="referencias">
+
+        <div class="flex items-center justify-between">
+          <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 015.656 0l1.415 1.415a4 4 0 010 5.656l-3 3a4 4 0 01-5.656 0M10.172 13.828a4 4 0 01-5.656 0l-1.415-1.415a4 4 0 010-5.656l3-3a4 4 0 015.656 0"/></svg>
+            Referencias internas
+          </h4>
+          <span class="text-[10px] text-slate-400">Total: {{ referencias|length }}</span>
+        </div>
+
+        {# ----- Form para agregar referencia ----- #}
+        {# IMPORTANTE: hx-on::after-request SOLO debe correr cuando el formulario es quien
+           disparó el request (event.detail.elt === this). Si no, el GET que dispara el
+           <input> hijo al escribir/buscar burbujea hasta el form y borra el input + los
+           resultados del dropdown, dejando al usuario con la sensación de que "no pasa nada"
+           y de que el texto "se borra a los pocos segundos". #}
+        <form id="form-add-referencia-{{ ticket.id }}"
+              hx-post="/api/v1/tickets/{{ ticket.id }}/referencias"
+              hx-target="#referencias-list-{{ ticket.id }}"
+              hx-swap="innerHTML"
+              hx-on::after-request="if(event.detail.successful && event.detail.elt===this){this.reset();var _h=document.getElementById('ref-ticket-id-{{ ticket.id }}');if(_h)_h.value='';var _v=document.getElementById('ref-ticket-selected-{{ ticket.id }}');if(_v)_v.innerHTML='';var _r=document.getElementById('ref-search-result-{{ ticket.id }}');if(_r){_r.classList.add('hidden');_r.innerHTML='';}}"
+              class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+          <div class="grid grid-cols-12 gap-2 items-end">
+            <div class="col-span-3">
+              <label class="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-0.5">Tipo</label>
+              <select name="tipo" required
+                      class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                {% for t in tipos_referencia %}
+                  <option value="{{ t.value }}">{{ t.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-span-6 relative" data-ref-search-wrapper="{{ ticket.id }}">
+              <label class="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-0.5">Ticket a vincular</label>
+              <input type="text"
+                     id="ref-search-input-{{ ticket.id }}"
+                     name="q"
+                     placeholder="Buscar por código, título o HU..."
+                     autocomplete="off"
+                     hx-get="/api/v1/tickets/buscar"
+                     hx-trigger="keyup changed delay:250ms, search"
+                     hx-vals='{"excluir": "{{ ticket.id }}"}'
+                     hx-target="#ref-search-result-{{ ticket.id }}"
+                     hx-swap="innerHTML"
+                     hx-indicator="#ref-search-spinner-{{ ticket.id }}"
+                     class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <input type="hidden" name="ticket_referenciado_id" id="ref-ticket-id-{{ ticket.id }}" required>
+              <div id="ref-search-result-{{ ticket.id }}" class="hidden absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-300 rounded shadow-lg max-h-48 overflow-y-auto"></div>
+              <span id="ref-search-spinner-{{ ticket.id }}" class="htmx-indicator absolute right-2 top-7 text-slate-400 text-[10px]">buscando...</span>
+              <div id="ref-ticket-selected-{{ ticket.id }}" class="hidden mt-1 text-[11px] text-emerald-700 font-medium"></div>
+            </div>
+            <div class="col-span-3 flex items-end gap-1.5">
+              <button type="button"
+                      id="ref-search-btn-{{ ticket.id }}"
+                      data-action="ref-search"
+                      data-ticket-id="{{ ticket.id }}"
+                      title="Ejecutar búsqueda"
+                      class="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+                Buscar
+              </button>
+              <button type="submit"
+                      id="ref-add-btn-{{ ticket.id }}"
+                      data-action="ref-submit"
+                      data-ticket-id="{{ ticket.id }}"
+                      class="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Agregar
+              </button>
+            </div>
+          </div>
+          <div>
+            <input type="text" name="nota" maxlength="500"
+                   placeholder="Nota opcional (ej: 'mismo bug reportado en QA y PROD')"
+                   class="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          </div>
+        </form>
+
+        {# ----- Lista de referencias (salientes + entrantes) — renderizada inline ----- #}
+        <div id="referencias-list-{{ ticket.id }}" class="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
+          {% if referencias %}
+            {# Agrupamos por dirección para presentar la lista en 2 secciones #}
+            {% set _salientes = referencias|selectattr('direccion', 'equalto', 'saliente')|list %}
+            {% set _entrantes = referencias|selectattr('direccion', 'equalto', 'entrante')|list %}
+            {% if _salientes %}
+              <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mt-2 mb-1 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                Este ticket referencia a ({{ _salientes|length }})
+              </div>
+              {% for r in _salientes %}
+                <div class="rounded-lg border border-slate-200 bg-white p-2.5 hover:border-indigo-300 transition-colors flex items-start gap-2">
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 mt-0.5
+                               {% if r.tipo == 'relacionado' %}bg-sky-100 text-sky-800
+                               {% elif r.tipo == 'duplicado' %}bg-amber-100 text-amber-800
+                               {% elif r.tipo == 'padre' or r.tipo == 'hijo' %}bg-violet-100 text-violet-800
+                               {% elif r.tipo == 'bloquea' or r.tipo == 'bloqueado_por' %}bg-rose-100 text-rose-800
+                               {% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.tipo_nombre }}</span>
+                  <div class="flex-1 min-w-0">
+                    <a href="/tickets#ticket-{{ r.ticket_id }}"
+                       hx-get="/api/v1/tickets/{{ r.ticket_id }}/detalle-html"
+                       hx-target="#modal-root" hx-swap="innerHTML"
+                       class="block text-xs font-mono font-semibold text-indigo-700 hover:underline truncate"
+                       title="Abrir ticket {{ r.ticket_codigo }}">
+                      {{ r.ticket_codigo }}
+                    </a>
+                    <div class="text-[11px] text-slate-600 truncate" title="{{ r.ticket_titulo }}">{{ r.ticket_titulo }}</div>
+                    {% if r.nota %}
+                      <div class="text-[10px] italic text-slate-500 mt-0.5 truncate" title="{{ r.nota }}">"{{ r.nota }}"</div>
+                    {% endif %}
+                  </div>
+                  <button type="button"
+                          hx-delete="/api/v1/referencias/{{ r.id }}"
+                          hx-target="#referencias-list-{{ ticket.id }}"
+                          hx-swap="innerHTML"
+                          hx-confirm="¿Eliminar la referencia '{{ r.tipo_nombre }}' hacia {{ r.ticket_codigo }}?"
+                          class="flex-shrink-0 text-slate-400 hover:text-rose-600 p-1"
+                          title="Eliminar referencia">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 3h6a1 1 0 011 1v3H8V4a1 1 0 011-1z"/></svg>
+                  </button>
+                </div>
+              {% endfor %}
+            {% endif %}
+            {% if _entrantes %}
+              <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mt-3 mb-1 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"/></svg>
+                Referenciado por ({{ _entrantes|length }})
+              </div>
+              {% for r in _entrantes %}
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-2.5 hover:border-indigo-300 transition-colors flex items-start gap-2">
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 mt-0.5
+                               {% if r.tipo == 'relacionado' %}bg-sky-100 text-sky-800
+                               {% elif r.tipo == 'duplicado' %}bg-amber-100 text-amber-800
+                               {% elif r.tipo == 'padre' or r.tipo == 'hijo' %}bg-violet-100 text-violet-800
+                               {% elif r.tipo == 'bloquea' or r.tipo == 'bloqueado_por' %}bg-rose-100 text-rose-800
+                               {% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.tipo_nombre }}</span>
+                  <div class="flex-1 min-w-0">
+                    <a href="/tickets#ticket-{{ r.ticket_id }}"
+                       hx-get="/api/v1/tickets/{{ r.ticket_id }}/detalle-html"
+                       hx-target="#modal-root" hx-swap="innerHTML"
+                       class="block text-xs font-mono font-semibold text-indigo-700 hover:underline truncate"
+                       title="Abrir ticket {{ r.ticket_codigo }}">
+                      {{ r.ticket_codigo }}
+                    </a>
+                    <div class="text-[11px] text-slate-600 truncate" title="{{ r.ticket_titulo }}">{{ r.ticket_titulo }}</div>
+                  </div>
+                </div>
+              {% endfor %}
+            {% endif %}
+          {% else %}
+            <div class="text-center text-xs text-slate-400 italic py-4">
+              Sin referencias todavía. Usa el formulario arriba para vincular este ticket a otro.
+            </div>
+          {% endif %}
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ============== FOOTER ============== -->
+    <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0">
+      <div class="text-[11px] text-slate-500 flex items-center gap-1.5 min-w-0">
+        <span class="font-mono">#{{ ticket.id }}</span>
+        <span>·</span>
+        <span class="truncate" title="Última modificación">{{ ultima_modificacion|default('Actualizado ' + (ticket.updated_at.strftime('%Y-%m-%d %H:%M') if ticket.updated_at else '—')) }}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button"
+                data-action="duplicar-ticket" data-ticket-id="{{ ticket.id }}"
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          Duplicar
+        </button>
+        <button data-close-modal
+                class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===================================================================== #}
+{# JavaScript para Referencias (delegado, sin colisiones con otros tabs)  #}
+{# Se ejecuta cada vez que se inserta este modal en el DOM.              #}
+{# ===================================================================== #}
+<script>
+(function () {
+  // Resolver ticket.id desde el modal actual
+  var modal = document.currentScript && document.currentScript.previousElementSibling;
+  // Fallback: buscar por data-modal="detalle-ticket"
+  if (!modal || !modal.getAttribute || modal.getAttribute('data-modal') !== 'detalle-ticket') {
+    var all = document.querySelectorAll('[data-modal="detalle-ticket"]');
+    modal = all[all.length - 1];
+  }
+  if (!modal) return;
+  var ticketId = modal.getAttribute('data-ticket-id');
+
+  var input    = document.getElementById('ref-search-input-' + ticketId);
+  var hidden   = document.getElementById('ref-ticket-id-' + ticketId);
+  var result   = document.getElementById('ref-search-result-' + ticketId);
+  var selected = document.getElementById('ref-ticket-selected-' + ticketId);
+  var btnBuscar  = document.getElementById('ref-search-btn-' + ticketId);
+  var btnAgregar = document.getElementById('ref-add-btn-' + ticketId);
+  var form     = document.getElementById('form-add-referencia-' + ticketId);
+
+  if (!input || !hidden || !result || !form) return;
+
+  // Helper: cerrar dropdown
+  function closeDropdown() {
+    result.classList.add('hidden');
+    result.innerHTML = '';
+  }
+
+  // Helper: abrir dropdown (lo desoculta)
+  function openDropdown() {
+    result.classList.remove('hidden');
+  }
+
+  // 1) Click sobre una opción del dropdown → seleccionar ticket
+  result.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.ref-search-option');
+    if (!btn) return;
+    ev.preventDefault();
+    var tId  = btn.getAttribute('data-ticket-id');
+    var cod  = btn.getAttribute('data-codigo-titulo') || '';
+    if (!tId) return;
+    hidden.value = tId;
+    input.value  = cod;
+    if (selected) {
+      selected.innerHTML =
+        '&#x2713; Seleccionado: <span class="font-mono">' +
+        cod.replace(/</g, '&lt;') + '</span>';
+      selected.classList.remove('hidden');
+    }
+    closeDropdown();
+    input.focus();
+  });
+
+  // 2) Botón "Buscar" → fuerza la búsqueda del input (dispara HTMX manualmente)
+  if (btnBuscar) {
+    btnBuscar.addEventListener('click', function () {
+      var q = (input.value || '').trim();
+      if (!q) {
+        input.focus();
+        // Mensaje inline sin ir al backend
+        result.innerHTML =
+          '<div class="px-3 py-2 text-xs text-slate-500 italic">'
+          + 'Escribe al menos 1 car&aacute;cter para buscar</div>';
+        openDropdown();
+        return;
+      }
+      // Disparar HTMX manualmente
+      if (typeof htmx !== 'undefined' && htmx.trigger) {
+        htmx.trigger(input, 'search');
+      } else if (typeof htmx !== 'undefined' && htmx.find) {
+        htmx.find(input);
+        htmx.trigger(input, 'keyup');
+      }
+    });
+  }
+
+  // 3) Botón "Agregar" → valida antes de submit y previene envío si falta selección
+  if (btnAgregar) {
+    btnAgregar.addEventListener('click', function (ev) {
+      if (!hidden.value) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        // Resaltar visualmente
+        input.classList.add('ring-2', 'ring-rose-400');
+        result.innerHTML =
+          '<div class="px-3 py-2 text-xs text-rose-700 bg-rose-50 italic">'
+          + 'Primero selecciona un ticket de la lista (o escribe y presiona Buscar)</div>';
+        openDropdown();
+        setTimeout(function () {
+          input.classList.remove('ring-2', 'ring-rose-400');
+        }, 2000);
+        input.focus();
+        return false;
+      }
+    });
+  }
+
+  // 4) Click fuera del wrapper → cerrar dropdown
+  document.addEventListener('click', function (ev) {
+    var wrapper = document.querySelector('[data-ref-search-wrapper="' + ticketId + '"]');
+    if (!wrapper) return;
+    if (!wrapper.contains(ev.target)) {
+      closeDropdown();
+    }
+  });
+
+  // 5) Escape → cerrar dropdown y limpiar selección
+  input.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      closeDropdown();
+      hidden.value = '';
+      if (selected) {
+        selected.classList.add('hidden');
+        selected.innerHTML = '';
+      }
+    }
+  });
+
+  // 6) Limpiar selección al cambiar manualmente el texto
+  input.addEventListener('input', function () {
+    if (hidden.value) {
+      hidden.value = '';
+      if (selected) {
+        selected.classList.add('hidden');
+        selected.innerHTML = '';
+      }
+    }
+  });
+
+  // 7) Cuando HTMX termine de renderizar el dropdown, asegúrate que esté visible
+  document.body.addEventListener('htmx:afterSwap', function (ev) {
+    if (ev.target === result) {
+      openDropdown();
+    }
+  });
+})();
+</script>
+""")
+
+
+# ---------------------------------------------------------------------------
+#  API pública
+# ---------------------------------------------------------------------------
+
+def render_detalle_modal(
+    ticket,
+    estados: Iterable,
+    comentarios: Iterable,
+    adjuntos: Iterable,
+    checklists: Iterable,
+    auditorias: Iterable = (),
+    usuario=None,
+    ultima_modificacion: str = "",
+    active_tab: str = "detalles",
+    usuarios: Iterable = (),
+    etiquetas_disponibles: Iterable = (),
+    campos_personalizados: Iterable = (),
+    etapas: Iterable = (),
+    catalogo_etapas: Iterable = (),
+    referencias: Iterable = (),
+    tipos_referencia: Iterable = (),
+    adjuntos_por_comentario: dict = None,
+    mapa_referencias_fwd: dict = None,
+    mapa_referencias_inv: dict = None,
+) -> str:
+    """Renderiza el modal completo de detalle de un ticket.
+
+    Parameters
+    ----------
+    ticket : Ticket
+        Instancia del modelo Ticket (con relaciones ``estado``, ``creador``,
+        ``asignado``, ``etiquetas`` ya cargadas).
+    estados : Iterable[Estado]
+        Lista de todos los estados disponibles (para los botones de
+        transición rápida).
+    comentarios : Iterable[Comentario]
+        Comentarios del ticket (orden ascendente).
+    adjuntos : Iterable[Adjunto]
+        Archivos adjuntos del ticket.
+    checklists : Iterable[Checklist]
+        Checklists con sus respectivos ``items``.
+    auditorias : Iterable[Auditoria]
+        Bitácora de auditoría del ticket (orden descendente por fecha).
+    usuario : Usuario | None
+        Usuario actual (para mostrarlo en el header si se requiere).
+    ultima_modificacion : str
+        Cadena amigable describiendo el último cambio (ej: "Juan cambió
+        el estado a Cerrado, hace 5 min"). Si está vacía, se calcula
+        automáticamente a partir de ``ticket.updated_at``.
+    active_tab : str
+        Pestaña que debe mostrarse activa al renderizar. Una de
+        ``{"detalles", "comentarios", "adjuntos", "checklist", "etapas",
+        "trazabilidad"}``. Por defecto ``"detalles"``.
+    usuarios : Iterable[Usuario]
+        Lista de usuarios disponibles para el select de "Asignado".
+    etiquetas_disponibles : Iterable[Etiqueta]
+        Lista de todas las etiquetas del sistema (para el gestor de etiquetas).
+    etapas : Iterable[TicketEtapa]
+        Asignaciones de etapas del proyecto UAT al ticket (para el tab
+        ``Etapas``). Cada elemento debe incluir los atributos del modelo
+        ``TicketEtapa`` con la relación ``etapa`` eagerly-loaded.
+    catalogo_etapas : Iterable[EtapaProyecto]
+        Catálogo global de etapas del proyecto (10 fases UAT). Se muestra
+        en el estado vacío del tab ``Etapas`` como preview de lo que se
+        va a crear al auto-asignar.
+
+    Returns
+    -------
+    str
+        HTML listo para inyectar vía HTMX.
+    """
+    if not ultima_modificacion:
+        # Fallback: usar updated_at del ticket
+        if ticket.updated_at:
+            ultima_modificacion = f"Actualizado {ticket.updated_at.strftime('%Y-%m-%d %H:%M')}"
+        else:
+            ultima_modificacion = "—"
+    # Normalizar active_tab a un valor seguro
+    _tabs_validos = {"detalles", "comentarios", "adjuntos", "checklist", "etapas", "trazabilidad", "referencias"}
+    if active_tab not in _tabs_validos:
+        active_tab = "detalles"
+    return DETALLE_TEMPLATE.render(
+        ticket=ticket,
+        estados=list(estados),
+        comentarios=list(comentarios),
+        adjuntos=list(adjuntos),
+        checklists=list(checklists),
+        auditorias=list(auditorias),
+        usuario=usuario,
+        ultima_modificacion=ultima_modificacion,
+        active_tab=active_tab,
+        usuarios=list(usuarios),
+        etiquetas_disponibles=list(etiquetas_disponibles),
+        campos_personalizados=list(campos_personalizados),
+        etapas=list(etapas),
+        catalogo_etapas=list(catalogo_etapas),
+        referencias=list(referencias),
+        tipos_referencia=list(tipos_referencia),
+        adjuntos_por_comentario=dict(adjuntos_por_comentario or {}),
+        mapa_referencias_fwd=dict(mapa_referencias_fwd or {}),
+        mapa_referencias_inv=dict(mapa_referencias_inv or {}),
+    )

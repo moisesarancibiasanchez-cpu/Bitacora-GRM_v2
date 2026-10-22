@@ -1,0 +1,1921 @@
+{% extends "base.html" %}
+{% block title %}Dashboard GRM{% endblock %}
+{% block content %}
+<div class="h-full overflow-y-auto bg-slate-50">
+  <div class="max-w-7xl mx-auto px-6 py-6">
+
+    <!-- ========== HEADER ========== -->
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <svg class="w-7 h-7 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Dashboard GRM
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">Bitácora GRM v2 · Reporte operativo</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <select id="periodo" class="text-sm border border-slate-300 rounded-md px-3 py-1.5">
+          <option value="7">Últimos 7 días</option>
+          <option value="30" selected>Últimos 30 días</option>
+          <option value="90">Últimos 90 días</option>
+        </select>
+        <button id="btn-refresh" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+          <svg id="icon-refresh" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Actualizar
+        </button>
+      </div>
+    </div>
+
+    <!-- ========== LOADING STATE ========== -->
+    <div id="dashboard-loading" class="text-center py-12 text-slate-400">
+      <svg class="animate-spin h-8 w-8 mx-auto text-indigo-500 mb-2" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      Cargando métricas...
+    </div>
+
+    <!-- ========== DASHBOARD CONTENT ========== -->
+    <div id="dashboard-content" class="hidden">
+
+      <!-- ===== STATS BAR ===== -->
+      <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-3 mb-5">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Total</span>
+              <span id="stat-total" class="text-base font-bold text-slate-800">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Nuevas (7d)</span>
+              <span id="stat-nuevas" class="text-base font-bold text-indigo-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Abiertas</span>
+              <span id="stat-abiertas" class="text-base font-bold text-slate-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">% SLA</span>
+              <span id="stat-sla" class="text-base font-bold text-emerald-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Crít. sin asignar</span>
+              <span id="stat-crit" class="text-base font-bold text-red-700">—</span>
+            </div>
+            <span class="hidden sm:inline-block w-px h-4 bg-slate-200"></span>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500 uppercase tracking-wide font-semibold">Incidencias Abiertas</span>
+              <span id="stat-backlog" class="text-base font-bold text-amber-700">—</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-slate-500">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>en vivo</span>
+            <span class="mx-1">·</span>
+            <span id="last-update">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== FILA 1 — 4 KPI CARDS CON SPARKLINES ===== -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+
+        <!-- KPI 1: Tickets totales -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Tickets totales</p>
+              <p id="kpi-totales" class="text-3xl font-bold text-slate-800 mt-1.5">—</p>
+            </div>
+            <div class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            </div>
+          </div>
+          <svg id="spark-totales" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span><span id="kpi-totales-activos">—</span> activos · <span id="kpi-totales-archivados">—</span> archivados</span>
+            <span id="kpi-totales-delta" class="font-mono">—</span>
+          </p>
+        </div>
+
+        <!-- KPI 2: Incidencias levantadas (sólo tipo Incidencia) -->
+        <div class="bg-white border-2 border-red-200 ring-1 ring-red-100 rounded-xl p-4 hover:shadow-md transition-shadow relative">
+          <div class="flex items-start justify-between">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <p class="text-xs font-semibold uppercase tracking-wide text-red-700">Incidencias levantadas</p>
+                <span title="Sólo Tipo = Incidencia" class="cursor-help inline-flex items-center text-slate-400 hover:text-slate-600">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                </span>
+              </div>
+              <p id="kpi-incidencias" class="text-3xl font-bold text-red-700 mt-1.5">—</p>
+            </div>
+            <div class="w-9 h-9 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            </div>
+          </div>
+          <svg id="spark-incidencias" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span><span id="kpi-incidencias-nuevas">—</span> nuevas (7d)</span>
+            <span id="kpi-incidencias-delta" class="font-mono">—</span>
+          </p>
+        </div>
+
+        <!-- KPI 3: % SLA Cumplido -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">% SLA Cumplido</p>
+              <p id="kpi-sla" class="text-3xl font-bold text-emerald-600 mt-1.5">—<span class="text-base font-medium text-slate-500">%</span></p>
+            </div>
+            <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+          </div>
+          <svg id="spark-sla" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span><span id="kpi-sla-pendientes">—</span> pendientes</span>
+            <span id="kpi-sla-delta" class="font-mono">—</span>
+          </p>
+        </div>
+
+        <!-- KPI 4: Incidencias Abiertas -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Incidencias Abiertas</p>
+              <p id="kpi-backlog" class="text-3xl font-bold text-amber-600 mt-1.5">—</p>
+            </div>
+            <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+          </div>
+          <svg id="spark-backlog" viewBox="0 0 100 30" preserveAspectRatio="none" class="w-full h-7 mt-1"></svg>
+          <p class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+            <span>Excluye Producción OK y DESESTIMADA</span>
+            <span id="kpi-backlog-delta" class="font-mono">—</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- ===== FILA 2 — DISTRIBUCIÓN POR ESTADO ===== -->
+      <div class="grid grid-cols-1 gap-4 mb-5">
+        <!-- Distribución por estado (única columna; "Actividad diaria" se eliminó) -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Distribución por estado</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">incidencias activas</span>
+          </div>
+          <div id="dist-estado-container" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <!-- ===== FILA 3 — DISTRIBUCIÓN POR PRIORIDAD + PRÓXIMOS A VENCER SLA ===== -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+
+        <!-- Distribución por prioridad -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <h3 class="text-sm font-semibold text-slate-700 mb-3">Distribución por prioridad</h3>
+          <div id="dist-prioridad-container" class="space-y-2"></div>
+        </div>
+
+        <!-- Próximos a vencer SLA -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Próximos a vencer SLA</h3>
+            <select id="riesgo-horas" class="text-xs border border-slate-200 rounded px-2 py-1">
+              <option value="24">24 h</option>
+              <option value="48">48 h</option>
+              <option value="72" selected>72 h</option>
+            </select>
+          </div>
+          <div class="overflow-y-auto max-h-48">
+            <table class="w-full text-xs">
+              <thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200 sticky top-0 bg-white">
+                <tr>
+                  <th class="text-left py-1.5 font-semibold">Código</th>
+                  <th class="text-left py-1.5 font-semibold">Título</th>
+                  <th class="text-left py-1.5 font-semibold">Pri.</th>
+                  <th class="text-right py-1.5 font-semibold">Vence</th>
+                </tr>
+              </thead>
+              <tbody id="riesgo-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== FILA 4 — CUENTA DE RESULTADO (restaurada) ===== -->
+      {# Tabla pivote "Cuenta de Resultado" (réplica del rango A64:H81
+         de la hoja REPORTE del Excel UAT). Pivot módulo (filas) ×
+         resultado_pruebas (columnas) con drill-down HTMX por celda,
+         exportación CSV y filtro por ambiente (QA). #}
+      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-slate-700">Cuenta de Resultado</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="cuenta-resultado-export"
+                    onclick="exportarCuentaResultado()"
+                    class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+        <div id="cuenta-resultado-container" class="overflow-x-auto">
+          <div id="cuenta-resultado-loading" class="text-center py-6 text-slate-400 text-xs">
+            Cargando tabla pivote...
+          </div>
+          <table id="cuenta-resultado-table"
+                 class="hidden w-full text-xs border-collapse"
+                 aria-label="Tabla pivote Cuenta de Resultado">
+            <thead id="cuenta-resultado-thead"></thead>
+            <tbody id="cuenta-resultado-tbody"></tbody>
+            <tfoot id="cuenta-resultado-tfoot"></tfoot>
+          </table>
+        </div>
+        <p id="cuenta-resultado-footer"
+           class="hidden mt-2 text-[10px] text-slate-400 italic">
+          POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
+        </p>
+      </div>
+
+      <!-- ===== LISTA DE INCIDENCIAS RECIENTES (entre Cuenta de Resultado y Top agentes) =====
+           Alimentada por /api/v1/metricas/incidencias-recientes.
+           Estructura de columnas pedida:
+             Código | Título | Estado | Prioridad | Asignado | Fecha Vencimiento | SLA Activo
+           Encima de la tabla se renderiza una franja de métricas asociadas
+           (totales, vencidas, % SLA, % sin asignar, TTR, etc.) que le da
+           contexto al usuario sin saturar el listado.
+
+           Filtros disponibles:
+             * Selector de tipo (incidencia / resultado de pruebas / todos).
+             * Selector rápido de bloque (hoy / 7d / 30d / 90d / personalizado).
+             * Selector explícito de rango de fechas (fecha_desde / fecha_hasta)
+               que toma precedencia sobre el bloque. Las fechas se comparan
+               contra ``Ticket.created_at`` (fecha de apertura de la
+               incidencia), con fallback informativo a ``Ticket.fecha_inicio``
+               cuando está presente. -->
+      <div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-slate-700">Lista de Incidencias Recientes</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400" id="incidencias-recientes-periodo">—</span>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="incidencias-recientes-tipo"
+                    onchange="cargarIncidenciasRecientes()"
+                    class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+              <option value="incidencia">Incidencias</option>
+              <option value="resultado_pruebas">Resultados de pruebas</option>
+              <option value="todos">Todos los tipos</option>
+            </select>
+
+            <!-- Bloques rápidos -->
+            <select id="incidencias-recientes-bloque"
+                    onchange="aplicarBloqueFechas()"
+                    title="Bloque rápido de fechas"
+                    class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+              <option value="hoy">Hoy</option>
+              <option value="7" selected>Últimos 7 días</option>
+              <option value="30">Últimos 30 días</option>
+              <option value="90">Últimos 90 días</option>
+              <option value="personalizado">Personalizado…</option>
+            </select>
+
+            <!-- Rango explícito (precedencia sobre el bloque) -->
+            <input id="incidencias-recientes-desde"
+                   type="date"
+                   onchange="aplicarBloqueFechas()"
+                   title="Fecha desde (apertura de la incidencia)"
+                   class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+            <span class="text-[10px] text-slate-400">→</span>
+            <input id="incidencias-recientes-hasta"
+                   type="date"
+                   onchange="aplicarBloqueFechas()"
+                   title="Fecha hasta (apertura de la incidencia)"
+                   class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
+
+            <button id="incidencias-recientes-limpiar"
+                    onclick="limpiarFiltroFechas()"
+                    title="Limpiar filtro de fechas"
+                    class="px-2 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">
+              Limpiar
+            </button>
+
+            <button id="incidencias-recientes-export"
+                    onclick="exportarIncidenciasRecientes()"
+                    class="px-2.5 py-1 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Franja de métricas asociadas -->
+        <div id="incidencias-recientes-metricas"
+             class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-3 text-[11px]">
+          <button type="button"
+                  data-kpi="total_periodo"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100 hover:bg-slate-100 hover:border-slate-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-slate-300">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[10px] uppercase tracking-wide">Total periodo</span>
+              <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-slate-800 text-base font-mono" data-metric="total_periodo">—</div>
+          </button>
+          <button type="button"
+                  data-kpi="vencidas"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-red-50 px-2 py-1.5 border border-red-100 hover:bg-red-100 hover:border-red-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-red-300">
+            <div class="flex items-center justify-between">
+              <span class="text-red-600 text-[10px] uppercase tracking-wide">Vencidas</span>
+              <svg class="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-red-700 text-base font-mono" data-metric="vencidas">—</div>
+          </button>
+          <button type="button"
+                  data-kpi="en_riesgo_72h"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-amber-50 px-2 py-1.5 border border-amber-100 hover:bg-amber-100 hover:border-amber-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-amber-300">
+            <div class="flex items-center justify-between">
+              <span class="text-amber-700 text-[10px] uppercase tracking-wide">En riesgo 72h</span>
+              <svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-amber-700 text-base font-mono" data-metric="en_riesgo_72h">—</div>
+          </button>
+          <button type="button"
+                  data-kpi="criticas_o_altas"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-rose-50 px-2 py-1.5 border border-rose-100 hover:bg-rose-100 hover:border-rose-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-rose-300">
+            <div class="flex items-center justify-between">
+              <span class="text-rose-700 text-[10px] uppercase tracking-wide">Crít/Altas</span>
+              <svg class="w-3 h-3 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-rose-700 text-base font-mono" data-metric="criticas_o_altas">—</div>
+          </button>
+          <button type="button"
+                  data-kpi="porcentaje_sla_cumplido"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-indigo-50 px-2 py-1.5 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            <div class="flex items-center justify-between">
+              <span class="text-indigo-700 text-[10px] uppercase tracking-wide">% SLA OK</span>
+              <svg class="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-indigo-700 text-base font-mono" data-metric="porcentaje_sla_cumplido">—</div>
+          </button>
+          <button type="button"
+                  data-kpi="porcentaje_sin_asignar"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-slate-50 px-2 py-1.5 border border-slate-100 hover:bg-slate-100 hover:border-slate-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-slate-300">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[10px] uppercase tracking-wide">% Sin asignar</span>
+              <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-slate-700 text-base font-mono" data-metric="porcentaje_sin_asignar">—</div>
+          </button>
+          <button type="button"
+                  data-kpi="tiempo_promedio_resolucion_horas"
+                  data-metric-card="1"
+                  title="Click para ver el detalle"
+                  class="kpi-card text-left rounded-md bg-emerald-50 px-2 py-1.5 border border-emerald-100 hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-emerald-300">
+            <div class="flex items-center justify-between">
+              <span class="text-emerald-700 text-[10px] uppercase tracking-wide">TTR prom. (h)</span>
+              <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+            </div>
+            <div class="font-bold text-emerald-700 text-base font-mono" data-metric="tiempo_promedio_resolucion_horas">—</div>
+          </button>
+        </div>
+
+        <!-- Contenedor con scroll vertical (todos los registros) -->
+        <div id="incidencias-recientes-wrap"
+             class="overflow-auto border border-slate-200 rounded-md"
+             style="max-height: 420px;">
+          <div id="incidencias-recientes-loading" class="text-center py-6 text-slate-400 text-xs">
+            Cargando incidencias...
+          </div>
+          <table id="incidencias-recientes-table"
+                 class="hidden w-full text-xs"
+                 aria-label="Lista de Incidencias Recientes">
+            <thead class="bg-slate-100 text-[10px] uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Código</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Título</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Estado</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Prioridad</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Asignado</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Fecha Vencimiento</th>
+                <th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">SLA Activo</th>
+              </tr>
+            </thead>
+            <tbody id="incidencias-recientes-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== FILA 5 — TOP AGENTES + ACCIONES RÁPIDAS (NUEVA) ===== -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+
+        <!-- Top agentes (asignados) — versión mejorada -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Top agentes (asignados)</h3>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400" id="top-agentes-periodo">—</span>
+          </div>
+          <div id="list-agentes-v2" class="space-y-2"></div>
+        </div>
+
+        <!-- Acciones rápidas — versión mejorada -->
+        <div class="bg-white border border-slate-200 rounded-xl p-4">
+          <h3 class="text-sm font-semibold text-slate-700 mb-3">Acciones rápidas</h3>
+          <div class="grid grid-cols-2 gap-2">
+            <a href="/kanban" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1.5 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Tablero Kanban</p>
+              <p class="text-[10px] text-slate-500">Vista de tarjetas</p>
+            </a>
+            <a href="/vistas/tabla" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center mb-1.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Vista Tabla</p>
+              <p class="text-[10px] text-slate-500">Listado detallado</p>
+            </a>
+            <a href="/butler" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center mb-1.5 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Butler</p>
+              <p class="text-[10px] text-slate-500">Automatizaciones</p>
+            </a>
+            <a href="/api/v1/tickets-ie/exportar/csv" class="group block p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors">
+              <div class="w-8 h-8 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center mb-1.5 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              </div>
+              <p class="text-xs font-semibold text-slate-700">Exportar CSV</p>
+              <p class="text-[10px] text-slate-500">Descargar listado</p>
+            </a>
+          </div>
+          <!-- Quick links secundarios -->
+          <div class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5">
+            <a href="/tickets" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Mis tickets</a>
+            <a href="/notificaciones" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Notificaciones</a>
+            <a href="/vistas/calendario" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Calendario</a>
+            <a href="/vistas/timeline" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Timeline</a>
+            <a href="/espacios" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Espacios</a>
+            <a href="/roles-funciones" class="text-[11px] px-2 py-1 rounded border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600">Roles</a>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /dashboard-content -->
+
+  </div>
+</div>
+
+{# Contenedor para el modal de drill-down de Cuenta de Resultado.
+   HTMX inyecta aquí el HTML devuelto por /api/v1/metricas/cuenta-resultado/detalle
+   cuando el usuario hace clic en una celda numérica de la tabla pivote. #}
+<div id="modal-cuenta-resultado-root"></div>
+
+{# Contenedor para el modal de drill-down de KPIs de la "Lista de Incidencias
+   Recientes". El JS abre/cierra este modal al hacer clic en cualquiera de las
+   7 casillas KPI (Total periodo, Vencidas, En riesgo 72h, Crít/Altas,
+   % SLA OK, % Sin asignar, TTR prom.). Los datos vienen de
+   /api/v1/metricas/detalle-kpi?kpi=... #}
+<div id="modal-kpi-detalle-root"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============== UTILIDADES ==============
+  function fmt(n) {
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    return Number(n).toLocaleString('es-CL');
+  }
+  function safeId(id) { return document.getElementById(id); }
+  function setText(id, val) {
+    const el = safeId(id);
+    if (el) el.textContent = val;
+  }
+
+  // ============== TIMEZONE HELPERS (America/Santiago) ==============
+  // FIX-TZ(dashboard): los timestamps del backend llegan en UTC. Para
+  // mostrar al operador siempre la hora de Chile (que cambia entre
+  // UTC-3 invierno y UTC-4 verano), se usa Intl.DateTimeFormat con
+  // timeZone:'America/Santiago'. Esto independiza la UI de la zona
+  // horaria del navegador y del servidor.
+  const _CL_TZ = 'America/Santiago';
+  const _CL_FMT_TIME = new Intl.DateTimeFormat('es-CL', {
+    timeZone: _CL_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+  const _CL_FMT_DATE = new Intl.DateTimeFormat('es-CL', {
+    timeZone: _CL_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const _CL_FMT_DATETIME = new Intl.DateTimeFormat('es-CL', {
+    timeZone: _CL_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+
+  function _clFmtTime(iso) {
+    try {
+      const d = (iso instanceof Date) ? iso : new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return _CL_FMT_TIME.format(d);
+    } catch (e) { return ''; }
+  }
+  function _clFmtDate(iso) {
+    try {
+      const d = (iso instanceof Date) ? iso : new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return _CL_FMT_DATE.format(d);
+    } catch (e) { return ''; }
+  }
+  function _clFmtDateTime(iso) {
+    try {
+      const d = (iso instanceof Date) ? iso : new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return _CL_FMT_DATETIME.format(d);
+    } catch (e) { return ''; }
+  }
+
+  // ============== SPARKLINE ==============
+  function drawSpark(svgId, data, color) {
+    const svg = safeId(svgId);
+    if (!svg || !data || data.length === 0) return;
+    const w = 100, h = 30;
+    const min = Math.min.apply(null, data);
+    const max = Math.max.apply(null, data);
+    const range = (max - min) || 1;
+    const points = data.map((v, i) => {
+      const x = (i / (data.length - 1 || 1)) * w;
+      const y = h - ((v - min) / range) * (h - 4) - 2;
+      return (x).toFixed(2) + ',' + (y).toFixed(2);
+    }).join(' ');
+    const lastY = h - ((data[data.length - 1] - min) / range) * (h - 4) - 2;
+    const gid = 'grad-' + svgId;
+    svg.innerHTML =
+      '<defs><linearGradient id="' + gid + '" x1="0" x2="0" y1="0" y2="1">' +
+      '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.35"/>' +
+      '<stop offset="100%" stop-color="' + color + '" stop-opacity="0"/>' +
+      '</linearGradient></defs>' +
+      '<polygon points="0,' + h + ' ' + points + ' ' + w + ',' + h + '" fill="url(##' + gid + ')"/>'
+        .replace('url(##', 'url(#') +
+      '<polyline points="' + points + '" stroke="' + color + '" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="' + w + '" cy="' + lastY.toFixed(2) + '" r="2" fill="' + color + '"/>';
+  }
+
+  function deltaText(value, unit, direction) {
+    if (value === undefined || value === null || isNaN(value)) return '—';
+    const arrow = value >= 0 ? '▲' : '▼';
+    const good = direction === 'direct' ? value >= 0 : value <= 0;
+    const cls = good ? 'text-emerald-600' : 'text-red-600';
+    return '<span class="' + cls + '">' + arrow + ' ' + Math.abs(value).toFixed(1) + unit + '</span>';
+  }
+
+  // ============== CARGAR MÉTRICAS ==============
+  // FIX-FINALLY(dashboard): spinner y content se controlan ahora en `finally`
+  // para garantizar que la UI NUNCA quede en "Cargando métricas..." aunque
+  // una excepción asincrónica escape de render() o de un .catch() interno.
+  // Además, se monta un watchdog de 8s que fuerza el desbloqueo si la red o
+  // el backend quedan colgados sin responder.
+  let _loadingWatchdog = null;
+  let _renderError = null;
+
+  async function cargarMetricas() {
+    const periodo = (safeId('periodo') || { value: '30' }).value;
+    const loading = safeId('dashboard-loading');
+    const content = safeId('dashboard-content');
+    _renderError = null;
+    if (loading) loading.classList.remove('hidden');
+    if (content) content.classList.add('hidden');
+
+    // Watchdog: si en 8s la promesa overall no terminó, forzar desbloqueo
+    // de la UI para que el operador vea un mensaje accionable en vez del
+    // spinner indefinido. Es belt-and-suspenders contra cuelgues de red
+    // silenciosos (Railway proxy, sleep, etc.).
+    if (_loadingWatchdog) clearTimeout(_loadingWatchdog);
+    _loadingWatchdog = setTimeout(() => {
+      if (loading && !loading.classList.contains('hidden')) {
+        console.warn('[dashboard] watchdog 8s agotado, forzando desbloqueo UI');
+        loading.classList.add('hidden');
+        if (content) {
+          content.classList.remove('hidden');
+          const banner = document.createElement('div');
+          banner.className = 'bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded mb-3';
+          banner.textContent = 'La carga de métricas tardó demasiado (>8s). El backend puede estar lento o no responder. Reintenta con el botón Actualizar.';
+          content.insertBefore(banner, content.firstChild);
+        }
+      }
+    }, 8000);
+
+    try {
+      console.log('[dashboard] cargarMetricas: periodo=' + periodo);
+      // Endpoint extendido (Sprint 2)
+      // FIX-AUTH(dashboard): 'credentials: same-origin' es OBLIGATORIO porque
+      // los endpoints usan Depends(get_current_user), que lee la cookie de
+      // sesion. Sin esta opcion, el navegador NO envia la cookie en cross-origin
+      // y el fetch regresa 401, dejando la UI congelada en 'Cargando metricas...'
+      // (antes el catch handler solo cambiaba el innerHTML del overlay).
+      let resp = await fetch('/api/v1/metricas/dashboard-completo?dias=' + encodeURIComponent(periodo), {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        credentials: 'same-origin',
+      });
+      let data;
+      if (resp.ok) {
+        data = await resp.json();
+      } else {
+        // Fallback al endpoint original
+        resp = await fetch('/api/v1/metricas/resumen?dias=' + encodeURIComponent(periodo), {
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+          credentials: 'same-origin',
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        data = await resp.json();
+        // Adaptar al shape esperado por el dashboard nuevo
+        data = adaptResumen(data);
+      }
+      console.log('[dashboard] data OK, keys=' + Object.keys(data || {}).join(','));
+      // FIX-FINALLY(dashboard): envolver render() en su propio try/catch
+      // para que cualquier excepción DOM (p.ej. safeId() que devuelve null
+      // y dispara un TypeError) NO impida que el finally oculte el spinner.
+      try {
+        render(data);
+      } catch (renderErr) {
+        console.error('[dashboard] Error en render():', renderErr);
+        _renderError = renderErr;
+      }
+      // FIX-TZ(dashboard): preferir SIEMPRE la marca de tiempo que viene
+      // del backend en hora de Chile (data.timestamp_cl). Si no viene
+      // (compatibilidad con respuestas viejas), usar la hora del
+      // navegador *forzada* a America/Santiago para evitar el drift
+      // típico cuando el servidor está en UTC+8 y el cliente en Chile.
+      const tsCl = (data && (data.timestamp_cl || data.generado_en_cl)) || null;
+      if (tsCl) {
+        setText('last-update', _clFmtTime(tsCl));
+      } else {
+        setText('last-update', _clFmtTime(new Date().toISOString()));
+      }
+      // Cargar tabla pivote "Cuenta de Resultado" en paralelo. La falla
+      // de este fetch NO debe afectar la carga del resto del dashboard.
+      cargarCuentaResultado().catch(err => {
+        const cont = safeId('cuenta-resultado-container');
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + (err.message || err) + '</div>';
+      });
+      // Lista de Incidencias Recientes: misma política (falla aislada).
+      cargarIncidenciasRecientes().catch(err => {
+        const cont = safeId('incidencias-recientes-wrap');
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar lista de incidencias: ' + (err.message || err) + '</div>';
+      });
+    } catch (e) {
+      console.error('Error cargando métricas:', e);
+      _renderError = e;
+    } finally {
+      // FIX-FINALLY(dashboard): el spinner SE OCULTA SIEMPRE aquí, sin
+      // importar si hubo error, si render() lanzó una excepción DOM o
+      // si todo salió bien. Es la única línea que toca la visibilidad
+      // de loading/content durante el happy path.
+      if (_loadingWatchdog) { clearTimeout(_loadingWatchdog); _loadingWatchdog = null; }
+      if (loading) loading.classList.add('hidden');
+      if (content) content.classList.remove('hidden');
+      // Banner de error si algo falló (incluido render() DOM).
+      if (_renderError && content) {
+        // No duplicar banner si ya existe uno del watchdog.
+        const existing = content.querySelector('[data-dashboard-error-banner]');
+        if (!existing) {
+          const banner = document.createElement('div');
+          banner.setAttribute('data-dashboard-error-banner', '1');
+          banner.className = 'bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded mb-3';
+          banner.textContent = 'Error cargando métricas: ' + (_renderError.message || _renderError);
+          content.insertBefore(banner, content.firstChild);
+        }
+      }
+      console.log('[dashboard] cargarMetricas: finally ejecutado, spinner oculto');
+    }
+  }
+
+  // Adapta el endpoint /resumen (legacy) al shape nuevo si fuera necesario
+  function adaptResumen(r) {
+    const tot = r.totales || {};
+    const sla = r.sla || {};
+    const inc = r.incidencias || {};
+    return {
+      periodo_dias: r.periodo_dias || 30,
+      timestamp: new Date().toISOString(),
+      totales: tot,
+      incidencias: inc,
+      nuevas_7d: r.nuevas_7d || 0,
+      sla: sla,
+      distribucion_estado: r.distribucion_estado || [],
+      distribucion_prioridad: r.distribucion_prioridad || [],
+      actividad_por_dia: r.actividad_por_dia || [],
+      funnel: [],                          // legacy: sin funnel
+      riesgo_sla: [],                      // legacy: sin riesgo
+      cuenta_resultado: [],                // legacy: sin cuenta de resultado
+      top_agentes: r.top_agentes || [],    // legacy: solo nombre+total
+      top_etiquetas: r.top_etiquetas || [],
+      sparklines: { levantadas: [], incidencias: [], sla: [], backlog: [] },
+    };
+  }
+
+  // ============== RENDER ==============
+  function render(d) {
+    // === Stats Bar ===
+    setText('stat-total', fmt(d.totales.total));
+    setText('stat-nuevas', fmt(d.nuevas_7d));
+    setText('stat-abiertas', fmt(d.incidencias.activas || (d.totales.activos || 0)));
+    setText('stat-sla', (d.sla.porcentaje_cumplimiento || 0).toFixed(1) + '%');
+    setText('stat-crit', fmt(d.totales.criticos_sin_asignar));
+    setText('stat-backlog', fmt(d.incidencias.backlog_7d || 0));
+
+    // === Fila 1: KPI cards ===
+    setText('kpi-totales', fmt(d.totales.total));
+    setText('kpi-totales-activos', fmt(d.totales.activos));
+    setText('kpi-totales-archivados', fmt(d.totales.archivados));
+    const totDelta = safeId('kpi-totales-delta');
+    if (totDelta) totDelta.innerHTML = '<span class="text-slate-400">vs periodo ant.</span>';
+
+    // KPI 2: Incidencias
+    setText('kpi-incidencias', fmt(d.incidencias.total));
+    setText('kpi-incidencias-nuevas', fmt(d.incidencias.nuevas_7d));
+    const incDelta = safeId('kpi-incidencias-delta');
+    if (incDelta) incDelta.innerHTML = '<span class="text-slate-400">filtrado</span>';
+
+    // KPI 3: SLA
+    const slaEl = safeId('kpi-sla');
+    if (slaEl) {
+      slaEl.innerHTML = (d.sla.porcentaje_cumplimiento || 0).toFixed(1)
+        + '<span class="text-base font-medium text-slate-500">%</span>';
+    }
+    setText('kpi-sla-pendientes', fmt(d.sla.pendientes));
+    const slaDelta = safeId('kpi-sla-delta');
+    if (slaDelta) slaDelta.innerHTML = deltaText(d.sla.porcentaje_cumplimiento - 95, ' pp', 'direct');
+
+    // KPI 4: Backlog
+    setText('kpi-backlog', fmt(d.incidencias.backlog_7d || 0));
+    const blDelta = safeId('kpi-backlog-delta');
+    if (blDelta) blDelta.innerHTML = '<span class="text-slate-400">vs periodo ant.</span>';
+
+    // === Sparklines ===
+    drawSpark('spark-totales', d.sparklines.levantadas || d.actividad_por_dia.map(s => s.levantadas), '#4f46e5');
+    drawSpark('spark-incidencias', d.sparklines.incidencias || d.actividad_por_dia.map(s => s.levantadas), '#dc2626');
+    drawSpark('spark-sla', d.sparklines.sla || d.actividad_por_dia.map(() => d.sla.porcentaje_cumplimiento || 0), '#10b981');
+    drawSpark('spark-backlog', d.sparklines.backlog || d.actividad_por_dia.map(() => d.incidencias.backlog_7d || 0), '#f59e0b');
+
+    // === Fila 2: Distribución por estado ===
+    // (La card "Actividad diaria" fue eliminada del layout. La función
+    //  drawActivityChart() y su llamada se retiraron. El campo
+    //  d.actividad_por_dia puede seguir llegando del backend pero ya no
+    //  se consume en este template — ver /dashboard-completo.)
+    const ec = safeId('dist-estado-container');
+    if (ec) {
+      if (!d.distribucion_estado || d.distribucion_estado.length === 0) {
+        ec.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Sin datos</p>';
+      } else {
+        const total = d.distribucion_estado.reduce((a, b) => a + (b.total || 0), 0) || 1;
+        ec.innerHTML = d.distribucion_estado.map(e =>
+          '<div>'
+          + '<div class="flex items-center justify-between text-xs mb-1">'
+          + '<span class="flex items-center gap-1.5 text-slate-700">'
+          + '<span class="inline-block w-2 h-2 rounded-sm" style="background:' + (e.color || '#94a3b8') + '"></span>'
+          + (e.nombre || '')
+          + '</span>'
+          + '<span class="font-bold text-slate-800">' + fmt(e.total) + '</span>'
+          + '</div>'
+          + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
+          + '<div class="h-full" style="width:' + ((e.total / total) * 100).toFixed(1) + '%; background:' + (e.color || '#94a3b8') + '"></div>'
+          + '</div>'
+          + '</div>'
+        ).join('');
+      }
+    }
+
+    // === Fila 3: Distribución por prioridad ===
+    const pc = safeId('dist-prioridad-container');
+    if (pc) {
+      const prioColors = { critica: '#dc2626', alta: '#ea580c', media: '#eab308', baja: '#64748b' };
+      if (!d.distribucion_prioridad || d.distribucion_prioridad.length === 0) {
+        pc.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Sin datos</p>';
+      } else {
+        const totalP = d.distribucion_prioridad.reduce((a, b) => a + (b.total || 0), 0) || 1;
+        pc.innerHTML = d.distribucion_prioridad.map(p => {
+          const key = (p.prioridad || '').toLowerCase();
+          const color = prioColors[key] || '#94a3b8';
+          const pct = (p.total / totalP) * 100;
+          return '<div>'
+            + '<div class="flex items-center justify-between text-xs mb-1">'
+            + '<span class="flex items-center gap-1.5 text-slate-700 capitalize">'
+            + '<span class="inline-block w-2 h-2 rounded-full" style="background:' + color + '"></span>'
+            + (p.prioridad || '')
+            + '</span>'
+            + '<span class="font-bold text-slate-800">' + fmt(p.total)
+            + ' <span class="text-slate-400 font-normal">(' + pct.toFixed(0) + '%)</span></span>'
+            + '</div>'
+            + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
+            + '<div class="h-full" style="width:' + pct.toFixed(1) + '%; background:' + color + '"></div>'
+            + '</div>'
+            + '</div>';
+        }).join('');
+      }
+    }
+
+    // === Fila 3: Próximos a vencer SLA ===
+    renderRiesgo(d.riesgo_sla || []);
+
+    // === Fila 4: Cuenta de Resultado ===
+    // NOTA: No se renderiza aquí. El contenedor #cuenta-resultado-container
+    // es propiedad exclusiva del loader dedicado `cargarCuentaResultado()`
+    // (lanzado en paralelo en cargarMetricas), que consume el endpoint
+    // GET /api/v1/metricas/cuenta-resultado y monta la tabla pivote con
+    // columnas OK / NOK / OK CON OBS. / POSTERGADA / DESESTIMADA / N/A /
+    // (en blanco). Renderizar aquí sobrescribiría ese contenedor con un
+    // estado vacío cuando /dashboard-completo no expone `cuenta_resultado`,
+    // rompiendo la carga del loader dedicado (sus safeId() devuelven null
+    // porque la tabla ya no existe). Por eso se omite intencionalmente.
+
+    // === Fila 5: Top agentes ===
+    renderTopAgentes(d.top_agentes || []);
+    const periodoLabel = safeId('top-agentes-periodo');
+    if (periodoLabel) periodoLabel.textContent = (d.periodo_dias || 30) + 'd';
+  }
+
+  // ============== RIESGO ==============
+  function renderRiesgo(lista) {
+    const tbody = safeId('riesgo-tbody');
+    if (!tbody) return;
+    if (!lista || lista.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-slate-400 text-xs">Sin incidencias próximas a vencer SLA · :)</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.slice(0, 12).map(t => {
+      const hrs = t.horas_restantes;
+      const cls = hrs < 0 ? 'text-red-600 font-bold' : hrs < 12 ? 'text-orange-600 font-semibold' : hrs < 48 ? 'text-amber-600' : 'text-slate-600';
+      const txt = hrs < 0 ? ('-' + Math.abs(hrs).toFixed(0) + 'h') : ('+' + hrs.toFixed(0) + 'h');
+      return '<tr class="hover:bg-slate-50">'
+        + '<td class="py-1.5 pr-2 font-mono text-slate-600">' + (t.codigo || '') + '</td>'
+        + '<td class="py-1.5 pr-2 truncate max-w-[160px]" title="' + (t.titulo || '') + '">' + (t.titulo || '') + '</td>'
+        + '<td class="py-1.5 pr-2"><span class="prio-' + (t.prioridad || '') + ' px-1 py-0.5 rounded text-[10px] font-semibold">' + (t.prioridad || '').toUpperCase() + '</span></td>'
+        + '<td class="py-1.5 text-right ' + cls + '">' + txt + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  // ============== CUENTA DE RESULTADO ==============
+  function renderCuentaResultado(cuenta) {
+    const cont = safeId('cuenta-resultado-container');
+    if (!cont) return;
+    if (!cuenta || cuenta.length === 0) {
+      cont.innerHTML = '<p class="text-xs text-slate-400 text-center py-6">Sin incidencias cerradas con resultado de pruebas en el periodo</p>';
+      return;
+    }
+    const RESULTADOS = ['OK', 'OK CON OBS.', 'NOK', 'POSTERGADA', 'DESESTIMADA', 'N/A'];
+    const RESULTADO_COLORS = { 'OK': '#10b981', 'OK CON OBS.': '#22c55e', 'NOK': '#ef4444', 'POSTERGADA': '#eab308', 'DESESTIMADA': '#a855f7', 'N/A': '#94a3b8' };
+    const maxFila = Math.max.apply(null, cuenta.map(f => f.total)) || 1;
+
+    // Filtrar solo columnas con datos
+    const cols = RESULTADOS.filter(r => cuenta.some(f => (f[r] || 0) > 0));
+
+    let html = '<table class="w-full text-xs">';
+    html += '<thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200">';
+    html += '<tr><th class="text-left py-2 px-3 font-semibold">Módulo</th>';
+    cols.forEach(c => {
+      html += '<th class="text-right py-2 px-2 font-semibold">' + c + '</th>';
+    });
+    html += '<th class="text-right py-2 px-3 font-semibold border-l border-slate-200">Total</th>';
+    html += '<th class="text-left py-2 px-3 font-semibold w-1/3">Distribución</th>';
+    html += '</tr></thead>';
+
+    html += '<tbody class="divide-y divide-slate-100">';
+    cuenta.forEach(f => {
+      const widthPct = (f.total / maxFila) * 100;
+      const segmentos = cols.map(r => {
+        const v = f[r] || 0;
+        const segPct = f.total ? (v / f.total) * 100 : 0;
+        return '<div title="' + r + ': ' + v + '" style="width:' + segPct.toFixed(1) + '%; background:' + RESULTADO_COLORS[r] + '"></div>';
+      }).join('');
+      html += '<tr class="hover:bg-slate-50">';
+      html += '<td class="py-2 px-3 font-medium text-slate-800">' + (f.modulo || '—') + '</td>';
+      cols.forEach(c => { html += '<td class="py-1.5 px-2 text-right text-slate-700 font-mono">' + (f[c] || 0) + '</td>'; });
+      html += '<td class="py-2 px-3 text-right font-bold text-slate-800 border-l border-slate-100">' + f.total + '</td>';
+      html += '<td class="py-1.5 px-3"><div class="flex h-3 rounded overflow-hidden bg-slate-100" style="width:' + widthPct.toFixed(1) + '%; min-width:60px">' + segmentos + '</div></td>';
+      html += '</tr>';
+    });
+    html += '</tbody>';
+
+    // Footer TOTAL
+    const totales = { total: 0 };
+    cols.forEach(c => totales[c] = 0);
+    cuenta.forEach(f => {
+      totales.total += f.total;
+      cols.forEach(c => totales[c] += (f[c] || 0));
+    });
+    html += '<tfoot class="border-t-2 border-slate-200 bg-slate-50/50">';
+    html += '<tr class="font-bold text-slate-800">';
+    html += '<td class="py-2 px-3">TOTAL</td>';
+    cols.forEach(c => { html += '<td class="py-2 px-2 text-right">' + totales[c] + '</td>'; });
+    html += '<td class="py-2 px-3 text-right border-l border-slate-200">' + totales.total + '</td>';
+    const aprobados = (totales['OK'] || 0) + (totales['OK CON OBS.'] || 0);
+    const okPct = totales.total ? ((aprobados / totales.total) * 100).toFixed(1) : '0';
+    html += '<td class="py-2 px-3 text-[10px] text-slate-500 font-normal">' + okPct + '% aprob.</td>';
+    html += '</tr></tfoot>';
+
+    html += '</table>';
+    cont.innerHTML = html;
+  }
+
+  // ============== TOP AGENTES ==============
+  function renderTopAgentes(agentes) {
+    const cont = safeId('list-agentes-v2');
+    if (!cont) return;
+    if (!agentes || agentes.length === 0) {
+      cont.innerHTML = '<div class="text-xs text-slate-400 py-4 text-center">Sin asignaciones</div>';
+      return;
+    }
+    const max = Math.max.apply(null, agentes.map(a => a.total || 0)) || 1;
+    cont.innerHTML = agentes.map(a => {
+      const ini = (a.nombre || '?').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+      const colorSeed = a.id ? (a.id * 137) % 360 : 200;
+      const colorBg = 'hsl(' + colorSeed + ',70%,94%)';
+      const colorFg = 'hsl(' + colorSeed + ',60%,35%)';
+      const barPct = ((a.total || 0) / max) * 100;
+      const abiertas = a.abiertas || 0;
+      const cerradas = a.cerradas || 0;
+      return '<div class="flex items-center gap-3 py-1.5">'
+        + '<span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold shrink-0" style="background:' + colorBg + '; color:' + colorFg + '">' + ini + '</span>'
+        + '<div class="flex-1 min-w-0">'
+        + '<div class="flex items-center justify-between text-xs">'
+        + '<span class="font-medium text-slate-800 truncate">' + (a.nombre || '') + '</span>'
+        + '<span class="font-bold text-slate-800 ml-2">' + fmt(a.total) + '</span>'
+        + '</div>'
+        + '<div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">'
+        + '<div class="h-full bg-indigo-500" style="width:' + barPct.toFixed(1) + '%"></div>'
+        + '</div>'
+        + '<div class="flex items-center gap-3 mt-1 text-[10px] text-slate-500">'
+        + '<span><span class="font-semibold text-slate-700">' + abiertas + '</span> abiertas</span>'
+        + '<span><span class="font-semibold text-emerald-700">' + cerradas + '</span> cerradas</span>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // ============== EVENTOS ==============
+  // FIX(dashboard): el handler de periodo / botón Actualizar /
+  // cambio de "horas en riesgo" antes sólo disparaba cargarMetricas(),
+  // dejando la 'Lista de Incidencias Recientes' sin refrescar.
+  // recargarTodo() ahora actualiza KPIs y lista en paralelo.
+  function recargarTodo() {
+    return Promise.allSettled([
+      cargarMetricas(),
+      cargarIncidenciasRecientes(),
+    ]);
+  }
+
+  function bind() {
+    const sel = safeId('periodo');
+    if (sel) sel.addEventListener('change', recargarTodo);
+    const btn = safeId('btn-refresh');
+    if (btn) btn.addEventListener('click', function () {
+      const icon = safeId('icon-refresh');
+      if (icon) icon.classList.add('animate-spin');
+      recargarTodo().then(() => setTimeout(() => icon && icon.classList.remove('animate-spin'), 400));
+    });
+    const riesgoH = safeId('riesgo-horas');
+    if (riesgoH) riesgoH.addEventListener('change', recargarTodo);
+
+    // FIX(dashboard): auto-refresh cada 60s para que la lista
+    // refleje tickets creados/editados desde otras pestañas sin
+    // necesidad de recargar manualmente. Limpia cualquier intervalo
+    // previo para evitar duplicación en reinicializaciones.
+    if (window.__autoRefreshIncidencias) clearInterval(window.__autoRefreshIncidencias);
+    window.__autoRefreshIncidencias = setInterval(() => {
+      cargarIncidenciasRecientes().catch(() => { /* error aislado, no romper UI */ });
+    }, 60000);
+  }
+
+  // ============== DRILL-DOWN MODAL: KPIs Lista Incidencias Recientes ==============
+  // FIX-KPI(dashboard): cada una de las 7 casillas KPI de la franja
+  // "Lista de Incidencias Recientes" es ahora clickeable. Al hacer clic se
+  // abre un modal con el listado de tickets que componen ese KPI, usando
+  // el endpoint /api/v1/metricas/detalle-kpi?kpi=...&periodo_dias=...
+  // ------------------------------------------------------------------------------
+  const KPI_LABELS = {
+    'total_periodo':                       'Total periodo',
+    'vencidas':                            'Vencidas',
+    'en_riesgo_72h':                       'En riesgo 72h',
+    'criticas_o_altas':                    'Crít/Altas',
+    'porcentaje_sla_cumplido':             '% SLA OK',
+    'porcentaje_sin_asignar':              '% Sin asignar',
+    'tiempo_promedio_resolucion_horas':    'TTR prom. (h)',
+  };
+
+  function _kpiPrioridadColor(p) {
+    if (!p) return '#94a3b8';
+    const v = String(p).toLowerCase();
+    if (v === 'critica') return '#dc2626';
+    if (v === 'alta')    return '#ea580c';
+    if (v === 'media')   return '#ca8a04';
+    if (v === 'baja')    return '#16a34a';
+    return '#64748b';
+  }
+
+  function _kpiSlaBadge(sla) {
+    if (sla === 1)  return '<span class="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold">OK</span>';
+    if (sla === 0)  return '<span class="px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-semibold">NOK</span>';
+    if (sla === -1) return '<span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">Pendiente</span>';
+    return '<span class="text-slate-400 text-[10px]">—</span>';
+  }
+
+  function _kpiFmtDate(s) {
+    if (!s) return '<span class="text-slate-300">—</span>';
+    try {
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return s;
+      // FIX-TZ(dashboard): antes se usaban getUTCFullYear/getUTCHours
+      // (mostraba la hora UTC) y el render quedaba 3-11 horas
+      // corrido respecto a la hora local del operador. Ahora se fuerza
+      // explícitamente la zona America/Santiago (Chile continental)
+      // usando Intl.DateTimeFormat, que sí respeta DST.
+      return _clFmtDateTime(s);
+    } catch (e) {
+      return s;
+    }
+  }
+
+  function cerrarModalKpiDetalle() {
+    const root = document.getElementById('modal-kpi-detalle-root');
+    if (root) root.innerHTML = '';
+  }
+  window.cerrarModalKpiDetalle = cerrarModalKpiDetalle;
+
+  async function abrirModalKpiDetalle(kpi) {
+    if (!kpi) return;
+    const root = document.getElementById('modal-kpi-detalle-root');
+    if (!root) return;
+
+    // Spinner de carga
+    const label = KPI_LABELS[kpi] || kpi;
+    root.innerHTML =
+      '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" data-kpi-modal-backdrop="1">'
+      + '<div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">'
+      +   '<svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">'
+      +     '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>'
+      +     '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>'
+      +   '</svg>'
+      +   'Cargando detalle de «' + label + '»…'
+      + '</div>'
+      + '</div>';
+
+    try {
+      const sel = safeId('periodo');
+      const periodo = sel ? (sel.value || '30') : '30';
+      const tipoSel = safeId('incidencias-tipo');
+      const tipo = tipoSel ? (tipoSel.value || 'incidencia') : 'incidencia';
+      const url = '/api/v1/metricas/detalle-kpi'
+        + '?kpi=' + encodeURIComponent(kpi)
+        + '&periodo_dias=' + encodeURIComponent(periodo)
+        + '&tipo=' + encodeURIComponent(tipo)
+        + '&limite=200'
+        + '&_=' + Date.now();
+      const r = await fetch(url, {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try {
+          const j = await r.json();
+          if (j && j.detail) msg = j.detail;
+        } catch (_) { /* noop */ }
+        throw new Error(msg);
+      }
+      const data = await r.json();
+      _renderModalKpiDetalle(data);
+    } catch (err) {
+      root.innerHTML =
+        '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" data-kpi-modal-backdrop="1">'
+        + '<div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 border border-red-200">'
+        +   '<div class="flex items-start justify-between mb-3">'
+        +     '<h3 class="text-sm font-semibold text-red-700">Error al cargar el detalle</h3>'
+        +     '<button type="button" data-close-modal="1" class="text-slate-400 hover:text-slate-700" aria-label="Cerrar">'
+        +       '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+        +     '</button>'
+        +   '</div>'
+        +   '<p class="text-xs text-slate-600">' + String(err && err.message ? err.message : err) + '</p>'
+        +   '<div class="mt-4 text-right">'
+        +     '<button type="button" data-close-modal="1" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">Cerrar</button>'
+        +   '</div>'
+        + '</div>'
+        + '</div>';
+    }
+  }
+  window.abrirModalKpiDetalle = abrirModalKpiDetalle;
+
+  function _renderModalKpiDetalle(data) {
+    const root = document.getElementById('modal-kpi-detalle-root');
+    if (!root) return;
+
+    const tickets = (data && data.tickets) || [];
+    const rows = tickets.map(function (t) {
+      const priColor = _kpiPrioridadColor(t.prioridad);
+      const asignado = t.asignado
+        ? '<span class="text-slate-700">' + t.asignado + '</span>'
+        : '<span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">Sin asignar</span>';
+      return ''
+        + '<tr class="hover:bg-slate-50 transition-colors">'
+        +   '<td class="px-3 py-2 font-mono text-[11px] text-indigo-700 whitespace-nowrap">' + (t.codigo || '—') + '</td>'
+        +   '<td class="px-3 py-2 text-slate-700 max-w-[280px] truncate" title="' + (t.titulo || '') + '">' + (t.titulo || '—') + '</td>'
+        +   '<td class="px-3 py-2 whitespace-nowrap">'
+        +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
+        +       'style="background:' + (t.estado_color || '#e2e8f0') + '20;color:' + (t.estado_color || '#475569') + '">'
+        +       (t.estado || '—') + '</span>'
+        +   '</td>'
+        +   '<td class="px-3 py-2 whitespace-nowrap">'
+        +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
+        +       'style="background:' + priColor + '20;color:' + priColor + '">'
+        +       (t.prioridad || '—') + '</span>'
+        +   '</td>'
+        +   '<td class="px-3 py-2 text-[11px]">' + asignado + '</td>'
+        +   '<td class="px-3 py-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">' + _kpiFmtDate(t.fecha_vencimiento_sla) + '</td>'
+        +   '<td class="px-3 py-2">' + _kpiSlaBadge(t.sla_cumplido) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    const empty = tickets.length === 0
+      ? '<tr><td colspan="7" class="text-center py-6 text-slate-400 text-xs">No hay tickets en este KPI para el período seleccionado.</td></tr>'
+      : '';
+
+    root.innerHTML =
+      '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" data-kpi-modal-backdrop="1">'
+      + '<div class="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col border border-slate-200">'
+      +   '<div class="flex items-start justify-between p-4 border-b border-slate-200">'
+      +     '<div>'
+      +       '<h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">'
+      +         '<span class="inline-block w-1.5 h-5 bg-indigo-500 rounded-sm"></span>'
+      +         (data.titulo || 'Detalle del KPI')
+      +       '</h3>'
+      +       '<p class="text-xs text-slate-500 mt-1">' + (data.descripcion || '') + '</p>'
+      +       '<p class="text-[11px] text-slate-400 mt-1">'
+      +         'Período: <span class="font-mono">' + (data.periodo_dias || '?') + ' días</span>'
+      +         ' · Tipo: <span class="font-mono">' + (data.tipo || '?') + '</span>'
+      +         ' · Total: <span class="font-mono">' + (data.total || 0) + '</span> tickets'
+      +       '</p>'
+      +     '</div>'
+      +     '<button type="button" data-close-modal="1" class="text-slate-400 hover:text-slate-700 p-1" aria-label="Cerrar">'
+      +       '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+      +     '</button>'
+      +   '</div>'
+      +   '<div class="overflow-auto flex-1">'
+      +     '<table class="w-full text-xs">'
+      +       '<thead class="bg-slate-100 text-[10px] uppercase text-slate-600 sticky top-0 z-10 shadow-sm">'
+      +         '<tr>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Código</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Título</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Estado</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Prioridad</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Asignado</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">Vencimiento SLA</th>'
+      +           '<th class="text-left px-3 py-2 border-b border-slate-200 font-semibold">SLA</th>'
+      +         '</tr>'
+      +       '</thead>'
+      +       '<tbody class="divide-y divide-slate-100">' + rows + empty + '</tbody>'
+      +     '</table>'
+      +   '</div>'
+      +   '<div class="p-3 border-t border-slate-200 bg-slate-50 text-right">'
+      +     '<button type="button" data-close-modal="1" class="px-4 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-slate-700">Cerrar</button>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function installKpiModalListeners() {
+    // FIX-KPI(dashboard): delegación de eventos para los botones KPI.
+    // Usamos delegación en document.body para que funcione aunque
+    // el contenedor #incidencias-recientes-metricas se re-renderice.
+    document.body.addEventListener('click', function (e) {
+      const kpiBtn = e.target.closest('[data-kpi][data-metric-card="1"]');
+      if (kpiBtn && kpiBtn.getAttribute) {
+        const kpi = kpiBtn.getAttribute('data-kpi');
+        if (kpi) {
+          e.preventDefault();
+          e.stopPropagation();
+          abrirModalKpiDetalle(kpi);
+          return;
+        }
+      }
+      // Cierre del modal: data-close-modal o click en el backdrop
+      const root = document.getElementById('modal-kpi-detalle-root');
+      if (!root || !root.innerHTML.trim()) return;
+      const closeBtn = e.target.closest('[data-close-modal]');
+      if (closeBtn && root.contains(closeBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        cerrarModalKpiDetalle();
+        return;
+      }
+      const backdrop = e.target.closest('[data-kpi-modal-backdrop]');
+      if (backdrop && root.contains(backdrop) && e.target === backdrop) {
+        e.preventDefault();
+        e.stopPropagation();
+        cerrarModalKpiDetalle();
+        return;
+      }
+    });
+    // ESC para cerrar
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      const root = document.getElementById('modal-kpi-detalle-root');
+      if (!root || !root.innerHTML.trim()) return;
+      cerrarModalKpiDetalle();
+    });
+  }
+
+  // Init
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      bind();
+      cargarMetricas();
+      installDrillDownListeners();
+      installKpiModalListeners();
+    });
+  } else {
+    bind();
+    cargarMetricas();
+    installDrillDownListeners();
+    installKpiModalListeners();
+  }
+
+  // ===================================================================
+  // CUENTA DE RESULTADO — Tabla pivote (restaurada desde Sprint 1)
+  // Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
+  //
+  //   - Endpoint: GET /api/v1/metricas/cuenta-resultado
+  //   - Drill-down por celda: GET /api/v1/metricas/cuenta-resultado/detalle
+  //   - Modal inyectado vía HTMX en #modal-cuenta-resultado-root
+  //   - Exportación a CSV desde la respuesta cacheada (_cuentaResultadoCache)
+  //
+  // El backend devuelve TODAS las variantes del LOV (incluye mayúsculas
+  // mixtas, con/sin punto final, plurales y nombres legacy de la migración
+  // UAT) para no perder tickets por nomenclatura heredada. La columna
+  // "(en blanco)" agrupa NULL/vacíos.
+  // ===================================================================
+
+  // Color del texto de los números en CADA CELDA de datos: debe coincidir con
+  // el color del texto de la columna "Total general". Se usa #1f2937 (slate-800)
+  // en TODAS las columnas para garantizar contraste legible sobre los fondos
+  // tenues (`color.bg + '22'`). Los headers sí mantienen su color original
+  // porque su fondo es sólido (no el tinte `+ '22'`).
+  const CUENTA_RESULTADO_COLORES = {
+    "N/A":         { bg: '#94a3b8', text: '#ffffff', cellText: '#1f2937' },
+    "NOK":         { bg: '#dc2626', text: '#ffffff', cellText: '#1f2937' },
+    "OK":          { bg: '#16a34a', text: '#ffffff', cellText: '#1f2937' },
+    "OK CON OBS.": { bg: '#eab308', text: '#1f2937', cellText: '#1f2937' },
+    "POSTERGADA":  { bg: '#ea580c', text: '#ffffff', cellText: '#1f2937' },
+    "DESESTIMADA": { bg: '#7c3aed', text: '#ffffff', cellText: '#1f2937' },
+    "(en blanco)": { bg: '#cbd5e1', text: '#475569', cellText: '#1f2937' },
+  };
+
+  // Última respuesta cacheada para export CSV.
+  let _cuentaResultadoCache = null;
+
+  async function cargarCuentaResultado() {
+    const cont = safeId('cuenta-resultado-container');
+    const loading = safeId('cuenta-resultado-loading');
+    const table = safeId('cuenta-resultado-table');
+    const thead = safeId('cuenta-resultado-thead');
+    const tbody = safeId('cuenta-resultado-tbody');
+    const tfoot = safeId('cuenta-resultado-tfoot');
+    const footer = safeId('cuenta-resultado-footer');
+    if (!cont || !table || !thead || !tbody || !tfoot) return;
+
+    const r = await fetch('/api/v1/metricas/cuenta-resultado', {
+      headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+      credentials: 'same-origin',
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    _cuentaResultadoCache = data;
+
+    const columnas = data.columnas || [];
+    const filas = data.filas || [];
+    const totales = data.totales_por_columna || {};
+    const totalGeneral = data.total_general || 0;
+
+    // === Si el endpoint no devuelve filas, mostramos estado vacío
+    //     explícito en el contenedor (deja la tabla oculta) en lugar de
+    //     pintar una tabla con un único <tbody></tbody> que confunde al
+    //     usuario con información incompleta.
+    const sinFilas = !filas.length || filas.every(f => (f.valores
+      ? Object.values(f.valores).every(v => !v)
+      : Object.keys(f).filter(k => k !== 'modulo' && k !== 'total').every(k => !f[k])
+    ));
+    if (sinFilas) {
+      if (loading) loading.classList.add('hidden');
+      table.classList.add('hidden');
+      if (footer) footer.classList.add('hidden');
+      const ambiente = (data && data.ambiente) ? data.ambiente : 'QA';
+      cont.innerHTML =
+          '<div class="text-center py-10 px-4">'
+        +   '<svg class="mx-auto h-10 w-10 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">'
+        +     '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2a4 4 0 014-4h2m-7 8a4 4 0 01-4-4V7a4 4 0 014-4h10a4 4 0 014 4v8a4 4 0 01-4 4H9z"/>'
+        +   '</svg>'
+        +   '<p class="mt-2 text-sm font-medium text-slate-600">Sin incidencias cerradas con resultado de pruebas en el periodo</p>'
+        +   '<p class="mt-1 text-xs text-slate-400">Filtro aplicado: ambiente = <code class="px-1 py-0.5 rounded bg-slate-100">' + ambiente + '</code>. '
+        +     'Para ver datos, registra tickets tipo <em>Incidencia</em> con módulo, estado <em>Cerrado</em> y un valor en <code>resultado_pruebas</code>.</p>'
+        + '</div>';
+      // Marcar el drill-down como inerte (no hay celdas clickeables)
+      _cuentaResultadoCache = Object.assign({}, data, { filas: [] });
+      return;
+    }
+
+    // === Encabezado ===
+    thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
+      '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
+      columnas.map(c => {
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        return '<th class="px-3 py-2 font-semibold border border-slate-700 text-center"'
+             + ' style="background:' + color.bg + '; color:' + color.text + ';"'
+             + ' title="Tickets con resultado_pruebas = \'' + c + '\'">' + c + '</th>';
+      }).join('') +
+      '<th class="px-3 py-2 font-semibold border border-slate-700 text-center bg-slate-900">Total general</th>' +
+      '</tr>';
+
+    // === Filas ===
+    tbody.innerHTML = filas.map(f => {
+      const esBlanco = f.modulo === '(en blanco)';
+      const trClass = esBlanco ? 'italic text-slate-400 bg-slate-50/50' : 'text-slate-700';
+      const celdas = columnas.map(c => {
+        const v = f.valores[c] || 0;
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569', cellText: '#1f2937' };
+        const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
+        const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
+        // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
+        const clickable = !esBlanco && v > 0;
+        if (clickable) {
+          const url = '/api/v1/metricas/cuenta-resultado/detalle?modulo=' + encodeURIComponent(f.modulo)
+            + '&resultado=' + encodeURIComponent(c)
+            + '&ambiente=' + encodeURIComponent(data.ambiente || 'QA');
+          return '<td class="px-3 py-1.5 border border-slate-200 text-center font-mono p-0"'
+               + ' style="background:' + bg + '; color:' + color.cellText + ';">'
+               +   '<button type="button"'
+               +     ' data-drill-cr="1"'
+               +     ' hx-get="' + url + '"'
+               +     ' hx-target="#modal-cuenta-resultado-root"'
+               +     ' hx-swap="innerHTML"'
+               +     ' title="Ver detalle: ' + f.modulo + ' / ' + c + '"'
+               +     ' class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">'
+               +     contenido
+               +   '</button>'
+               + '</td>';
+        }
+        return '<td class="px-3 py-1.5 border border-slate-200 text-center font-mono"'
+             + ' style="background:' + bg + '; color:' + color.cellText + ';">'
+             + contenido
+             + '</td>';
+      }).join('');
+      const totalCell = esBlanco
+        ? '<td class="px-3 py-1.5 border border-slate-200 text-center font-mono text-slate-400">—</td>'
+        : '<td class="px-3 py-1.5 border border-slate-300 text-center font-mono font-semibold bg-slate-100">' + f.total + '</td>';
+      return '<tr class="' + trClass + ' hover:bg-slate-50">'
+           +   '<td class="px-3 py-1.5 border border-slate-200 text-left">' + f.modulo + '</td>'
+           +   celdas
+           +   totalCell
+           + '</tr>';
+    }).join('');
+
+    // === Pie: Total general ===
+    tfoot.innerHTML = '<tr class="bg-slate-200 font-bold text-slate-800">' +
+      '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
+      columnas.map(c => {
+        const v = totales[c] || 0;
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        const contenido = v === 0 ? '—' : v;
+        return '<td class="px-3 py-2 border border-slate-400 text-center font-mono"'
+             + ' style="background:' + color.bg + '; color:' + color.text + ';">'
+             + contenido
+             + '</td>';
+      }).join('') +
+      '<td class="px-3 py-2 border border-slate-400 text-center font-mono bg-slate-300">' + totalGeneral + '</td>' +
+      '</tr>';
+
+    if (loading) loading.classList.add('hidden');
+    table.classList.remove('hidden');
+    if (footer) footer.classList.remove('hidden');
+
+    // HTMX 1.x NO escanea automáticamente los nodos agregados al DOM
+    // mediante innerHTML. Llamamos a htmx.process() sobre el tbody para
+    // que HTMX escanee sus descendientes y registre los handlers.
+    if (typeof htmx !== 'undefined' && htmx.process) {
+      try { htmx.process(tbody); } catch (e) { /* noop */ }
+    }
+  }
+
+  function exportarCuentaResultado() {
+    if (!_cuentaResultadoCache) return;
+    const data = _cuentaResultadoCache;
+    const cols = ['Etiqueta de fila', ...data.columnas, 'Total general'];
+    const filas = data.filas.map(f => [
+      f.modulo,
+      ...data.columnas.map(c => f.valores[c] || 0),
+      f.total,
+    ]);
+    const totales = ['Total general', ...data.columnas.map(c => data.totales_por_columna[c] || 0), data.total_general];
+    const csvRows = [cols, ...filas, totales]
+      .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+    const csv = '\uFEFF' + csvRows.join('\n'); // BOM para Excel
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cuenta_resultado_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ===================================================================
+  // LISTA DE INCIDENCIAS RECIENTES
+  // Alimenta la card entre "Cuenta de Resultado" y "Top agentes".
+  //   - Endpoint: GET /api/v1/metricas/incidencias-recientes
+  //   - Columnas: Código | Título | Estado | Prioridad | Asignado |
+  //               Fecha Vencimiento | SLA Activo
+  //   - Métricas asociadas (7 KPI en franja superior) leen del mismo
+  //     response.metricas para evitar una segunda request.
+  //   - Exportación a CSV a partir del último response cacheado.
+  // ===================================================================
+  let _incidenciasRecientesCache = null;
+
+  // Helpers locales de formato -------------------------------------------------
+  function _fmtNum(n) {
+    if (n === null || n === undefined || isNaN(Number(n))) return '—';
+    return Number(n).toLocaleString('es-CL');
+  }
+  function _fmtPct(n) {
+    if (n === null || n === undefined || isNaN(Number(n))) return '—';
+    return Number(n).toFixed(1) + '%';
+  }
+  function _fmtHrs(n) {
+    if (n === null || n === undefined || isNaN(Number(n))) return '—';
+    return Number(n).toFixed(1);
+  }
+  function _escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  function _fmtFechaSla(iso) {
+    if (!iso) return '—';
+    try {
+      // FIX-TZ(dashboard): antes dependía de la TZ del navegador
+      // (toLocaleString sin timeZone), lo que provocaba desfaces
+      // cuando el operador veía la app desde otra zona. Ahora se
+      // fuerza America/Santiago y se prefiere el sufijo ``_cl`` que
+      // viene del backend (que ya está en offset CLT/CLST).
+      if (typeof iso === 'string') {
+        return _clFmtDate(iso);
+      }
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '—';
+      return _clFmtDate(d.toISOString());
+    } catch (e) { return '—'; }
+  }
+  function _prBadge(prio) {
+    const p = (prio || '').toLowerCase();
+    const colorMap = {
+      critica: { bg: '#fee2e2', fg: '#991b1b', dot: '#dc2626', label: 'Crítica' },
+      alta:    { bg: '#ffedd5', fg: '#9a3412', dot: '#ea580c', label: 'Alta'    },
+      media:   { bg: '#fef3c7', fg: '#92400e', dot: '#eab308', label: 'Media'   },
+      baja:    { bg: '#f1f5f9', fg: '#475569', dot: '#64748b', label: 'Baja'    },
+    };
+    const c = colorMap[p] || { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8', label: prio || '—' };
+    return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"'
+         + ' style="background:' + c.bg + '; color:' + c.fg + ';" title="Prioridad ' + _escapeHtml(c.label) + '">'
+         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + c.dot + '"></span>'
+         + _escapeHtml(c.label)
+         + '</span>';
+  }
+  function _slaBadge(label) {
+    const l = (label || 'N/A').toUpperCase();
+    const map = {
+      'VENCIDO':   { bg: '#fee2e2', fg: '#991b1b', border: '#fecaca' },
+      'HOY':       { bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+      'EN RIESGO': { bg: '#ffedd5', fg: '#9a3412', border: '#fed7aa' },
+      'EN TIEMPO': { bg: '#dcfce7', fg: '#166534', border: '#bbf7d0' },
+      'N/A':       { bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' },
+    };
+    const c = map[l] || map['N/A'];
+    return '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border"'
+         + ' style="background:' + c.bg + '; color:' + c.fg + '; border-color:' + c.border + ';">'
+         + _escapeHtml(l)
+         + '</span>';
+  }
+  function _estadoBadge(e) {
+    if (!e || !e.nombre) return '<span class="text-slate-400 text-[11px]">—</span>';
+    const bg = (e.color || '#94a3b8') + '22';
+    return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"'
+         + ' style="background:' + bg + '; color:' + (e.color || '#475569') + ';">'
+         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + (e.color || '#94a3b8') + '"></span>'
+         + _escapeHtml(e.nombre)
+         + '</span>';
+  }
+
+  async function cargarIncidenciasRecientes() {
+    const cont    = safeId('incidencias-recientes-wrap');
+    const loading = safeId('incidencias-recientes-loading');
+    const table   = safeId('incidencias-recientes-table');
+    const tbody   = safeId('incidencias-recientes-tbody');
+    const badge   = safeId('incidencias-recientes-periodo');
+    if (!cont || !table || !tbody) return;
+
+    const tipoSel = safeId('incidencias-recientes-tipo');
+    const tipo    = (tipoSel && tipoSel.value) ? tipoSel.value : 'incidencia';
+    const periodo = (safeId('periodo') || { value: '30' }).value;
+
+    // === Filtro de rango de fechas ===
+    // El bloque rápido (hoy / 7d / 30d / 90d) solo se aplica si NO hay
+    // un rango explícito definido en los inputs desde/hasta. Si el
+    // usuario escoge uno o ambos, toman precedencia.
+    const bloque  = safeId('incidencias-recientes-bloque');
+    const desde   = safeId('incidencias-recientes-desde');
+    const hasta   = safeId('incidencias-recientes-hasta');
+    const fd = (desde && desde.value) || '';
+    const fh = (hasta && hasta.value) || '';
+
+    // Mostrar loading sin perder la tabla (sólo overlay visual)
+    if (loading) loading.classList.remove('hidden');
+    table.classList.add('opacity-50');
+
+    try {
+      // FIX: cache-busting con timestamp para que el navegador /
+      // proxy intermedio no devuelva una respuesta cacheada cuando
+      // se recarga manualmente o por auto-refresh cada 60s.
+      const cacheBust = '_=' + Date.now();
+      const params = [
+          'periodo_dias=' + encodeURIComponent(periodo),
+          'tipo=' + encodeURIComponent(tipo),
+          'limite=50',
+          cacheBust,
+        ];
+      // Si el usuario ha definido un rango explícito, lo enviamos al
+      // backend para que filtre por Ticket.created_at (con fallback
+      // informativo a Ticket.fecha_inicio si está presente).
+      if (fd) params.push('fecha_desde=' + encodeURIComponent(fd));
+      if (fh) params.push('fecha_hasta=' + encodeURIComponent(fh));
+      const r = await fetch(
+        '/api/v1/metricas/incidencias-recientes?' + params.join('&'),
+        {
+          headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+          cache: 'no-store',
+          credentials: 'same-origin',
+        }
+      );
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      _incidenciasRecientesCache = data;
+
+      // === Pintar métricas asociadas ===
+      const m = data.metricas || {};
+      Object.keys(m).forEach(k => {
+        const el = document.querySelector('[data-metric="' + k + '"]');
+        if (!el) return;
+        if (k.indexOf('porcentaje_') === 0) el.textContent = _fmtPct(m[k]);
+        else if (k === 'tiempo_promedio_resolucion_horas') el.textContent = _fmtHrs(m[k]);
+        else if (k === 'promedio_edad_horas') el.textContent = _fmtHrs(m[k]);
+        else el.textContent = _fmtNum(m[k]);
+      });
+      // Badge: priorizar rango explícito si lo hay.
+      if (badge) {
+        let label;
+        if (data.rango_explicito && (data.fecha_desde || data.fecha_hasta)) {
+          const a = data.fecha_desde ? data.fecha_desde.slice(0, 10) : '…';
+          const b = data.fecha_hasta ? data.fecha_hasta.slice(0, 10) : '…';
+          label = a + ' → ' + b;
+        } else {
+          label = (data.periodo_dias || periodo) + 'd';
+        }
+        badge.textContent =
+          label + ' · ' + (data.tickets || []).length + ' tickets';
+      }
+
+      // === Pintar tabla ===
+      const tickets = data.tickets || [];
+      if (!tickets.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400 text-xs">'
+          + 'Sin incidencias en el periodo seleccionado para los filtros aplicados.</td></tr>';
+        table.classList.remove('opacity-50');
+        if (loading) loading.classList.add('hidden');
+        return;
+      }
+      tbody.innerHTML = tickets.map(t => {
+        const codigo   = t.codigo || '';
+        const titulo   = t.titulo || '';
+        const estado   = _estadoBadge(t.estado || {});
+        const prioridad = _prBadge(t.prioridad);
+        const asignado = t.asignado && (t.asignado.nombre || t.asignado.nombre_completo)
+          ? '<div class="flex items-center gap-1.5">'
+            + '<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-bold">'
+            + _escapeHtml(((t.asignado.nombre || t.asignado.nombre_completo || '?').split(' ').map(s => s[0] || '').slice(0, 2).join('').toUpperCase()))
+            + '</span>'
+            + '<span class="truncate max-w-[140px]" title="' + _escapeHtml(t.asignado.nombre || t.asignado.nombre_completo) + '">'
+            + _escapeHtml(t.asignado.nombre || t.asignado.nombre_completo) + '</span></div>'
+          : '<span class="text-slate-400 text-[11px]">— Sin asignar —</span>';
+        const fv = _fmtFechaSla(t.fecha_vencimiento_sla);
+        const sla = _slaBadge(t.sla_cumplido_label);
+        return '<tr class="hover:bg-slate-50 cursor-pointer js-ver-detalle"'
+             + ' data-ticket-id="' + (t.id || '') + '"'
+             + ' data-ticket-codigo="' + _escapeHtml(codigo) + '"'
+             + ' title="Abrir detalle de ' + _escapeHtml(codigo) + '">'
+          + '<td class="px-3 py-2 font-mono text-indigo-700 font-semibold whitespace-nowrap">' + _escapeHtml(codigo) + '</td>'
+          + '<td class="px-3 py-2 text-slate-700 max-w-[280px]"><div class="truncate" title="' + _escapeHtml(titulo) + '">' + _escapeHtml(titulo) + '</div></td>'
+          + '<td class="px-3 py-2 whitespace-nowrap">' + estado + '</td>'
+          + '<td class="px-3 py-2 whitespace-nowrap">' + prioridad + '</td>'
+          + '<td class="px-3 py-2">' + asignado + '</td>'
+          + '<td class="px-3 py-2 text-slate-600 whitespace-nowrap font-mono text-[11px]">' + fv + '</td>'
+          + '<td class="px-3 py-2 whitespace-nowrap">' + sla + '</td>'
+          + '</tr>';
+      }).join('');
+
+      table.classList.remove('opacity-50');
+      if (loading) loading.classList.add('hidden');
+    } catch (err) {
+      if (loading) loading.classList.add('hidden');
+      table.classList.remove('opacity-50');
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500 text-xs">'
+        + 'Error al cargar la lista: ' + _escapeHtml(err.message || String(err)) + '</td></tr>';
+      throw err;
+    }
+  }
+
+  // === Click-to-detail: Lista de Incidencias Recientes ===
+  // Abre el modal de detalle (mismo target /api/v1/tickets/{id}/detalle-html)
+  // que usa el kanban. Se delega en document para soportar re-renders
+  // del tbody cuando se cambian los filtros.
+  //
+  // BUG HISTÓRICO (corregido): si no existía #modal-root en la página, el
+  // código hacía ``window.location.href = '/tickets/' + ticketId``, pero esa
+  // ruta NO existe (retorna 404). Ahora, si no hay #modal-root navegamos a
+  // la lista de tickets (``/tickets``) que sí es una página completa válida.
+  document.addEventListener('click', async ev => {
+    const tr = ev.target.closest('tr.js-ver-detalle');
+    if (!tr) return;
+    ev.preventDefault();
+    const ticketId = tr.dataset.ticketId;
+    if (!ticketId) return;
+
+    const root = document.getElementById('modal-root');
+    if (!root) {
+      // Fallback si no hay modal-root en esta página: navegar a la lista
+      // de tickets (página completa válida). NO navegar a
+      // /api/v1/tickets/{id}/detalle-html porque ese endpoint devuelve
+      // SOLO el fragmento del modal y rompería la página.
+      window.location.href = '/tickets';
+      return;
+    }
+
+    // Loading state inmediato
+    root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30">'
+      + '<div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3">'
+      +   '<div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>'
+      +   '<span class="text-sm text-slate-600">Cargando detalle…</span>'
+      + '</div></div>';
+
+    const useHtmx = typeof htmx !== 'undefined' && htmx.ajax;
+    if (useHtmx) {
+      try {
+        htmx.ajax('GET', `/api/v1/tickets/${ticketId}/detalle-html`, {
+          target: '#modal-root',
+          swap: 'innerHTML',
+        });
+        return;
+      } catch (err) {
+        console.warn('[dashboard] htmx.ajax falló, usando fetch:', err);
+      }
+    }
+
+    // Fallback: fetch directo
+    try {
+      const r = await fetch(`/api/v1/tickets/${ticketId}/detalle-html`, {
+        headers: { 'Accept': 'text/html' },
+        credentials: 'same-origin',
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      root.innerHTML = await r.text();
+      if (typeof htmx !== 'undefined') {
+        try { htmx.process(root); } catch (_) {}
+      }
+      if (typeof window.reinitModalExtras === 'function') {
+        try { window.reinitModalExtras(); } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[dashboard] Error al cargar detalle:', err);
+      root.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop">'
+        + '<div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 text-center">'
+        +   '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">'
+        +     '<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+        +       '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>'
+        +     '</svg>'
+        +   '</div>'
+        +   '<h3 class="text-lg font-semibold text-slate-800 mb-2">Error al cargar el detalle</h3>'
+        +   '<p class="text-sm text-slate-600 mb-4">' + _escapeHtml(err.message || String(err)) + '</p>'
+        +   '<button onclick="document.getElementById(\'modal-root\').innerHTML=\'\'" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300">Cerrar</button>'
+        + '</div></div>';
+    }
+  });
+
+  // === Filtro de fechas: bloque rápido ===
+  // Cuando el usuario elige un bloque (hoy / 7d / 30d / 90d) se
+  // pre-rellenan los inputs desde/hasta con ese rango. El usuario
+  // puede luego ajustar manualmente los inputs y entonces el bloque
+  // vuelve a "personalizado".
+  function aplicarBloqueFechas() {
+    const bloque = safeId('incidencias-recientes-bloque');
+    const desde  = safeId('incidencias-recientes-desde');
+    const hasta  = safeId('incidencias-recientes-hasta');
+    if (!bloque) return;
+
+    const val = bloque.value;
+    if (!val || val === 'personalizado') {
+      cargarIncidenciasRecientes();
+      return;
+    }
+
+    const hoy = new Date();
+    let dias = parseInt(val, 10);
+    if (isNaN(dias)) dias = 7;
+
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    if (desde) desde.value = fmt(new Date(hoy.getTime() - dias * 86400 * 1000));
+    if (hasta) hasta.value = fmt(hoy);
+
+    cargarIncidenciasRecientes();
+  }
+
+  function limpiarFiltroFechas() {
+    const desde = safeId('incidencias-recientes-desde');
+    const hasta = safeId('incidencias-recientes-hasta');
+    const bloque = safeId('incidencias-recientes-bloque');
+    if (desde) desde.value = '';
+    if (hasta) hasta.value = '';
+    if (bloque) bloque.value = '7';
+    cargarIncidenciasRecientes();
+  }
+
+  function exportarIncidenciasRecientes() {
+    if (!_incidenciasRecientesCache) {
+      alert('No hay datos cargados para exportar. Espera unos segundos o cambia el filtro para recargar.');
+      return;
+    }
+    const data = _incidenciasRecientesCache;
+    const headers = ['Código', 'Título', 'Estado', 'Prioridad', 'Asignado', 'Fecha Vencimiento', 'SLA Activo', 'Horas Restantes', 'Módulo'];
+    const tickets = data.tickets || [];
+    const rows = tickets.map(t => [
+      t.codigo || '',
+      t.titulo || '',
+      (t.estado && t.estado.nombre) || '',
+      t.prioridad || '',
+      (t.asignado && (t.asignado.nombre || t.asignado.nombre_completo)) || '',
+      t.fecha_vencimiento_sla || '',
+      t.sla_cumplido_label || 'N/A',
+      t.horas_restantes === null || t.horas_restantes === undefined ? '' : String(t.horas_restantes),
+      t.modulo || '',
+    ]);
+    const csvRows = [headers, ...rows]
+      .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+    const csv = '\uFEFF' + csvRows.join('\n'); // BOM para Excel
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'incidencias_recientes_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // === Drill-down modal: Cuenta de Resultado ===
+  function cerrarModalCuentaResultado() {
+    const root = document.getElementById('modal-cuenta-resultado-root');
+    if (!root) return;
+    root.innerHTML = '';
+  }
+
+  // Exponer al scope global: el modal es inyectado vía HTMX desde
+  // ``app/api/v1/metricas.py`` con ``onclick="cerrarModalCuentaResultado()"``
+  // inline, por lo que el handler de cierre necesita estar en ``window``.
+  // (ESC funciona porque su listener está dentro del IIFE; el botón X
+  // fallaba con ``ReferenceError`` antes de este fix.)
+  window.cerrarModalCuentaResultado = cerrarModalCuentaResultado;
+
+  function _mostrarSpinnerDrillCr() {
+    const root = document.getElementById('modal-cuenta-resultado-root');
+    if (!root) return;
+    if (root.innerHTML.trim()) return;
+    root.innerHTML =
+      '<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">'
+      + '<div class="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 text-sm text-slate-600 border border-slate-200">'
+      +   '<svg class="animate-spin h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24">'
+      +     '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>'
+      +     '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>'
+      +   '</svg>'
+      +   'Cargando detalle de tickets...'
+      + '</div>'
+      + '</div>';
+  }
+
+  function installDrillDownListeners() {
+    if (typeof document === 'undefined') return;
+    document.body.addEventListener('htmx:beforeRequest', function (evt) {
+      try {
+        const trigger = evt.detail && evt.detail.trigger;
+        if (trigger && trigger.getAttribute && trigger.getAttribute('data-drill-cr') === '1') {
+          _mostrarSpinnerDrillCr();
+        }
+      } catch (e) { /* noop */ }
+    });
+    document.body.addEventListener('htmx:responseError', function (evt) {
+      try {
+        const targetPath = (evt.detail && evt.detail.pathInfo && evt.detail.pathInfo.requestPath) || '';
+        if (targetPath.indexOf('/cuenta-resultado/detalle') >= 0) {
+          cerrarModalCuentaResultado();
+        }
+      } catch (e) { /* noop */ }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      const root = document.getElementById('modal-cuenta-resultado-root');
+      if (!root || !root.innerHTML.trim()) return;
+      cerrarModalCuentaResultado();
+    });
+    // Cierre del modal de detalle de ticket (botones data-close-modal y backdrop)
+    document.body.addEventListener('click', function (e) {
+      const root = document.getElementById('modal-cuenta-resultado-root');
+      if (!root || !root.innerHTML.trim()) return;
+      const closeBtn = e.target.closest('[data-close-modal]');
+      if (closeBtn && root.contains(closeBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        cerrarModalCuentaResultado();
+        return;
+      }
+      const backdrop = e.target.closest('.modal-backdrop');
+      if (backdrop && root.contains(backdrop) && backdrop === e.target) {
+        cerrarModalCuentaResultado();
+        return;
+      }
+    });
+  }
+
+  // === EXPOSICIÓN A window ===
+  // FIX-FILTRO-DATERALES(dashboard): el script completo está envuelto en un
+  // IIFE (`(function () { ... })();`), por lo que las funciones declaradas
+  // con `function nombre()` viven en el closure interno y NO son visibles
+  // desde `window`. El HTML de la sección "Lista de Incidencias Recientes"
+  // usa atributos `onchange="aplicarBloqueFechas()"`, `onclick="..."`, etc.
+  // Esos atributos se evalúan en el contexto global (window), por lo que
+  // si la función no está expuesta, el navegador lanza un ReferenceError
+  // SILENCIOSO: el evento se "dispara" pero no hace nada. Antes esto
+  // provocaba que el dropdown de bloque rápido y los inputs de rango no
+  // refrescaran la tabla — el usuario veía siempre "30d · 18 tickets"
+  // aunque cambiara el bloque o tipeara fechas distintas.
+  //
+  // Expongo solo las funciones que el HTML invoca desde atributos, no
+  // toda la API interna (mantener superficie mínima).
+  window.aplicarBloqueFechas       = aplicarBloqueFechas;
+  window.limpiarFiltroFechas       = limpiarFiltroFechas;
+  window.cargarIncidenciasRecientes = cargarIncidenciasRecientes;
+  window.exportarIncidenciasRecientes = exportarIncidenciasRecientes;
+  window.exportarCuentaResultado  = exportarCuentaResultado;
+  window.cerrarModalKpiDetalle    = cerrarModalKpiDetalle;
+})();
+</script>
+{% endblock %}

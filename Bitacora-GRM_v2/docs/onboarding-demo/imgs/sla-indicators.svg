@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280" role="img" aria-label="Indicadores de SLA">
+  <rect width="720" height="280" rx="8" fill="#f8fafc"/>
+  <text x="360" y="36" font-family="system-ui" font-size="16" font-weight="700" text-anchor="middle" fill="#1e293b">Indicadores de SLA</text>
+  <text x="360" y="56" font-family="system-ui" font-size="11" text-anchor="middle" fill="#64748b">Semáforo de cumplimiento — esquina inferior derecha de cada tarjeta</text>
+
+  <!-- OK -->
+  <g transform="translate(60,90)">
+    <circle cx="40" cy="40" r="32" fill="#dcfce7" stroke="#22c55e" stroke-width="3"/>
+    <circle cx="40" cy="40" r="18" fill="#22c55e"/>
+    <text x="100" y="32" font-family="system-ui" font-size="14" font-weight="700" fill="#166534">🟢 SLA cumplido</text>
+    <text x="100" y="52" font-family="system-ui" font-size="11" fill="#1e293b">Dentro del plazo. Sin acción.</text>
+    <text x="100" y="70" font-family="system-ui" font-size="10" fill="#64748b">Ej: vence en 2 días</text>
+  </g>
+
+  <!-- Advertencia -->
+  <g transform="translate(60,170)">
+    <circle cx="40" cy="40" r="32" fill="#fef3c7" stroke="#f59e0b" stroke-width="3"/>
+    <circle cx="40" cy="40" r="18" fill="#f59e0b"/>
+    <text x="100" y="32" font-family="system-ui" font-size="14" font-weight="700" fill="#92400e">🟡 Próximo a vencer</text>
+    <text x="100" y="52" font-family="system-ui" font-size="11" fill="#1e293b">Atención: revisar y priorizar.</text>
+    <text x="100" y="70" font-family="system-ui" font-size="10" fill="#64748b">Ej: vence en 4 horas</text>
+  </g>
+
+  <!-- Vencido -->
+  <g transform="translate(420,90)">
+    <circle cx="40" cy="40" r="32" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
+    <circle cx="40" cy="40" r="18" fill="#dc2626"/>
+    <text x="100" y="32" font-family="system-ui" font-size="14" font-weight="700" fill="#991b1b">🔴 Vencido</text>
+    <text x="100" y="52" font-family="system-ui" font-size="11" fill="#1e293b">Incumplimiento. Escalar.</text>
+    <text x="100" y="70" font-family="system-ui" font-size="10" fill="#64748b">Ej: vencido hace 1 día</text>
+  </g>
+
+  <!-- Recalculo -->
+  <g transform="translate(420,170)">
+    <circle cx="40" cy="40" r="32" fill="#e0e7ff" stroke="#4f46e5" stroke-width="3"/>
+    <path d="M30 40 A10 10 0 1 1 50 40" stroke="#4f46e5" stroke-width="3" fill="none"/>
+    <polygon points="48,36 54,40 48,44" fill="#4f46e5"/>
+    <text x="100" y="32" font-family="system-ui" font-size="14" font-weight="700" fill="#3730a3">⚙ Recálculo automático</text>
+    <text x="100" y="52" font-family="system-ui" font-size="11" fill="#1e293b">Celery recalcula SLAs en cada</text>
+    <text x="100" y="70" font-family="system-ui" font-size="10" fill="#64748b">movimiento de tarjeta.</text>
+  </g>
+</svg>

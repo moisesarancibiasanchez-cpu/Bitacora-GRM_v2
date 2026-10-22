@@ -1,0 +1,101 @@
+2026-09-30 19:36:38,776 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (0/20) now.
+2026-09-30 19:36:38,776 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (1/20) in 1.00 second.
+2026-09-30 19:36:39,777 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (2/20) in 1.00 second.
+2026-09-30 19:36:40,778 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (3/20) in 1.00 second.
+2026-09-30 19:36:41,778 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (4/20) in 1.00 second.
+2026-09-30 19:36:42,779 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (5/20) in 1.00 second.
+2026-09-30 19:36:43,780 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (6/20) in 1.00 second.
+2026-09-30 19:36:44,781 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (7/20) in 1.00 second.
+2026-09-30 19:36:45,782 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (8/20) in 1.00 second.
+2026-09-30 19:36:46,782 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (9/20) in 1.00 second.
+2026-09-30 19:36:47,783 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (10/20) in 1.00 second.
+2026-09-30 19:36:48,784 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (11/20) in 1.00 second.
+2026-09-30 19:36:49,785 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (12/20) in 1.00 second.
+2026-09-30 19:36:50,786 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (13/20) in 1.00 second.
+2026-09-30 19:36:51,786 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (14/20) in 1.00 second.
+2026-09-30 19:36:52,787 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (15/20) in 1.00 second.
+2026-09-30 19:36:53,788 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (16/20) in 1.00 second.
+100.64.0.1:49966 - "GET /dashboard HTTP/1.1" 200
+2026-09-30 19:36:54,842 [ERROR] celery.backends.redis: Connection to Redis lost: Retry (17/20) in 1.00 second.
+100.64.0.4:26706 - "GET /api/v1/metricas/dashboard-completo?dias=30 HTTP/1.1" 200
+100.64.0.7:53960 - "GET /api/v1/metricas/incidencias-recientes?periodo_dias=30&tipo=incidencia&limite=50&_=1790797015125 HTTP/1.1" 500
+[2026-09-30 19:36:55 +0000] [10] [ERROR] Exception in ASGI application
+Traceback (most recent call last):
+  File "/opt/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "/opt/venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 941, in do_execute
+    cursor.execute(statement, parameters)
+psycopg2.errors.UndefinedFunction: function upper(tipoincidencia) does not exist
+LINE 3: WHERE upper(tickets.tipo) = 'INCIDENCIA' AND tickets.archiva...
+              ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+The above exception was the direct cause of the following exception:
+Traceback (most recent call last):
+  File "/opt/venv/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 401, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 187, in __call__
+    raise exc
+  File "/opt/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 62, in wrapped_app
+    raise exc
+  File "/opt/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 51, in wrapped_app
+    await app(scope, receive, sender)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+    return await run_in_threadpool(dependant.call, **values)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/routing.py", line 735, in app
+  File "/opt/venv/lib/python3.12/site-packages/starlette/routing.py", line 73, in app
+    await route.handle(scope, receive, send)
+  File "/opt/venv/lib/python3.12/site-packages/starlette/routing.py", line 288, in handle
+    response = await f(request)
+    await self.app(scope, receive, send)
+               ^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/starlette/routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/opt/venv/lib/python3.12/site-packages/fastapi/routing.py", line 301, in app
+  File "/opt/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 62, in wrapped_app
+    raw_response = await run_endpoint_function(
+    raise exc
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 51, in wrapped_app
+  File "/opt/venv/lib/python3.12/site-packages/fastapi/routing.py", line 214, in run_endpoint_function
+    await app(scope, receive, sender)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/starlette/concurrency.py", line 39, in run_in_threadpool
+  File "/opt/venv/lib/python3.12/site-packages/sqlalchemy/orm/query.py", line 2827, in _iter
+    return await anyio.to_thread.run_sync(func, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/anyio/to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 2706, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 1100, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api/v1/metricas.py", line 939, in incidencias_recientes
+    for t, est in q.all():
+                  ^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/sqlalchemy/orm/query.py", line 2673, in all
+    return self._iter().all()  # type: ignore
+  File "/opt/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1640, in _execute_clauseelement
+             ^^^^^^^^^^^^^
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+    ret = self._execute_context(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1418, in execute

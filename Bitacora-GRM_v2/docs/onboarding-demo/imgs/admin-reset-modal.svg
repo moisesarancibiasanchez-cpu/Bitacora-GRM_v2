@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" role="img" aria-label="Modal reset contraseña admin">
+  <rect width="720" height="360" fill="#0f172a" opacity="0.55"/>
+  <rect x="180" y="40" width="360" height="280" rx="10" fill="#fff" stroke="#e2e8f0"/>
+  <rect x="180" y="40" width="360" height="48" rx="10" fill="#b45309"/>
+  <text x="200" y="72" font-family="system-ui" font-size="14" font-weight="700" fill="#fff">🔑 Resetear contraseña</text>
+  <text x="510" y="72" font-family="system-ui" font-size="18" text-anchor="end" fill="#fff" font-weight="700">×</text>
+
+  <text x="200" y="116" font-family="system-ui" font-size="11" fill="#475569">Usuario: jperez (Juan Pérez)</text>
+
+  <g font-family="system-ui" font-size="11" fill="#475569">
+    <text x="200" y="146">Nueva contraseña</text>
+    <rect x="200" y="152" width="320" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <rect x="212" y="166" width="120" height="4" rx="2" fill="#cbd5e1"/>
+    <circle cx="492" cy="168" r="2.5" fill="#cbd5e1"/><circle cx="500" cy="168" r="2.5" fill="#cbd5e1"/><circle cx="508" cy="168" r="2.5" fill="#cbd5e1"/>
+
+    <text x="200" y="200">Confirmar nueva contraseña</text>
+    <rect x="200" y="206" width="320" height="32" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <rect x="212" y="220" width="80" height="4" rx="2" fill="#cbd5e1"/>
+    <circle cx="492" cy="222" r="2.5" fill="#cbd5e1"/><circle cx="500" cy="222" r="2.5" fill="#cbd5e1"/><circle cx="508" cy="222" r="2.5" fill="#cbd5e1"/>
+  </g>
+
+  <text x="200" y="262" font-family="system-ui" font-size="10" fill="#92400e">⚠ El usuario deberá cambiar la contraseña al primer ingreso.</text>
+
+  <rect x="380" y="278" width="140" height="28" rx="5" fill="#b45309"/>
+  <text x="450" y="297" font-family="system-ui" font-size="11" text-anchor="middle" fill="#fff" font-weight="600">Guardar</text>
+  <rect x="220" y="278" width="140" height="28" rx="5" fill="#fff" stroke="#cbd5e1"/>
+  <text x="290" y="297" font-family="system-ui" font-size="11" text-anchor="middle" fill="#475569">Cancelar</text>
+</svg>
