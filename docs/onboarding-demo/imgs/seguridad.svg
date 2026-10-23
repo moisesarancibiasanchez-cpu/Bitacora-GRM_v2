@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" role="img" aria-label="Cabeceras de seguridad, control de caché y modelo de sesión">
+  <rect width="720" height="400" rx="8" fill="#f1f5f9"/>
+
+  <text x="24" y="28" font-family="system-ui" font-size="12" font-weight="700" fill="#0f172a">Cabeceras de seguridad en cada respuesta</text>
+  <text x="24" y="44" font-family="system-ui" font-size="10" fill="#64748b">El servidor las añade automáticamente. El navegador las aplica sin pedir nada.</text>
+
+  <!-- Cabeceras -->
+  <rect x="24" y="60" width="672" height="152" rx="8" fill="#0f172a"/>
+  <circle cx="44" cy="80" r="5" fill="#ef4444"/>
+  <circle cx="60" cy="80" r="5" fill="#fbbf24"/>
+  <circle cx="76" cy="80" r="5" fill="#22c55e"/>
+  <text x="94" y="84" font-family="system-ui" font-size="10" fill="#94a3b8">HTTP/1.1 200 OK</text>
+
+  <text x="40" y="106" font-family="ui-monospace, monospace" font-size="10" fill="#93c5fd">X-Frame-Options: DENY</text>
+  <text x="40" y="124" font-family="ui-monospace, monospace" font-size="10" fill="#93c5fd">X-Content-Type-Options: nosniff</text>
+  <text x="40" y="142" font-family="ui-monospace, monospace" font-size="10" fill="#93c5fd">Referrer-Policy: strict-origin-when-cross-origin</text>
+  <text x="40" y="160" font-family="ui-monospace, monospace" font-size="10" fill="#86efac">Cache-Control: max-age=300</text>
+  <text x="40" y="184" font-family="ui-monospace, monospace" font-size="10" fill="#94a3b8">Vary: Cookie, Authorization</text>
+
+  <line x1="380" y1="96" x2="380" y2="198" stroke="#1e293b" stroke-width="1"/>
+
+  <text x="400" y="106" font-family="system-ui" font-size="10" font-weight="700" fill="#e2e8f0">Qué.previene cada una</text>
+  <text x="400" y="126" font-family="system-ui" font-size="9" fill="#94a3b8">DENY bloquea que otra página</text>
+  <text x="400" y="140" font-family="system-ui" font-size="9" fill="#94a3b8">incorpore la nuestra en un iframe.</text>
+  <text x="400" y="160" font-family="system-ui" font-size="9" fill="#94a3b8">nosniff impide que el navegador</text>
+  <text x="400" y="174" font-family="system-ui" font-size="9" fill="#94a3b8">interprete el archivo de otra forma.</text>
+  <text x="400" y="194" font-family="system-ui" font-size="9" fill="#94a3b8">La caché se limita a 5 minutos.</text>
+
+  <!-- Sesión -->
+  <rect x="24" y="224" width="336" height="152" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="40" y="246" font-family="system-ui" font-size="10" font-weight="700" fill="#0f172a">Cómo se mantiene la sesión</text>
+
+  <circle cx="56" cy="272" r="12" fill="#eef2ff"/>
+  <text x="56" y="276" font-family="system-ui" font-size="10" text-anchor="middle" fill="#3730a3" font-weight="700">1</text>
+  <text x="78" y="269" font-family="system-ui" font-size="9" font-weight="600" fill="#1e293b">Ingreso con usuario y contraseña</text>
+  <text x="78" y="283" font-family="system-ui" font-size="8" fill="#64748b">Se verifican ambos y se genera una cookie firmada.</text>
+
+  <circle cx="56" cy="310" r="12" fill="#eef2ff"/>
+  <text x="56" y="314" font-family="system-ui" font-size="10" text-anchor="middle" fill="#3730a3" font-weight="700">2</text>
+  <text x="78" y="307" font-family="system-ui" font-size="9" font-weight="600" fill="#1e293b">Cada petición viaja con la cookie</text>
+  <text x="78" y="321" font-family="system-ui" font-size="8" fill="#64748b">El servidor valida la firma y recarga el usuario.</text>
+
+  <circle cx="56" cy="348" r="12" fill="#fee2e2"/>
+  <text x="56" y="352" font-family="system-ui" font-size="10" text-anchor="middle" fill="#991b1b" font-weight="700">3</text>
+  <text x="78" y="345" font-family="system-ui" font-size="9" font-weight="600" fill="#1e293b">Cerrar sesión elimina la cookie</text>
+  <text x="78" y="359" font-family="system-ui" font-size="8" fill="#64748b">La sesión anterior deja de ser válida de inmediato.</text>
+
+  <!-- Contraseña -->
+  <rect x="376" y="224" width="320" height="152" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="392" y="246" font-family="system-ui" font-size="10" font-weight="700" fill="#0f172a">La contraseña nunca se guarda en claro</text>
+
+  <rect x="392" y="258" width="288" height="30" rx="5" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="404" y="277" font-family="system-ui" font-size="9" fill="#334155">contrasena_2026 →</text>
+  <rect x="504" y="264" width="164" height="18" rx="9" fill="#dcfce7"/>
+  <text x="586" y="277" font-family="system-ui" font-size="9" text-anchor="middle" fill="#166534" font-weight="600">hash + sal por usuario</text>
+
+  <circle cx="398" cy="308" r="3" fill="#16a34a"/>
+  <text x="410" y="312" font-family="system-ui" font-size="9" fill="#1e293b">La sal es distinta para cada usuario</text>
+  <circle cx="398" cy="330" r="3" fill="#16a34a"/>
+  <text x="410" y="334" font-family="system-ui" font-size="9" fill="#1e293b">Dos personas con la misma clave obtienen hashes distintos</text>
+  <circle cx="398" cy="352" r="3" fill="#16a34a"/>
+  <text x="410" y="356" font-family="system-ui" font-size="9" fill="#1e293b">Comparar el hash, no la contraseña</text>
+</svg>

@@ -7,8 +7,9 @@
 - [Drag & Drop](#sec-7)
 - [Roles](#sec-11)
 - [Admin](#sec-12)
-- [Errores](#sec-15)
-- [Soporte](#sec-18)
+- [Vistas](#sec-15)
+- [Errores](#sec-21)
+- [Soporte](#sec-24)
 - [★ GitHub](https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2)
 
 ## Contenido (Tabla de secciones)
@@ -24,12 +25,18 @@
 10. Búsqueda global ⌘K (#sec-10)
 11. Roles y permisos (#sec-11)
 12. Tareas de Administrador (#sec-12)
-13. Cerrar sesión (#sec-13)
-14. Atajos de teclado (#sec-14)
-15. Errores frecuentes (#sec-15)
-16. Buenas prácticas (#sec-16)
-17. Glosario (#sec-17)
-18. Soporte y contacto (#sec-18)
+13. Colaborar en los comentarios (#sec-13)
+14. Referenciar otros tickets (#sec-14)
+15. Vistas alternativas del tablero (#sec-15)
+16. Automatizaciones Butler (#sec-16)
+17. Pruebas de calidad y garantías (#sec-17)
+18. Seguridad y sesiones (#sec-18)
+19. Cerrar sesión (#sec-19)
+20. Atajos de teclado (#sec-20)
+21. Errores frecuentes (#sec-21)
+22. Buenas prácticas (#sec-22)
+23. Glosario (#sec-23)
+24. Soporte y contacto (#sec-24)
 
 ---
 
@@ -152,20 +159,28 @@ Es la esquina inferior derecha de cada tarjeta:
 ## 06 Ver y editar el detalle de un ticket
 
 1. Haz clic en cualquier parte de la tarjeta (o en el ícono de ojo 👁 en su esquina).
-2. Se abre un modal con toda la información del ticket, organizada en secciones:
-   - **Cabecera:** código, título, prioridad, asignado, fecha de creación, fecha de vencimiento.
-   - **Descripción** (Markdown renderizado).
-   - **Comentarios** (en orden cronológico).
-   - **Checklist** (ítems a marcar / desmarcar).
-   - **Adjuntos** (imágenes con vista previa ampliable, archivos descargables).
-   - **Etiquetas** (colores).
-   - **Historial** (auditoría de cambios).
-3. Para **editar un campo en línea**: haz clic en el valor (ej. la prioridad) y elige otro. El cambio se guarda de forma automática (HTMX) y aparece un toast confirmando.
-4. Para **agregar un comentario**: escribe en el cuadro "Escribir un comentario…" (admite Markdown) y haz clic en **Enviar**.
-5. Para **subir un adjunto**: arrastra un archivo al cuadro de dropzone, o haz clic para elegir. Las imágenes se previsualizan y se pueden ampliar con un clic (lightbox).
-6. Para **cerrar el modal**: clic en la X, en el fondo oscuro, o tecla `Esc`.
+2. Se abre un modal con **7 pestañas**:
 
-*Detalle del ticket con pestañas (Descripción, Comentarios, Checklist, Adjuntos, Etiquetas, Historial).*
+   | Pestaña | Qué contiene | editable en línea |
+   | --- | --- | --- |
+   | **Detalles** | Código, título, descripción (Markdown), prioridad, asignado, solicitante, fechas, SLA, etiquetas | Título y descripción, con botón **Guardar cambios** |
+   | **Comentarios** | Hilo en orden cronológico, con adjuntos, menciones y reacciones (ver sección 13) | Sí, cada comentario |
+   | **Adjuntos** | Imágenes con vista previa ampliable (lightbox), archivos descargables | Sí, con permisos |
+   | **Checklist** | Ítems a marcar / desmarcar | Sí, cada ítem |
+   | **Etapas** | Subtareas del módulo de garantía (UAT) | Sí |
+   | **Trazabilidad** | Auditoría: quién, cuándo y qué cambió | No, solo lectura |
+   | **Referencias** | Relaciones con otros tickets (ver sección 14) | Sí, se agregan y quitan |
+
+3. Para **editar un campo en línea**: haz clic en el valor (ej. la prioridad) y elige otro. El cambio se guarda de forma automática (HTMX) y aparece un toast confirmando.
+4. Para **editar el título o la descripción**: escribe en el campo y pulsa **Guardar cambios**.
+
+   > ⚠️ **El título y la descripción NO se guardan solos.** Si cierras el modal (X, fondo oscuro o `Esc`) sin pulsar el botón, los cambios se pierden. Los campos de la cabecera (prioridad, asignado, etiquetas) sí se guardan al instante.
+
+5. Para **agregar un comentario**: escribe en el cuadro "Escribir un comentario…" (admite Markdown) y haz clic en **Enviar**.
+6. Para **subir un adjunto**: arrastra un archivo al cuadro de dropzone, o haz clic para elegir. Las imágenes se previsualizan y se pueden ampliar con un clic (lightbox).
+7. Para **cerrar el modal**: clic en la X, en el fondo oscuro, o tecla `Esc`.
+
+*Detalle del ticket con 7 pestañas (Detalles, Comentarios, Adjuntos, Checklist, Etapas, Trazabilidad, Referencias).*
 
 ---
 
@@ -173,22 +188,34 @@ Es la esquina inferior derecha de cada tarjeta:
 
 **Esta es la acción principal del flujo Kanban.**
 
+> ℹ️ **El tablero funciona en "modo libre".** No hay una matriz de transiciones: puedes mover un ticket a cualquier columna existente. El sistema valida **únicamente** que tu rol tenga permiso para mover tarjetas.
+
 1. Haz clic y mantén presionada una tarjeta.
 2. **Arrastra** la tarjeta a otra columna y suéltala encima.
-3. Si la transición de estado es válida para tu rol:
+3. Si tu rol tiene permiso:
    - El backend valida, actualiza el ticket, registra en auditoría y **devuelve el HTML actualizado**.
    - La tarjeta aparece en la nueva columna sin recargar la página.
    - Toast verde: "Ticket movido".
-4. Si la transición **no está permitida** para tu rol o el estado de origen/destino no existe en la matriz de transiciones:
+4. Si tu rol **no tiene permiso** (Solicitante u Observador):
    - La tarjeta **vuelve sola a su columna original** (rollback visual de SortableJS).
-   - Toast rojo: "No tienes permisos para esta transición" o mensaje específico.
+   - Toast rojo indicando que no tienes permisos.
 
-*Drag & drop: la tarjeta se arrastra, el backend valida y la nueva ubicación queda confirmada con un toast verde.*
+*Drag & drop: la tarjeta se arrastra, el backend valida el permiso y la nueva ubicación queda confirmada con un toast verde.*
+
+**Qué se valida y qué no:**
+
+| Se valida | No se valida |
+| --- | --- |
+| Que tu rol tenga permiso para mover tarjetas | Que el destino sea una transición "correcta" |
+| Que la columna de destino exista | Que el estado final tenga sentido con el historial del ticket |
+| Que el ticket no esté archivado | Que debas dejar un comentario de justificación |
 
 **Buenas prácticas:**
 
-- Si el cambio de estado exige un comentario (ej. "Cancelar" o "Reabrir"), el modal te lo pedirá antes de confirmar.
-- Cada movimiento queda asentado en la pestaña **Historial** del ticket con timestamp y usuario que lo hizo.
+- Cada movimiento queda asentado en la pestaña **Trazabilidad** del ticket con timestamp y usuario que lo hizo.
+- Como no hay bloqueos, **mantén la disciplina tú mismo**: no muevas un ticket a "Resuelto" si el trabajo no está terminado.
+
+> ⚠️ **No hay deshacer.** Si mueves mal una tarjeta, corrígela moviéndola de vuelta y deja un comentario explicando.
 
 ---
 
@@ -244,7 +271,9 @@ El sistema tiene **5 roles** con permisos crecientes:
 
 *Pirámide de roles: cada nivel hereda los permisos del inferior.*
 
-| Rol | Puede | No puede |
+### 11.1. Uso esperado por rol
+
+| Rol | Puede | No debería |
 | --- | --- | --- |
 | **Solicitante** | Crear tickets, comentar en los suyos, agregar adjuntos. | Cambiar estado, asignar, cerrar tickets ajenos, ver tablero global. |
 | **Observador** | Ver el tablero y la auditoría en modo lectura. | Crear, editar, comentar o mover nada. |
@@ -253,6 +282,31 @@ El sistema tiene **5 roles** con permisos crecientes:
 | **Administrador** | Acceso total: gestionar usuarios, columnas, catálogos, ver toda la auditoría y reportes. | — |
 
 Tu rol aparece como un chip de color en la barra superior, al lado de tu nombre.
+
+### 11.2. Qué valida el sistema de verdad
+
+> ⚠️ **Sé honesto con esto:** la tabla anterior describe la política de uso esperada. El sistema **solo aplica de forma automática unas pocas restricciones**. Conocer la diferencia te evita sorpresas.
+
+**Permisos que el sistema comprueba de verdad:**
+
+| Permiso | Dónde se comprueba |
+| --- | --- |
+| `cambiar_estado` | Al arrastrar una tarjeta a otra columna, y en la API al cambiar el estado |
+| `crear_ticket` | Al crear una incidencia |
+| `comentar` | Al enviar un comentario |
+| `adjuntar_archivos` | Al subir un archivo |
+| `ver_auditoria` | Al abrir la vista de auditoría |
+| `gestionar_usuarios` | Al entrar a la sección de Usuarios |
+| `gestionar_columnas` | Al crear, editar o eliminar columnas |
+
+**Lo que NO está restringido por el sistema (lo controla la disciplina del equipo):**
+
+- No hay matriz de transiciones: puedes mover un ticket a cualquier columna si tienes permiso de mover (ver sección 07).
+- No es obligatorio dejar un comentario al cerrar, cancelar o reabrir un ticket.
+- Un Agente puede abrir tickets que no tiene asignados, siempre que su rol permita crearlos.
+- No se comprueba que un ticket esté realmente resuelto antes de pasarlo a "Resuelto".
+
+> **En la práctica:** el único control de acceso que se activa sin que tú hagas nada es el del **movimiento de tarjetas**. El resto depende de que respetes las convenciones del equipo.
 
 ---
 
@@ -287,11 +341,215 @@ Antes de eliminar una columna, **mueve todos sus tickets a otra columna**. Si la
 
 ### 12.4. Ver la auditoría
 
-La auditoría está disponible en cada ticket (pestaña *"Historial"*). Cada cambio registra: timestamp, usuario, acción, valor anterior y valor nuevo.
+La auditoría está disponible en cada ticket (pestaña **"Trazabilidad"**). Cada cambio registra: timestamp, usuario, acción, valor anterior y valor nuevo.
 
 ---
 
-## 13 Cerrar sesión
+## 13 Colaborar en los comentarios de un ticket
+
+La pestaña **Comentarios** es el canal de trabajo del equipo. No es solo un registro: se puede usar casi como un chat interno.
+
+*Comentario con mención, adjuntos, reacciones, ventana de edición y comentario interno.*
+
+### 13.1. Qué puedes hacer en un comentario
+
+| Acción | Cómo | Límite |
+| --- | --- | --- |
+| Escribir en Markdown | Escribe con normalidad: `**negrita**`, listas, código | 5000 caracteres |
+| Adjuntar archivos | Arrastra o haz clic; también puedes **pegar una captura con `Ctrl+V`** | Tamaño máximo del archivo |
+| Mencionar a alguien | Escribe `@usuario` y elige del desplegable | Avisa al mentioned |
+| Editar | Pulsa el ícono de editar sobre tu comentario | Solo durante **30 minutos** |
+| Marcar como interno | Casilla "Interno" al escribir | Solo el equipo lo ve |
+| Reaccionar | Pulsa una reacción bajo el comentario | Sustituye escribir un "OK" |
+
+### 13.2. La ventana de 30 minutos
+
+Después de escribir un comentario tienes **30 minutos** para editarlo. El botón muestra el tiempo restante en cuenta atrás.
+
+Superados los 30 minutos el comentario queda **fijo**: no se puede modificar ni borrar. La forma correcta de corregirlo es escribir un comentario nuevo indicando qué cambió.
+
+### 13.3. Comentarios internos
+
+Un comentario marcado como **interno** es visible solo para el equipo. **El solicitante nunca lo ve.**
+
+Úsalo para debates técnicos, decisiones internas o notas de coordinación. Todo lo que el solicitante deba leer, va en un comentario normal.
+
+---
+
+## 14 Referenciar otros tickets
+
+La pestaña **Referencias** conecta un ticket con otros, para que las dependencias queden explícitas y no solo en tu memoria.
+
+*Tres tickets unidos por referencias de tipo bloquea, duplicado de y padre.*
+
+### 14.1. Los seis tipos de referencia
+
+| Tipo | Qué significa | ¿Es simétrico? |
+| --- | --- | --- |
+| **Relacionado** | Tiene relación con este ticket | Sí |
+| **Duplicado** | Es el mismo problema reportado dos veces | Sí |
+| **Padre** | Este ticket es parte de uno mayor | No → genera **Hijo** |
+| **Hijo** | Es parte de este ticket mayor | No → genera **Padre** |
+| **Bloquea** | Este ticket impide que el otro avance | No → genera **Bloqueado por** |
+| **Bloqueado por** | Este ticket no puede avanzar hasta que el otro se resuelva | No → genera **Bloquea** |
+
+Cuando creas una referencia, el sistema guarda **la inversa automáticamente**. Si dices "A bloquea a B", en B aparecerá "bloqueado por A" sin que tengas que hacer nada.
+
+### 14.2. Cómo agregarlas
+
+1. Abre el ticket y ve a la pestaña **Referencias**.
+2. Selecciona el tipo de relación.
+3. Busca el ticket destino por código o título.
+4. Pulsa **Agregar**.
+
+Para quitar una referencia, haz clic en la **X** a su lado.
+
+### 14.3. Cómo usarlas bien
+
+- **¿Es duplicado?** Enlaza ambos y cierra uno como duplicado, en lugar de dejar dos tickets vivos.
+- **¿Hay dependencia real?** Usa *bloquea* en lugar de un comentario que diga "esperando a…". La dependencia queda consultable desde las dos partes.
+- **¿Es un caso grande?** Usa *padre / hijo* para agrupar los subttrabajos sin crear un ticket gigante.
+
+---
+
+## 15 Vistas alternativas del tablero
+
+El mismo conjunto de tickets se puede leer de **siete maneras**. Cambiar de vista no crea ni modifica ningún dato.
+
+*Selector de vistas con los siete modos disponibles.*
+
+| Vista | Para qué sirve |
+| --- | --- |
+| **Tablero** | El flujo visual por columnas, con arrastrar y soltar |
+| **Tabla** | Ver y ordenar muchos tickets de un vistazo; permite ordenar por cualquier columna |
+| **Calendario** | Programación por fecha de vencimiento, semana a semana |
+| **Línea de tiempo** | Encadena tickets que dependen unos de otros (#95 → #128 → #131) |
+| **Gantt** | Las etapas de un caso, en barras por fecha |
+| **Planificador** | Capacidad por sprint: lo comprometido frente a lo posible |
+| **Panel** | Indicadores agrupados, solo lectura, para informes rápidos |
+
+Los **filtros** de la sección 8 se mantienen al cambiar de vista: si estás filtrando por "solo los míos", ese filtro sigue activo en las siete.
+
+---
+
+## 16 Automatizaciones Butler
+
+**Butler** es el motor de automatizaciones. Una regla reacciona a un disparador, comprueba sus condiciones y ejecuta sus acciones.
+
+*Regla de automatización con disparador, condiciones, acciones y registro de ejecuciones.*
+
+### 16.1. Disparadores
+
+Una regla empieza a evaluarse cuando ocurre uno de estos seis eventos:
+
+| Disparador | Se dispara cuando |
+| --- | --- |
+| `ticket_creado` | Se crea un ticket |
+| `ticket_asignado` | Se asigna un responsable |
+| `ticket_etiquetado` | Se le pone o quita una etiqueta |
+| `ticket_estado_cambiado` | Un ticket entra en una columna nueva |
+| `cada_dia` | Llega la ejecución programada diaria |
+| `cada_semana` | Llega la ejecución programada semanal |
+
+### 16.2. Condiciones
+
+Cada condición compara un campo del ticket con un valor. Si **todas** se cumplen, la regla corre; si alguna falla, no hace nada.
+
+Ejemplo: `prioridad` **igual a** `critica` **y** `columna` **igual a** `nuevo`.
+
+### 16.3. Acciones
+
+Se ejecutan **en el orden en que las definiste**, de arriba abajo:
+
+`set_estado` · `set_asignado` · `add_etiqueta` · `remove_etiqueta` · `add_comentario` · `notify` · `archive` · `backup_database` · `backup_cleanup`
+
+### 16.4. Prioridad entre reglas
+
+Cuando varias reglas son aplicables al mismo evento, se ejecutan **de menor a mayor número de prioridad**. La prioridad por defecto es `100`.
+
+Ejemplo: una regla con prioridad `10` corre antes que otra con `50`.
+
+### 16.5. Registro de ejecuciones
+
+Cada ejecución queda guardada indicando la regla, el ticket afectado, si terminó correctamente y el detalle. Puedes consultarlo para auditar qué hizo la regla y por qué.
+
+> **Una regla desactivada no se ejecuta, pero conserva toda su configuración.** Actívala cuando vuelva a hacer falta.
+
+---
+
+## 17 Datos de pruebas y expedientes de garantía
+
+Los tickets del módulo de garantía llevan datos de pruebas de calidad y un código de expediente.
+
+*Campos de pruebas de calidad y construcción del código GAR.*
+
+### 17.1. Campos de pruebas
+
+| Campo | Valores |
+| --- | --- |
+| **Módulo** | 11 valores (Control ERM, Gobierno, Incidencias, Validación, Auditoría, Filiales, Información Inventario, Registro de Información, Documentación, Mejoras Transversales, Seguimiento y Control) |
+| **Ambiente** | `QA` · `PRODUCCION` |
+| **Ítem a probar** | `Portal WEB APEX` · `Email` · `Base de Datos` |
+| **Resultado de pruebas** | `OK` · `N/A` · `OK CON OBS.` · `NOK` · `POSTERGADA` · `DESESTIMADA` |
+| **QA Tester** | Se guarda como `Nombre <email>` para que quede trazable quién probó |
+
+> El resultado de pruebas es **una marca de seguimiento, no un bloqueo.** Marcar `NOK` no impide mover el ticket a "Resuelto": esa decisión sigue siendo del agente responsable.
+
+### 17.2. El código GAR
+
+Cada caso de prueba tiene un código con el formato:
+
+```
+GAR_<código del caso>-<correlativo de 3 dígitos>
+```
+
+Por ejemplo, `GAR_HU128-003`.
+
+- El **código del caso** se toma del archivo de carga.
+- El **correlativo** avanza con cada fila importada.
+- Si el caso **no trae código**, el sistema genera `GAR_SIN-00042`.
+- Si el código completo **supera los 20 caracteres**, se trunca.
+
+---
+
+## 18 Seguridad y sesiones
+
+*Cabeceras de seguridad de la respuesta HTTP, modelo de sesión y almacenamiento de la contraseña.*
+
+### 18.1. Tu sesión
+
+1. Al iniciar sesión, el servidor crea una sesión firmada y la devuelve en una **cookie**.
+2. En cada petición posterior, esa cookie identifica tu sesión y el servidor la valida.
+3. Al cerrar sesión, la sesión se **invalida** y la cookie deja de servir.
+
+La sesión expira automáticamente después de **8 horas de inactividad**.
+
+### 18.2. Tu contraseña
+
+Las contraseñas **nunca se guardan en texto plano**: se almacena su *hash* con una *sal* por usuario. Dos personas con la misma contraseña tienen hashes distintos, así que no se puede deducir una de la otra.
+
+> **Consecuencia práctica:** si alguien te pide tu contraseña, ni siquiera un administrador puede leerla.
+
+### 18.3. Cabeceras de seguridad
+
+Cada respuesta del servidor incluye:
+
+| Cabecera | Qué hace |
+| --- | --- |
+| `X-Frame-Options: DENY` | Impide que la página se incruste en un iframe de otro sitio (clickjacking) |
+| `X-Content-Type-Options: nosniff` | Evita que el navegador interprete un archivo con un tipo distinto al declarado |
+| `Referrer-Policy: strict-origin-when-cross-origin` | Limita qué URL se comparte al saltar a otro sitio |
+| `Cache-Control: max-age=300` | Las páginas se guardan en caché 5 minutos y luego se vuelven a pedir |
+
+### 18.4. Buenas prácticas de seguridad
+
+- **No compartas tu cuenta.** Cada persona debe tener la suya: así la auditoría registra de verdad quién hizo cada cambio (ver sección 11).
+- **Cierra sesión** al terminar, sobre todo si usas un equipo compartido.
+- **No pegues contraseñas ni datos sensibles** en los comentarios: quedan visibles para todo el equipo.
+
+---
+
+## 19 Cerrar sesión
 
 1. Haz clic en **"Salir"** (esquina superior derecha).
 2. El sistema invalida tu sesión y te redirige a la pantalla de login.
@@ -300,7 +558,7 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
-## 14 Atajos de teclado útiles
+## 20 Atajos de teclado útiles
 
 *Resumen visual de los atajos principales.*
 
@@ -315,13 +573,15 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
-## 15 Errores frecuentes y cómo resolverlos
+## 21 Errores frecuentes y cómo resolverlos
 
 | Síntoma | Causa probable | Qué hacer |
 | --- | --- | --- |
 | Toast rojo "No tienes permisos para realizar esta acción" | Tu rol no permite esa acción | Pide a un administrador que te otorgue el rol correspondiente |
-| Toast rojo "La transición no es válida" | El estado destino no es alcanzable desde el estado actual para tu rol | Consulta la matriz de transiciones del flujo con tu admin |
-| La tarjeta vuelve a su columna original al soltarla | La transición fue rechazada por el backend | Revisa el toast para ver el motivo exacto |
+| Toast rojo al arrastrar una tarjeta | Tu rol no tiene permiso para mover tarjetas en el tablero (Solicitante u Observador) | Si debes moverlas, pídele a un administrador que eleve tu rol a Agente |
+| La tarjeta vuelve a su columna original al soltarla | El backend rechazó el movimiento | Revisa el toast para ver el motivo exacto |
+| Editaste el título o la descripción y no se guardó | Cerraste el modal sin pulsar **Guardar cambios** | Vuelve a abrir el ticket y guarda antes de cerrar |
+| El comentario dice "ventana de edición cerrada" | Pasaron más de 30 minutos desde que lo escribiste | Escribe un comentario nuevo indicando la corrección |
 | "Sesión expirada — Recarga la página" | Pasaron 8 horas sin actividad | Recarga la página y vuelve a iniciar sesión |
 | La pantalla se queda en "Cargando…" | Fallo de red transitorio | Espera unos segundos; si persiste, recarga |
 | Las imágenes de los adjuntos no se ven | Tu navegador bloqueó el lightbox (cookies/storage) | Habilita almacenamiento local para el dominio |
@@ -329,19 +589,21 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
-## 16 Buenas prácticas
+## 22 Buenas prácticas
 
 - **Título claro y específico:** evita "Ayuda" o "No anda"; prefiere "Error 500 al guardar pedido en módulo ventas".
 - **Descripción reproducible:** incluye pasos para reproducir el problema, mensajes de error textuales, capturas y URLs afectadas.
 - **Prioridad correcta:** Crítica = negocio detenido. Alta = bloqueo importante. Media = afecta, pero hay workaround. Baja = mejora o consulta.
 - **Asignación temprana:** si sabes quién debe resolver, asigna directamente al soltarlo en su columna.
 - **Comentarios contextuales:** cada vez que avances en el ticket, deja un comentario (incluso para "sigo investigando"). Eso permite a tu equipo y al solicitante ver el avance.
+- **Usa las menciones:** si necesitas la respuesta de alguien, escribe `@usuario` en lugar de esperar a que lea el hilo.
+- **Enlaza las dependencias:** si un ticket espera a otro, usa la pestaña Referencias en lugar de decirlo solo en un comentario.
 - **Checklist para tareas complejas:** si el ticket tiene varios pasos, usa el checklist. Cada ítem es una subtarea clara.
 - **Cierra tickets cuando corresponda:** un ticket "resuelto" sin cerrar termina ocupando capacidad del tablero.
 
 ---
 
-## 17 Glosario
+## 23 Glosario
 
 | Término | Definición |
 | --- | --- |
@@ -351,14 +613,17 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 | **SLA** | Service Level Agreement — tiempo objetivo de resolución. Si vence, el indicador se pone rojo. |
 | **Asignado** | Agente responsable de resolver el ticket. |
 | **Solicitante** | Quien reporta la incidencia. |
-| **Auditoría** | Registro inalterable de todos los cambios (quién, cuándo, qué). |
+| **Auditoría / Trazabilidad** | Registro inalterable de todos los cambios (quién, cuándo, qué). |
 | **Columna con responsable** | Cada vez que un ticket cae en esa columna, se notifica por correo electrónico al responsable. |
 | **Archivado** | Ticket cerrado que ya no aparece en el tablero principal. |
 | **Command Palette** | Buscador global (`⌘`+`K` / `Ctrl`+`K`). |
+| **Referencia** | Relación entre dos tickets: bloquea, duplicado, padre/hijo, etc. (ver sección 14). |
+| **Butler** | Motor de automatizaciones que ejecuta reglas según un disparador y sus condiciones (ver sección 16). |
+| **GAR** | Código del expediente de un caso de prueba del módulo de garantía (ver sección 17). |
 
 ---
 
-## 18 Soporte y contacto
+## 24 Soporte y contacto
 
 - **Soporte de primer nivel:** equipo de Mesa de Ayuda de tu organización.
 - **Errores del sistema / solicitudes de mejora:** crear un ticket en Bitácora GRM con prioridad "Media" o "Baja".
@@ -379,11 +644,11 @@ Sistema híbrido de gestión de incidencias que combina la formalidad de un ITSM
 - [¿Qué es?](#sec-1)
 - [Interfaz](#sec-4)
 - [Roles](#sec-11)
-- [Glosario](#sec-17)
+- [Glosario](#sec-23)
 
 ### Proyecto
 - [Repositorio en GitHub](https://github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2)
-- [Soporte](#sec-18)
-- [Errores frecuentes](#sec-15)
+- [Soporte](#sec-24)
+- [Errores frecuentes](#sec-21)
 
-© Bitácora GRM v2 · Documentación generada por MiniMax Agent
+© Bitácora GRM v2 · Documentación generada por MiniMax Agent · Última actualización: octubre 2026
