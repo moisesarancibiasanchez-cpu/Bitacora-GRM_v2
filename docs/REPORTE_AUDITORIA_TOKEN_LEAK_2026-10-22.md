@@ -54,7 +54,7 @@ Ambos archivos `.git/config` contienen la siguiente línea:
 
 ```ini
 [remote "origin"]
-    url = https://moisesarancibiasanchez-cpu:github_pat_11BYWX7FY0...REDACTED@github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2.git
+    url = https://moisesarancibiasanchez-cpu:github_pat_11BYWX7FY0...<SUFIJO-OCULTO>@github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2.git
     fetch = +refs/heads/*:refs/remotes/origin/*
 ```
 
