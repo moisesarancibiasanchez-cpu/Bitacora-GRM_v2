@@ -86,6 +86,9 @@ Alcance             : 24 archivos modificados, 6 archivos nuevos, 460 archivos
     │ 18 │ Regresión externa: un commit automático    │ MEDIA — el repo volvía   │
     │    │ revirtió el .gitignore endurecido y       │ a 363 archivos y podía  │
     │    │ reinscribió 25 binarios de uploads/       │ volver a inflar el clon │
+    │ 19 │ GitHub PAT (token activo) reproducido     │ CRÍTICA — el push de    │
+    │    │ íntegro en un informe de auditoría que    │ esta release fue        │
+    │    │ declaraba no hacerlo; bloqueó el push     │ bloqueado por GitHub    │
     └────┴──────────────────────────────────────────┴───────────────────────────┘
 
 1.4 Estado de validación ANTES de este release
@@ -776,6 +779,81 @@ Alcance             : 24 archivos modificados, 6 archivos nuevos, 460 archivos
      committer, y por eso el `.gitignore` restaurado se versiona en el
      mismo commit que la eliminación de `uploads/`.
 
+2.23 LEAK DE CREDENCIAL — PAT DE GITHUB REPRODUCIDO EN UN INFORME (CRÍTICA)
+     El primer `git push` de esta release fue RECHAZADO por la push protection
+     de GitHub:
+
+         remote: —— GitHub Personal Access Token ——
+         remote:   locations:
+         remote:     - commit: 862a2ccf74dc850cf1b31359d206394623142193
+         remote:       path: docs/REPORTE_AUDITORIA_TOKEN_LEAK_2026-10-22.md:57
+         remote:  ! [remote rejected] main -> main
+         remote:     (push declined due to repository rule violations)
+
+     Causa raíz: `docs/REPORTE_AUDITORIA_TOKEN_LEAK_2026-10-22.md` es un informe
+     de auditoría de seguridad que documenta una fuga de PAT. En su §2.1
+     declara explícitamente que el token NO se reproduce íntegro y en §2.1 usa
+     la forma abreviada `github_pat_11BYWX7FY0…`. Pero el bloque de evidencia
+     de §2.2 (línea 57) copiaba la URL del remote CON EL TOKEN COMPLETO,
+     contradiciendo la propia nota de seguridad del informe:
+
+         [remote "origin"]
+             url = https://<USER>:github_pat_11BYWX7FY0tjCurmOP...@github.com/...
+
+     Diagnóstico del alcance:
+         - 1 único archivo afectado: docs/REPORTE_AUDITORIA_TOKEN_LEAK_2026-10-22.md
+         - Presente en 9 commits LOCALES (862a2cc..f82a970), NUNCA publicados:
+           el commit base de esta release (678ff27) no lo contenía.
+         - El PAT filtrado era el token ACTIVO de publicación, con expiración
+           2026-12-07 19:41:26 UTC.
+         - `.git/config` de este clon: SIN token (verificado).
+
+     Corrección aplicada en dos capas:
+
+     (a) Redacción del contenido — línea 57 del informe, reescrita a la forma
+         abreviada que el propio informe ya usaba en §2.1:
+
+         -    url = https://moisesarancibiasanchez-cpu:github_pat_11BYWX7FY0tjCurmOP...<TOKEN-REDACTADO>@github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2.git
+         +    url = https://moisesarancibiasanchez-cpu:github_pat_11BYWX7FY0...<SUFIJO-OCULTO>@github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2.git
+
+     (b) Reescritura del historial LOCAL pendiente de publicar, para que el
+         secreto no exista en ningún commit del rango que se envía. Se usó
+         `git filter-branch` limitado al rango NO publicado, por lo que los
+         commits ya publicados en `origin/main` NO se tocaron:
+
+             FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force \
+               --tree-filter '
+                 f="docs/REPORTE_AUDITORIA_TOKEN_LEAK_2026-10-22.md"
+                 if [ -f "$f" ]; then
+                   sed -i -E "s/github_pat_[A-Za-z0-9_]{20,}/github_pat_11BYWX7FY0...REDACTED/g" "$f"
+                 fi
+                 grep -rIlE "github_pat_[A-Za-z0-9_]{40,}" . 2>/dev/null | while read -r x; do
+                   sed -i -E "s/github_pat_[A-Za-z0-9_]{40,}/github_pat_11BYWX7FY0...REDACTED/g" "$x"
+                 done
+                 true
+               ' -- 678ff27..HEAD
+
+         Verificación posterior a la reescritura:
+         - Filtraciones en el rango `678ff27..HEAD` : 0 (antes: 9 commits)
+         - Filtraciones en el working tree          : 0
+         - `origin/main` sigue en 678ff27, con árbol IDÉNTICO (no se reescribió
+           ningún commit ya publicado)
+         - `git merge-base HEAD origin/main` = 678ff27 ⇒ el push es FAST-FORWARD,
+           no requiere `--force`
+         - Referencias `refs/original/*` eliminadas, reflog expirado y
+           `git gc --prune=now` ejecutado (los objetos con el secreto ya no
+           son alcanzables ni están en disco)
+         - Suite de tests re-ejecutada tras la reescritura: 91 passed
+
+     ACCIÓN PENDIENTE PARA EL USUARIO (no ejecutable desde el entorno):
+       ROTAR el GitHub PAT `github_pat_11BYWX7FY0…` (expiración 2026-12-07)
+       en https://github.com/settings/tokens, aunque ya no esté en el
+       repositorio: el valor quedó expuesto en el filesystem del workspace,
+       en el informe de auditoría y en el historial local antes de la
+       purga. Recomendado: revocarlo y emitir uno nuevo con scope mínimo
+       `contents:write` sólo sobre `Bitacora-GRM_v2`, o migrar a SSH
+       deploy key / GitHub App (ver §4.2 del propio informe de auditoría).
+
 --------------------------------------------------------------------------------
  3. CAMBIO ÚNICO
 --------------------------------------------------------------------------------
@@ -862,7 +940,10 @@ El cambio funcional único y observable de esta release es:
   acceptan ahora tanto en formato JSON como en CSV (compatibilidad hacia
   atrás, no ruptura).
 - Secretos: no se generó ni versionó ninguna clave. `.env` sigue SIN
-  estar versionado.
+  estar versionado. En cambio, SÍ se eliminó un PAT de GitHub que estaba
+  presente en el historial pendiente de publicar (ver §2.23): se redactó el
+  contenido y se reescribieron los commits locales afectados, de modo que el
+  repositorio publicado queda con 0 filtraciones de credenciales.
 - Módulos de la API ajenos al cambio: no se tocó admin_uat.py, backups.py,
   buscar.py, butler.py, etapas.py, features.py, import_export.py,
   referencias.py, reporte_entregas.py, router.py, trello_features.py.
@@ -918,6 +999,32 @@ El cambio funcional único y observable de esta release es:
       el valor CSV y morirá al reiniciarse con el nuevo código si el
       entorno exporta CSV. Con el deploy completo (web + worker) y el
       reinicio del worker, la cadena queda coherente.
+
+- ¿Requiere rotación de credenciales?
+      **SÍ — ROTACIÓN DEL PAT DE GITHUB (acción manual, prioritaria).**
+
+      El token `github_pat_11BYWX7FY0…` (expiración 2026-12-07 19:41:26 UTC)
+      fue detectado por la push protection de GitHub dentro del informe
+      `docs/REPORTE_AUDITORIA_TOKEN_LEAK_2026-10-22.md`. Aunque ya fue
+      redactado y el historial reescrito (§2.23), el valor estuvo expuesto en
+      el filesystem del workspace y en objetos git locales antes de la purga.
+      Procedimiento:
+
+        1) Revocar el token en
+           https://github.com/settings/tokens?type=beta
+        2) Emitir uno nuevo con scope MÍNIMO: `contents:write` únicamente
+           sobre el repositorio `Bitacora-GRM_v2` (o mejor: SSH deploy key /
+           GitHub App, sin PAT).
+        3) Actualizar el secreto en el gestor de secretos de la plataforma y
+           en las variables de entorno de CI, si aplica.
+        4) Instalar un credential helper o SSH para que el token NO vuelva a
+           quedar embebido en la URL del remote:
+               git config --global credential.helper store
+           o, preferentemente, migrar el remote a SSH.
+
+      Nota: la revoked token invalida cualquier sesión que use el formato
+      `https://<TOKEN>@github.com/...`; verificar que los pipelines de
+      deploy usan el token nuevo o un mecanismo sin token.
 
       Acción operativa en Railway:
         1) Redeploy del servicio web  ->  Reiniciar el servicio Worker
@@ -1086,24 +1193,37 @@ J. Test de no-regresión de la suite (post-despliegue, opcional)
 
 7.1 Cadena de commits publicada (main)
 
-  1c74595  (base)                Message 455637603586253
+  Los hashes de esta sección son POST-REESCRITURA (ver §2.23): los commits
+  71ed8fe..a7d6ebf son los reescritos por `git filter-branch` para eliminar
+  el PAT. Los commits ya publicados en `origin/main` NO se reescribieron.
+
+  678ff27  (base publicada)      feat(itsm-kanban-mvp): add hybrid ITSM/Kanban
+    |                             system  [intacta, no reescrita]
+  71ed8fe  Message 455203291316516
     |
-  373b9e5  feat(resultado)       Indicador de Resultado de Pruebas con paleta
-          |                      unificada + reparacion general
-          |                      517 archivos, +3168 / -142274
-  0b7fcec  (automatico externo)  Message 455676274565485
-          |                      Revertio .gitignore y reinscribio uploads/
-  9968e1f  chore(repo)           Restaura .gitignore endurecido y saca
-          |                      uploads/ del control de versiones
-          |                      (ver seccion 2.22)
-  95822c3  chore(release)        Actualiza la trazabilidad de este README
-          |                      con los hashes finales
-          |
-  23d153f  Merge origin/main    Integra 678ff27 (feat(itsm-kanban-mvp)) sin
-          |                      reescribir historia. Sin conflictos: el
-          |                      contenido itsm_kanban_mvp/ ya era identico.
-          |
-  <push>   origin/main          Publicacion en GitHub
+  3300c84  Message 455240852590803
+    |
+  24507d1  Message 455637603586253
+    |
+  d464f18  feat(resultado)       Indicador de Resultado de Pruebas con paleta
+    |                             unificada + reparacion general
+    |                             517 archivos, +3168 / -142274
+  ddac962  (automatico externo)  Message 455676274565485
+    |                             Revertio .gitignore y reinscribio uploads/
+  39584aa  chore(repo)           Restaura .gitignore endurecido y saca
+    |                             uploads/ del control de versiones
+    |                             (ver seccion 2.22)
+  0fde6cd  Merge origin/main     Integra 678ff27 sin reescribir historia.
+    |                             Sin conflictos: el contenido itsm_kanban_mvp/
+    |                             ya era identico.
+  122d843  docs(release)         Actualiza la trazabilidad de este README
+    |                             con los hashes finales
+  a7d6ebf  security(docs)        Redacta el PAT del informe de auditoria
+    |                             (ver seccion 2.23)
+  <final>  chore(release)        Registra la remediacion del PAT y los hashes
+    |                             definitivos de la cadena [ESTE COMMIT]
+    |
+  <push>   origin/main           Publicacion en GitHub (fast-forward, sin force)
 
 7.2 Estado final del repositorio tras la publicacion
 
@@ -1114,6 +1234,9 @@ J. Test de no-regresión de la suite (post-despliegue, opcional)
   - .gitignore con reglas raiz  : 5 (/Bitacora-GRM_v2/, /uploads/, /tmp/,
                                   /extract/, /shell_output_save/)
   - itsm_kanban_mvp/ versionado : 41 archivos (integrado desde origin/main)
+  - Filtraciones de PAT         : 0 en el historial publicado y en el working
+                                  tree (verificacion post-filtro)
+  - Tipo de push                : fast-forward (merge-base = origin/main)
   - Working tree                : limpio
 
 --------------------------------------------------------------------------------
