@@ -17,7 +17,7 @@ Severidad          : ALTA — funcionalidad de negocio + corrección de
 Riesgo de regresión : MEDIO — toca renderizado de tarjetas, dashboard, cookies
                      de sesión y carga de configuración. Mitigado con
                      91 tests automatizados + barrido en vivo de 38 rutas.
-URL del despliegue  : https://tx2zb18mwv9o.space.mcode.io
+URL del despliegue  : https://dshj4lrwlf4x.space.mcode.io
 Autor              : MiniMax Agent
 Alcance             : 24 archivos modificados, 6 archivos nuevos, 460 archivos
                      eliminados (clon anidado + binarios de runtime)
@@ -1187,7 +1187,7 @@ J. Test de no-regresión de la suite (post-despliegue, opcional)
 - Templates Jinja      : 31/31 compilan (antes: 30/31)
 - Enlaces HTML        : 111/111 resuelven
 - JS                   : 7/7 pasan `node --check`
-- Despliegue          : https://tx2zb18mwv9o.space.mcode.io
+- Despliegue          : https://dshj4lrwlf4x.space.mcode.io
 - Autor                : MiniMax Agent
 - Fecha                : 2026-10-24
 
@@ -1220,8 +1220,12 @@ J. Test de no-regresión de la suite (post-despliegue, opcional)
     |                             con los hashes finales
   a7d6ebf  security(docs)        Redacta el PAT del informe de auditoria
     |                             (ver seccion 2.23)
-  <final>  chore(release)        Registra la remediacion del PAT y los hashes
-    |                             definitivos de la cadena [ESTE COMMIT]
+  2cabcd4  docs(release)         Registra la remediacion del PAT y los hashes
+    |                             definitivos de la cadena
+  af93ccc  chore(deploy)         Actualiza la URL en vivo de la Guia de
+    |                             Onboarding y versiona las capturas de QA
+  <final>  docs(release)         Registra la URL en vivo y la evidencia de
+    |                             QA visual en este README [ESTE COMMIT]
     |
   <push>   origin/main           Publicacion en GitHub (fast-forward, sin force)
 
@@ -1238,6 +1242,23 @@ J. Test de no-regresión de la suite (post-despliegue, opcional)
                                   tree (verificacion post-filtro)
   - Tipo de push                : fast-forward (merge-base = origin/main)
   - Working tree                : limpio
+  - HEAD publicado               : af93ccc + el commit final de este README;
+                                  el hash exacto se verifica con
+                                  `git ls-remote origin refs/heads/main`
+  - Diff contra la base publicada: 678ff27..af93ccc = 12 commits,
+                                  27 archivos modificados, 20 nuevos,
+                                  142 eliminados (+10 252 / -4 491 líneas)
+  - QA visual (Playwright + Chromium, colores computados por el navegador):
+      - Tarjetas del Kanban con indicador : 16/16 (0 tarjetas sin badge)
+      - Paleta tarjeta == Dashboard        : OK #16a34a · N/A #94a3b8 ·
+                                             OBS #eab308 · POST #ea580c ·
+                                             NOOK #7c3aed · NOK #dc2626 ·
+                                             S/D #cbd5e1 (identicos)
+      - Guia de Onboarding (HTML)          : 24 secciones, 0 etiquetas
+                                             desbalanceadas, 74/74 anclas
+                                             internas resueltas, 25/25
+                                             imagenes presentes, desplegada en
+                                             https://dshj4lrwlf4x.space.mcode.io
 
 --------------------------------------------------------------------------------
  8. INSTRUCCIONES DE DESPLIEGUE OPERACIONAL (resumen ejecutivo)
