@@ -13,9 +13,22 @@ from jinja2 import Environment
 # (incluye ``truncate_text`` para limitar la descripción de la tarjeta).
 from app.core.jinja_filters import ALL_FILTERS  # noqa: E402
 
+# Globals del catálogo de "Resultado de Pruebas" (LOV + acrónimos + colores).
+# Se registran aquí porque este módulo usa su propio ``Environment`` (no el
+# de ``app.main``), de modo que el badge se ve idéntico en el tablero, en el
+# drag & drop y en el detalle del ticket.
+from app.core.resultado_pruebas import (  # noqa: E402
+    info_resultado as _resultado_info,
+    info_resultado_ticket as _resultado_info_ticket,
+    render_badge_resultado as _badge_resultado,
+)
+
 _ENV = Environment(autoescape=True)
 for _fname, _ffunc in ALL_FILTERS.items():
     _ENV.filters[_fname] = _ffunc
+_ENV.globals["resultado_info"] = _resultado_info
+_ENV.globals["resultado_info_ticket"] = _resultado_info_ticket
+_ENV.globals["badge_resultado"] = _badge_resultado
 
 
 TARJETA_TEMPLATE = _ENV.from_string("""
@@ -73,6 +86,10 @@ TARJETA_TEMPLATE = _ENV.from_string("""
       {% endif %}
     </div>
     <div class="flex items-center gap-1.5">
+      {# --- Indicador de Resultado de Pruebas (acrónimo + color del LOV) ---
+         Mismo catálogo y misma paleta que el tablero principal y que la
+         sección "Cuenta de Resultado" del dashboard. #}
+      {{ badge_resultado(resultado_info_ticket(ticket)) }}
       {% if ticket.etiquetas %}
         {% for e in ticket.etiquetas[:3] %}
           <span class="inline-block w-2 h-2 rounded-full" style="background-color: {{ e.color }}" title="{{ e.nombre }}"></span>

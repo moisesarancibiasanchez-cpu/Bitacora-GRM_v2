@@ -248,6 +248,15 @@
            class="hidden mt-2 text-[10px] text-slate-400 italic">
           POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
         </p>
+        {# ------------------------------------------------------------
+           Paleta y acrónimos de "Resultado de Pruebas" inyectados desde
+           el catálogo Python (app/core/resultado_pruebas.py), que es la
+           ÚNICA fuente de verdad. La sección "Cuenta de Resultado" usa
+           esta misma paleta que el badge de las tarjetas del Kanban, de
+           modo que título de columna e indicador de tarjeta son
+           siempre coherentes. No duplicar colores aquí. #}
+        <script id="cuenta-resultado-paleta" type="application/json">{{ cuenta_resultado_colores | tojson }}</script>
+        <script id="cuenta-resultado-acronimos" type="application/json">{{ cuenta_resultado_acronimos | tojson }}</script>
       </div>
 
       <!-- ===== LISTA DE INCIDENCIAS RECIENTES (entre Cuenta de Resultado y Top agentes) =====
@@ -892,7 +901,12 @@
       return;
     }
     const RESULTADOS = ['OK', 'OK CON OBS.', 'NOK', 'POSTERGADA', 'DESESTIMADA', 'N/A'];
-    const RESULTADO_COLORS = { 'OK': '#10b981', 'OK CON OBS.': '#22c55e', 'NOK': '#ef4444', 'POSTERGADA': '#eab308', 'DESESTIMADA': '#a855f7', 'N/A': '#94a3b8' };
+    // Paleta compartida: se lee de CUENTA_RESULTADO_COLORES (inyectada desde
+    // app/core/resultado_pruebas.py). Antes esta función declaraba su propio
+    // mapa RESULTADO_COLORS con tonos DISTINTOS a los del dashboard y del
+    // badge de las tarjetas, lo que hacía que el mismo dato se pintara de
+    // dos formas distintas. Ahora ambos caminos consumen la misma fuente.
+    const colorDe = (r) => (CUENTA_RESULTADO_COLORES[r] || {}).bg || '#475569';
     const maxFila = Math.max.apply(null, cuenta.map(f => f.total)) || 1;
 
     // Filtrar solo columnas con datos
@@ -902,7 +916,8 @@
     html += '<thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200">';
     html += '<tr><th class="text-left py-2 px-3 font-semibold">Módulo</th>';
     cols.forEach(c => {
-      html += '<th class="text-right py-2 px-2 font-semibold">' + c + '</th>';
+      html += '<th class="text-right py-2 px-2 font-semibold" title="' + _escapeHtml(c) + '">'
+            + _escapeHtml(acronimoResultado(c)) + '</th>';
     });
     html += '<th class="text-right py-2 px-3 font-semibold border-l border-slate-200">Total</th>';
     html += '<th class="text-left py-2 px-3 font-semibold w-1/3">Distribución</th>';
@@ -914,7 +929,7 @@
       const segmentos = cols.map(r => {
         const v = f[r] || 0;
         const segPct = f.total ? (v / f.total) * 100 : 0;
-        return '<div title="' + r + ': ' + v + '" style="width:' + segPct.toFixed(1) + '%; background:' + RESULTADO_COLORS[r] + '"></div>';
+        return '<div title="' + _escapeHtml(r) + ': ' + v + '" style="width:' + segPct.toFixed(1) + '%; background:' + colorDe(r) + '"></div>';
       }).join('');
       html += '<tr class="hover:bg-slate-50">';
       html += '<td class="py-2 px-3 font-medium text-slate-800">' + (f.modulo || '—') + '</td>';
@@ -1289,15 +1304,30 @@
   // en TODAS las columnas para garantizar contraste legible sobre los fondos
   // tenues (`color.bg + '22'`). Los headers sí mantienen su color original
   // porque su fondo es sólido (no el tinte `+ '22'`).
-  const CUENTA_RESULTADO_COLORES = {
-    "N/A":         { bg: '#94a3b8', text: '#ffffff', cellText: '#1f2937' },
-    "NOK":         { bg: '#dc2626', text: '#ffffff', cellText: '#1f2937' },
-    "OK":          { bg: '#16a34a', text: '#ffffff', cellText: '#1f2937' },
-    "OK CON OBS.": { bg: '#eab308', text: '#1f2937', cellText: '#1f2937' },
-    "POSTERGADA":  { bg: '#ea580c', text: '#ffffff', cellText: '#1f2937' },
-    "DESESTIMADA": { bg: '#7c3aed', text: '#ffffff', cellText: '#1f2937' },
-    "(en blanco)": { bg: '#cbd5e1', text: '#475569', cellText: '#1f2937' },
-  };
+  //
+  // La paleta y los acrónimos se LEEN del JSON inyectado por el servidor
+  // (renderizado desde app/core/resultado_pruebas.py). Ese módulo es la única
+  // fuente de verdad y también alimenta el badge de Resultado de Pruebas
+  // de las tarjetas del Kanban: por construcción, el título de la columna y
+  // el indicador de la tarjeta comparten color y acrónimo.
+  const CUENTA_RESULTADO_COLORES = (function () {
+    const el = document.getElementById('cuenta-resultado-paleta');
+    if (!el) return {};
+    try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
+  })();
+
+  // Acrónimos del LOV: "OK"→OK, "N/A"→N/A, "OK CON OBS."→OBS,
+  // "POSTERGADA"→POST, "DESESTIMADA"→NOOK, "NOK"→NOK, "(en blanco)"→S/D.
+  const CUENTA_RESULTADO_ACRONIMOS = (function () {
+    const el = document.getElementById('cuenta-resultado-acronimos');
+    if (!el) return {};
+    try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
+  })();
+
+  // Devuelve el acrónimo de una columna (con fallback al propio texto).
+  function acronimoResultado(c) {
+    return CUENTA_RESULTADO_ACRONIMOS[c] || c;
+  }
 
   // Última respuesta cacheada para export CSV.
   let _cuentaResultadoCache = null;
@@ -1353,13 +1383,19 @@
     }
 
     // === Encabezado ===
+    // El título de cada columna es el ACRÓNIMO del valor del LOV
+    // (OBS, POST, NOOK, ...) y el color de fondo es el MISMO que el del
+    // badge de la tarjeta del Kanban. El texto completo del valor queda
+    // en el tooltip (title) para no perder información.
     thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
       '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
       columnas.map(c => {
         const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        const acro = acronimoResultado(c);
         return '<th class="px-3 py-2 font-semibold border border-slate-700 text-center"'
              + ' style="background:' + color.bg + '; color:' + color.text + ';"'
-             + ' title="Tickets con resultado_pruebas = \'' + c + '\'">' + c + '</th>';
+             + ' title="Tickets con resultado_pruebas = \'' + c + '\'">'
+             + _escapeHtml(acro) + '</th>';
       }).join('') +
       '<th class="px-3 py-2 font-semibold border border-slate-700 text-center bg-slate-900">Total general</th>' +
       '</tr>';

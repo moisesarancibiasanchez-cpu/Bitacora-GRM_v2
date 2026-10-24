@@ -1,1 +1,0 @@
-"""Endpoints v1."""

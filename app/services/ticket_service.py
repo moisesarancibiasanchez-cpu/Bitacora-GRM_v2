@@ -597,6 +597,14 @@ class TicketService:
         if not ticket:
             return None, "Ticket no encontrado"
 
+        # Estado actual del ticket ANTES de archivar: se usa como
+        # ``estado_origen`` de la notificación de archivado (el estado
+        # destino es "archivado"). Se captura aquí porque el
+        # ``db.refresh()`` posterior expira los atributos del objeto.
+        estado_origen_nombre = (
+            ticket.estado.nombre if ticket.estado else "archivado"
+        )
+
         # Permisos: agente_senior (4) o administrador (5)
         if not self._usuario_tiene_rol(usuario, "agente_senior"):
             rol = usuario.rol.value if hasattr(usuario.rol, "value") else usuario.rol
@@ -632,12 +640,23 @@ class TicketService:
             self.db.rollback()
             return None, f"Error al archivar: {exc}"
 
-        # Notificar a watchers en segundo plano (no bloquea)
+        # Notificar a watchers en segundo plano (no bloquea).
+        # Se reutiliza ``notificar_cambio_estado``, la única tarea de
+        # notificación de estado disponible en ``app.tasks.notification_tasks``,
+        # pasando "archivado" como estado destino. Antes se invocaba a
+        # ``notificar_ticket_archivado``, que NO existe: el ``ImportError``
+        # quedaba silenciado por un ``except: pass`` y los watchers nunca
+        # recibían aviso de archivado (ni quedaba traza del fallo).
         try:
-            from app.tasks.notification_tasks import notificar_ticket_archivado
-            notificar_ticket_archivado.delay(ticket.id, usuario.id)
+            from app.tasks.notification_tasks import notificar_cambio_estado
+            notificar_cambio_estado.delay(
+                ticket.id, estado_origen_nombre, "archivado"
+            )
         except Exception:
-            pass
+            logger.exception(
+                "No se pudo encolar la notificación de archivado del ticket %s",
+                ticket.id,
+            )
 
         return ticket, None
 

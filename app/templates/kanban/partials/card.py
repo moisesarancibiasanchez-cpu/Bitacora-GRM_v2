@@ -8,9 +8,22 @@ from jinja2 import Environment
 # (incluye ``truncate_text`` para limitar la descripción de la tarjeta).
 from app.core.jinja_filters import ALL_FILTERS  # noqa: E402
 
+# Globals del catálogo de "Resultado de Pruebas" (LOV + acrónimos + colores).
+# Se registran aquí porque este módulo usa su propio ``Environment`` (no el
+# de ``app.main``), y de este modo la tarjeta renderizada tras un
+# drag & drop muestra exactamente el mismo indicador que el tablero.
+from app.core.resultado_pruebas import (  # noqa: E402
+    info_resultado as _resultado_info,
+    info_resultado_ticket as _resultado_info_ticket,
+    render_badge_resultado as _badge_resultado,
+)
+
 _ENV = Environment(autoescape=True)
 for _fname, _ffunc in ALL_FILTERS.items():
     _ENV.filters[_fname] = _ffunc
+_ENV.globals["resultado_info"] = _resultado_info
+_ENV.globals["resultado_info_ticket"] = _resultado_info_ticket
+_ENV.globals["badge_resultado"] = _badge_resultado
 
 
 CARD_TEMPLATE = _ENV.from_string("""
@@ -58,6 +71,10 @@ CARD_TEMPLATE = _ENV.from_string("""
       {% endif %}
     </div>
     <div class="flex items-center gap-1">
+      {# --- Indicador de Resultado de Pruebas (acrónimo + color del LOV) ---
+         Mismo catálogo y misma paleta que el tablero principal y que la
+         sección "Cuenta de Resultado" del dashboard. #}
+      {{ badge_resultado(resultado_info_ticket(ticket)) }}
       {% if ticket.sla_cumplido == 0 %}
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500" title="SLA vencido"></span>
         <span class="text-red-600">SLA</span>

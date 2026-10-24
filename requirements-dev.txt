@@ -1,0 +1,20 @@
+# =============================================================================
+#  requirements-dev.txt - Bitácora GRM (dependencias de desarrollo y tests)
+# =============================================================================
+#  NO se instala en producción (Railway usa ``requirements.txt``).
+#  Para ejecutarlo:
+#      pip install -r requirements-dev.txt
+#
+#  Uso de la suite:
+#      python -m pytest tests/ -q
+#
+#  Ver ``tests/conftest.py``: la suite aísla la base de datos (SQLite
+#  desechable), ignora los módulos estilo *script* y los ejecuta en
+#  subprocesos propios.
+# =============================================================================
+
+# Dependencias de runtime (mismas que producción)
+-r requirements.txt
+
+# === Testing ===
+pytest==9.1.1

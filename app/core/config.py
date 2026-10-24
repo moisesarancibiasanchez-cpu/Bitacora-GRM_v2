@@ -2,9 +2,11 @@
 Configuración central de la aplicación.
 Soporta modo desarrollo (SQLite) y producción (PostgreSQL/Redis) vía variables de entorno.
 """
+import json
 import os
 from functools import lru_cache
 from typing import List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,11 +23,26 @@ class Settings(BaseSettings):
     APP_NAME: str = "Bitácora GRM"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
-    SECRET_KEY: str = "change-me-in-production-please"
+    # Sin default hardcodeado: si la clave no está definida en el entorno
+    # queda vacía y ``es_secreto_inseguro()``/``validar()`` lo detectan.
+    # Nunca reintroducir una clave fija en el repo: con ella, cualquier JWT
+    # de cualquier instalación quedaba firmado con una clave pública.
+    SECRET_KEY: str = ""
 
     # === Base de datos ===
     # Si se define DATABASE_URL, se usa directamente. Si no, se construye.
     DATABASE_URL: str = "sqlite:///./bitacora_grm.db"
+
+    # USE_SQLITE=true fuerza SQLite (modo dev/demo). Ahora es un campo de
+    # Settings, por lo que pydantic-settings lo lee del .env (antes se
+    # consultaba con os.getenv, que nunca veía el .env y por tanto la
+    # variable del .env se ignoraba silenciosamente).
+    USE_SQLITE: bool = False
+
+    # AUTO_INIT_DB=true corre ``python -m app.db.init_db`` al arrancar.
+    # También pasa a ser campo de Settings: app/main.py debe consumirlo como
+    # ``settings.AUTO_INIT_DB`` en lugar de os.getenv (no se modifica aquí).
+    AUTO_INIT_DB: bool = False
 
     # Configuración individual (usada para construir DATABASE_URL si no se define)
     POSTGRES_USER: str = "grm"
@@ -55,6 +72,49 @@ class Settings(BaseSettings):
 
     # === CORS ===
     CORS_ORIGINS: List[str] = ["*"]
+
+    # ------------------------------------------------------------------
+    # Normalización de listas definidas en el entorno
+    # ------------------------------------------------------------------
+    @field_validator("ROLES_DISPONIBLES", "CORS_ORIGINS", mode="before")
+    @classmethod
+    def _normalizar_lista(cls, valor):
+        """Acepta listas del entorno en formato JSON **o** CSV.
+
+        ``pydantic-settings`` sólo sabe interpretar JSON cuando el campo es
+        de tipo complejo (``List[str]``). Si el despliegue define
+
+            CORS_ORIGINS=https://a.example,https://b.example
+
+        (formato CSV, muy habitual al configurar una plataforma de
+        despliegue), la aplicación abortaba al arrancar con::
+
+            SettingsError: error parsing value for field "CORS_ORIGINS"
+
+        Lo mismo ocurría con los procesos hijos (Celery worker, scripts) que
+        heredaban del proceso padre una lista exportada en CSV.
+
+        Con este validador se aceptan ambas formas:
+          * JSON → ``["https://a.example", "https://b.example"]``
+          * CSV  → ``https://a.example,https://b.example``
+        """
+        if valor is None:
+            return []
+        if isinstance(valor, (list, tuple, set)):
+            return list(valor)
+        if isinstance(valor, str):
+            texto = valor.strip()
+            if not texto:
+                return []
+            if texto.startswith("["):
+                try:
+                    datos = json.loads(texto)
+                except (json.JSONDecodeError, ValueError):
+                    datos = None
+                if isinstance(datos, list):
+                    return [str(v) for v in datos]
+            return [p.strip() for p in texto.split(",") if p.strip()]
+        return valor
 
     # === Zona horaria operativa ===
     # Zona horaria usada para mostrar fechas al usuario. La BD siempre
@@ -113,13 +173,77 @@ class Settings(BaseSettings):
         """Devuelve la URL de BD; si no se configuró, construye la de PostgreSQL."""
         if self.DATABASE_URL and self.DATABASE_URL != "sqlite:///./bitacora_grm.db":
             return self.DATABASE_URL
-        # Si se solicita SQLite explícitamente
-        if os.getenv("USE_SQLITE", "false").lower() == "true":
+        # Si se solicita SQLite explícitamente (leído del .env por
+        # pydantic-settings; antes se usaba os.getenv, que nunca veía el .env)
+        if self.USE_SQLITE:
             return "sqlite:///./bitacora_grm.db"
         return (
             f"postgresql+psycopg2://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+    # ------------------------------------------------------------------
+    # Validación de configuración (informativa, no bloqueante)
+    # ------------------------------------------------------------------
+    def es_secreto_inseguro(self) -> bool:
+        """True si el SECRET_KEY actual está vacío o es un placeholder del repo.
+
+        El default anterior era "change-me-in-production-please", es decir, una
+        clave pública del repositorio con la que quedaban firmados todos los
+        JWT de cualquier instalación. El default ahora es "" y esta señal
+        permite que el arranque detecte el caso inseguro.
+        """
+        clave = (self.SECRET_KEY or "").strip()
+        if not clave:
+            return True
+        return "change-me" in clave.lower()
+
+    def validar(self) -> list[str]:
+        """Devuelve la lista de avisos de configuración insegura.
+
+        SOLO informa: no lanza excepciones ni muta el estado, de modo que la
+        aplicación puede seguir arrancando en desarrollo.
+
+        La validación efectiva (abortar el arranque) corresponde al lifespan de
+        ``app/main.py`` (archivo que no se modifica aquí). Integración
+        recomendada::
+
+            avisos = settings.validar()
+            if avisos and not settings.DEBUG:
+                raise RuntimeError(
+                    "Configuración insegura:\\n" + "\\n".join(avisos)
+                )
+
+        En producción (DEBUG=False) la aplicación DEBE abortar si hay avisos;
+        en desarrollo los avisos son únicamente informativos.
+        """
+        avisos: list[str] = []
+
+        if self.es_secreto_inseguro():
+            avisos.append(
+                "SECRET_KEY vacía o con valor placeholder ('change-me'): "
+                "define una clave aleatoria fuerte (p. ej. `openssl rand -hex 32`)."
+            )
+
+        if not self.DEBUG:
+            origenes = list(self.CORS_ORIGINS or [])
+            if "*" in origenes:
+                avisos.append(
+                    "CORS_ORIGINS contiene '*' con DEBUG=False: "
+                    "restringe los orígenes permitidos en producción."
+                )
+            if not origenes:
+                avisos.append(
+                    "CORS_ORIGINS está vacío con DEBUG=False: "
+                    "configura los orígenes permitidos en producción."
+                )
+            if self.PUBLIC_BASE_URL and not self.PUBLIC_BASE_URL.startswith("https://"):
+                avisos.append(
+                    "PUBLIC_BASE_URL no usa HTTPS con DEBUG=False: "
+                    "los enlaces de los correos viajarían sin cifrar."
+                )
+
+        return avisos
 
 
 @lru_cache
@@ -128,4 +252,173 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def _leer_env_file(ruta) -> dict:
+    """Lee un archivo ``.env`` simple y devuelve ``{CLAVE: valor}``.
+
+    Parser mínimo (no es un ``python-dotenv`` completo): soporta líneas
+    comentadas, ``export KEY=valor``, comillas simples/dobles y valores con
+    ``=`` dentro. Es suficiente para los archivos ``.env`` del proyecto.
+    """
+    valores: dict = {}
+    try:
+        with open(ruta, "r", encoding="utf-8") as fh:
+            for linea in fh:
+                linea = linea.strip()
+                if not linea or linea.startswith("#"):
+                    continue
+                if linea.startswith("export "):
+                    linea = linea[len("export "):].lstrip()
+                if "=" not in linea:
+                    continue
+                clave, _, valor = linea.partition("=")
+                clave = clave.strip()
+                valor = valor.strip()
+                if len(valor) >= 2 and valor[0] == valor[-1] and valor[0] in ("'", '"'):
+                    valor = valor[1:-1]
+                if clave:
+                    valores[clave] = valor
+    except OSError:
+        pass
+    return valores
+
+
+# Campos de ``Settings`` cuyo tipo es ``List[str]``.
+_CAMPOS_LISTA = ("ROLES_DISPONIBLES", "CORS_ORIGINS")
+
+
+def _normalizar_lista(texto: str) -> str:
+    """Convierte un texto de lista (CSV o JSON) en JSON canónico.
+
+    ``pydantic-settings`` decodifica los campos ``List[str]`` con
+    ``json.loads``. Si la variable llega en CSV, la aplicación aborta al
+    arrancar con::
+
+        SettingsError: error parsing value for field "CORS_ORIGINS"
+
+    Acepta indistintamente:
+
+    * ``https://a.example,https://b.example`` → ``["https://a.example", "https://b.example"]``
+    * ``["https://a.example"]``                → ``["https://a.example"]``
+    """
+    limpio = (texto or "").strip()
+    if not limpio:
+        return "[]"
+    if limpio.startswith("["):
+        try:
+            datos = json.loads(limpio)
+        except (json.JSONDecodeError, ValueError):
+            datos = None
+        if isinstance(datos, list):
+            return json.dumps([str(d) for d in datos], ensure_ascii=False)
+        # JSON mal formado (p. ej. comillas escapadas): se intenta recuperar
+        # el contenido interior en lugar de devolver un único elemento basura.
+        interior = limpio.strip("[]").strip()
+        if interior:
+            partes = [p.strip().strip('"').strip("'") for p in interior.split(",")]
+            partes = [p for p in partes if p]
+            if partes:
+                return json.dumps(partes, ensure_ascii=False)
+    return json.dumps(
+        [p.strip() for p in limpio.split(",") if p.strip()], ensure_ascii=False
+    )
+
+
+def _preparar_listas_del_entorno() -> None:
+    """Normaliza a JSON las variables de lista ANTES de construir ``Settings``.
+
+    Se normalizan dos orígenes:
+
+    1. El entorno real (Railway, Docker, CI, shell). Una variable como
+       ``CORS_ORIGINS=https://a.example,https://b.example`` es el formato
+       habitual en una plataforma de despliegue y antes impedía arrancar.
+    2. El archivo ``.env`` del proyecto, que se inyecta en el entorno para
+       que la fuente ``EnvSettingsSource`` lo resuelva como JSON (la fuente
+       ``DotEnvSettingsSource`` usa el mismo decodificador).
+
+    Sin este paso, cualquier proceso hijo que herede estas variables
+    (Celery worker, scripts, jobs) abortaba con ``SettingsError``.
+    """
+    for clave in _CAMPOS_LISTA:
+        if clave in os.environ:
+            os.environ[clave] = _normalizar_lista(os.environ[clave])
+
+    env_file = Settings.model_config.get("env_file")
+    if isinstance(env_file, (list, tuple)):
+        env_file = env_file[0] if env_file else None
+    if not env_file:
+        return
+    for clave, valor in _leer_env_file(env_file).items():
+        if clave in _CAMPOS_LISTA and clave not in os.environ:
+            os.environ[clave] = _normalizar_lista(valor)
+
+
+_preparar_listas_del_entorno()
+
 settings = get_settings()
+
+
+def _exportar_a_environ(obj: Settings) -> None:
+    """Exporta los valores resueltos de ``Settings`` al ``os.environ``.
+
+    Motivo
+    ------
+    ``pydantic-settings`` **lee** el archivo ``.env`` pero **no lo exporta**
+    al ``os.environ``. Por eso todos los módulos legacy que consultan sus
+    flags con ``os.getenv(...)`` veían ``None`` en desarrollo, mientras que
+    en Railway (donde la plataforma sí inyecta las variables en el entorno)
+    sí funcionaban. Esa asimetría producía bugs del tipo "en local el SMTP
+    no se activa" o "el Dev Inbox ignora su configuración".
+
+    Este exporte alinea ambos entornos **en un solo punto**, sin tocar los
+    ~25 sitios que ya usan ``os.getenv``.
+
+    Se hace en dos pasadas:
+
+    1. Los campos declarados en ``Settings`` (ya tipados y normalizados:
+       booleanos como ``"true"``, listas como ``"a,b"``).
+    2. Las claves **restantes** del archivo ``.env`` (p. ej.
+       ``DEV_INBOX_MAX``, ``ALLOW_XUSER_HEADER``, ``RESEND_API_KEY``), que no
+       están declaradas en ``Settings`` pero sí se leen con ``os.getenv``.
+
+    Reglas
+    ------
+    * Se usa ``setdefault``: si la variable ya existe en el entorno real
+      (Railway, Docker, CI, shell), **esa gana**. Sólo se rellenan las que
+      falten, de modo que nunca se pisa la configuración real del despliegue.
+    * Las listas se exportan separadas por comas.
+    * Los valores vacíos o ``None`` no se exportan (evita que un
+      ``os.getenv("X", "defecto")`` reciba ``""`` en vez del defecto).
+    """
+    # Pasada 1: campos declarados en Settings (valores ya normalizados).
+    for nombre, valor in obj.model_dump().items():
+        if valor is None:
+            continue
+        if isinstance(valor, str) and not valor.strip():
+            continue
+        clave = nombre.upper()
+        if clave in os.environ:
+            continue
+        if isinstance(valor, bool):
+            os.environ[clave] = "true" if valor else "false"
+        elif isinstance(valor, (list, tuple)):
+            # Las listas se exportan como **JSON**, no como CSV: es el único
+            # formato que ``pydantic-settings`` puede volver a leer desde el
+            # entorno (ver ``_normalizar_lista``). Con CSV, cualquier proceso
+            # hijo que herede estas variables (Celery worker, scripts, jobs)
+            # abortaba al arrancar con ``SettingsError``.
+            os.environ[clave] = json.dumps(list(valor), ensure_ascii=False)
+        else:
+            os.environ[clave] = str(valor)
+
+    # Pasada 2: claves del .env que no están declaradas en Settings.
+    env_file = Settings.model_config.get("env_file")
+    if isinstance(env_file, (list, tuple)):
+        env_file = env_file[0] if env_file else None
+    if env_file:
+        for clave, valor in _leer_env_file(env_file).items():
+            if not valor.strip():
+                continue
+            os.environ.setdefault(clave, valor)
+
+
+_exportar_a_environ(settings)

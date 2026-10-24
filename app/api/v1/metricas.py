@@ -8,11 +8,19 @@ resultado_pruebas (réplica del rango A64:H81 de la hoja REPORTE del Excel UAT)
 """
 import logging
 from datetime import datetime, timedelta
+from html import escape
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import String, func, case, and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
+from app.core.resultado_pruebas import (
+    ACRONIMOS as ACRONIMOS_RESULTADO,
+    COLORES as COLORES_RESULTADO,
+    COLOR_FALLBACK as COLOR_FALLBACK_RESULTADO,
+    SIN_RESULTADO as SIN_RESULTADO,
+    normalizar_resultado as _normalizar_resultado,
+)
 from app.core.timezone import now_utc, fmt_cl_iso, fmt_cl
 from app.db.session import get_db
 from app.models.ticket import Ticket, Prioridad, TipoIncidencia
@@ -711,16 +719,43 @@ def cuenta_resultado(
     }
 
 
-# Mapa de colores para el badge del modal (sincronizado con el front).
-CUENTA_RESULTADO_COLORES_PARA_MODAL = {
-    "N/A":         {"bg": "#94a3b8", "text": "#ffffff"},
-    "NOK":         {"bg": "#dc2626", "text": "#ffffff"},
-    "OK":          {"bg": "#16a34a", "text": "#ffffff"},
-    "OK CON OBS.": {"bg": "#eab308", "text": "#1f2937"},
-    "POSTERGADA":  {"bg": "#ea580c", "text": "#ffffff"},
-    "DESESTIMADA": {"bg": "#7c3aed", "text": "#ffffff"},
-    "(en blanco)": {"bg": "#cbd5e1", "text": "#475569"},
-}
+# Badge del modal de drill-down.
+#
+# Antes vivía aquí una copia literal de la paleta del dashboard. Ahora todo
+# (color **y** acrónimo) se resuelve contra el catálogo
+# ``app.core.resultado_pruebas``, que es la ÚNICA fuente de verdad y que ya
+# alimenta:
+#   * el badge de las tarjetas del Kanban,
+#   * los encabezados de la tabla "Cuenta de Resultado" del dashboard,
+#   * este badge del modal de drill-down.
+#
+# Así los tres puntos de la UI comparten color y acrónimo por construcción.
+def _badge_resultado_modal(valor: str) -> str:
+    """Devuelve el HTML del badge de *Resultado de Pruebas* para el modal.
+
+    Mismo catálogo que las tarjetas del Kanban y que los encabezados del
+    dashboard: mismo color y mismo acrónimo. Todos los valores que llegan
+    desde el query string se escapan antes de inyectarse en el HTML.
+    """
+    texto = (valor or "").strip()
+    # La clave canónica del catálogo: si el valor es una variante heredada
+    # ("OK CON OBS", "POSTERGADO", ...) se normaliza a su forma canónica.
+    clave = texto if texto in COLORES_RESULTADO else (_normalizar_resultado(texto) or texto)
+    color = COLORES_RESULTADO.get(clave, COLOR_FALLBACK_RESULTADO)
+    acronimo = ACRONIMOS_RESULTADO.get(clave) or (texto[:10].upper() if texto else "—")
+    if clave == SIN_RESULTADO:
+        titulo = "Resultado de pruebas: sin dato"
+    else:
+        titulo = "Resultado de pruebas: {0}".format(clave)
+    return (
+        "<span class='inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold' "
+        "title='{0}' style='background:{1}; color:{2};'>{3}</span>".format(
+            escape(titulo),
+            escape(color["bg"]),
+            escape(color["text"]),
+            escape(acronimo),
+        )
+    )
 
 
 @router.get("/cuenta-resultado/detalle")
@@ -822,12 +857,12 @@ def cuenta_resultado_detalle(
     def _fmt_resultado(val):
         if val is None or (isinstance(val, str) and val.strip() == ""):
             return '<span class="text-slate-400 italic">(en blanco)</span>'
-        return val
+        return escape(str(val))
 
     def _fmt_item(val):
         if val is None or (isinstance(val, str) and val.strip() == ""):
             return '<span class="text-slate-400">—</span>'
-        return val
+        return escape(str(val))
 
     rows_html = []
     for t, estado, asignado in tickets_q:
@@ -845,7 +880,7 @@ def cuenta_resultado_detalle(
                 f"hx-get='/api/v1/tickets/{ticket_id}/detalle-html?tab=detalles' "
                 f"hx-target='#modal-cuenta-resultado-root' "
                 f"hx-swap='innerHTML' "
-                f"title='Ver y editar ticket {t.codigo or ticket_id}' "
+                f"title='Ver y editar ticket {escape(str(t.codigo or ticket_id))}' "
                 f"class='inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 transition'>"
                 "<svg class='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>"
                 "<path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M15 12a3 3 0 11-6 0 3 3 0 016 0z'/>"
@@ -858,19 +893,19 @@ def cuenta_resultado_detalle(
             accion_html = "<td class='px-3 py-2 text-center text-slate-300'>—</td>"
         rows_html.append(
             "<tr class='hover:bg-slate-50'>"
-            f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{t.codigo or ''}</td>"
-            f"<td class='px-3 py-2 text-xs text-slate-800 max-w-xs truncate' title='{t.titulo or ''}'>{t.titulo or ''}</td>"
+            f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{escape(str(t.codigo or ''))}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-800 max-w-xs truncate' title='{escape(str(t.titulo or ''))}'>{escape(str(t.titulo or ''))}</td>"
             "<td class='px-3 py-2 text-xs'>"
             f"<span class='inline-flex items-center gap-1.5'>"
-            f"<span class='w-2 h-2 rounded-full' style='background:{estado_color}'></span>"
-            f"<span class='text-slate-700'>{estado_nombre}</span>"
+            f"<span class='w-2 h-2 rounded-full' style='background:{escape(str(estado_color))}'></span>"
+            f"<span class='text-slate-700'>{escape(str(estado_nombre))}</span>"
             "</span></td>"
             f"<td class='px-3 py-2 text-xs'>{_fmt_resultado(t.resultado_pruebas)}</td>"
             f"<td class='px-3 py-2 text-xs text-slate-600'>{_fmt_item(t.item)}</td>"
             "<td class='px-3 py-2 text-xs'>"
             f"<span class='px-2 py-0.5 text-[10px] font-semibold rounded-full {prio_cls}'>{prio_label}</span>"
             "</td>"
-            f"<td class='px-3 py-2 text-xs text-slate-600'>{asignado_nombre}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600'>{escape(str(asignado_nombre))}</td>"
             f"<td class='px-3 py-2 text-xs text-slate-600 whitespace-nowrap'>{_fmt_fecha(t.fecha_vencimiento_sla)}</td>"
             f"{accion_html}"
             "</tr>"
@@ -882,13 +917,8 @@ def cuenta_resultado_detalle(
         "No se encontraron tickets para esta combinación de módulo y resultado.</td></tr>"
     )
 
-    color_cfg = CUENTA_RESULTADO_COLORES_PARA_MODAL.get(resultado_filtro)
-    if color_cfg is None:
-        color_cfg = {"bg": "#475569", "text": "#ffffff"}
-    resultado_badge = (
-        f"<span class='inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold' "
-        f"style='background:{color_cfg['bg']}; color:{color_cfg['text']};'>{resultado_filtro}</span>"
-    )
+    resultado_badge = _badge_resultado_modal(resultado_filtro)
+    modulo_badge = escape(modulo_filtro) if modulo_filtro else "—"
 
     html = f"""
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 modal-backdrop"
@@ -902,7 +932,7 @@ def cuenta_resultado_detalle(
         <h3 class="text-sm font-semibold text-slate-800">Detalle de Cuenta de Resultado</h3>
         <div class="flex items-center gap-2 text-xs text-slate-500">
           <span class="text-[10px] uppercase tracking-wide text-slate-400">Módulo:</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{modulo_filtro}</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{modulo_badge}</span>
           <span class="text-[10px] uppercase tracking-wide text-slate-400">Resultado:</span>
           {resultado_badge}
           <span class="text-[10px] uppercase tracking-wide text-slate-400">Ambiente:</span>

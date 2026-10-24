@@ -114,6 +114,11 @@
               <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
               Roles y Funciones
             </a>
+            <a href="/catalogos" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+               title="Mantenedores de catálogos (tipos de incidencia, prioridades, SLA, etc.)">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>
+              Catálogos
+            </a>
             {% if usuario and usuario.rol.value == 'administrador' %}
             <div class="border-t border-slate-100 my-1"></div>
             <a href="/usuarios" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
@@ -130,6 +135,11 @@
                title="FEATURE 2: Disparadores manuales de deadline (today/missed/approaching/overdue)">
               <svg class="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               Triggers de Deadline
+            </a>
+            <a href="/admin/reporte-entregas" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+               title="Reporte diario de entregas: plantilla, destinatarios y estados terminales">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Reporte de Entregas
             </a>
             {% endif %}
             {% if dev_inbox_enabled() and usuario and usuario.rol.value == 'administrador' %}

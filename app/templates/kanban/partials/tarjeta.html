@@ -87,6 +87,11 @@
       {% endif %}
     </div>
     <div class="flex items-center gap-1.5">
+      {# --- Indicador de Resultado de Pruebas (acrónimo + color del LOV) ---
+         El catálogo (app/core/resultado_pruebas.py) es la única fuente de
+         verdad del LOV, los acrónimos y los colores. El dashboard usa la
+         MISMA paleta, por lo que tarjeta y reporte no pueden divergir. #}
+      {{ badge_resultado(resultado_info_ticket(ticket)) }}
       {% if ticket.etiquetas %}
         {% for e in ticket.etiquetas[:3] %}
           <span class="inline-block w-2 h-2 rounded-full" style="background-color: {{ e.color }}" title="{{ e.nombre }}"></span>

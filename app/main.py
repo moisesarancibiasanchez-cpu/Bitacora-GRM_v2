@@ -43,7 +43,21 @@ async def lifespan(app: FastAPI):
        tablas faltantes y carga datos semilla. En producción NO es
        necesario porque las migraciones del paso 1 ya garantizan el
        esquema; AUTO_INIT_DB solo se activa explícitamente.
+
+    0) VALIDACIÓN DE CONFIGURACIÓN: en producción (DEBUG=False) la app
+       ABORTA si la configuración es insegura (SECRET_KEY vacía o con
+       placeholder, CORS con comodín, PUBLIC_BASE_URL sin HTTPS). En
+       desarrollo los avisos sólo se registran.
     """
+    # Paso 0: validación de configuración (bloqueante sólo en producción)
+    avisos = settings.validar()
+    if avisos:
+        mensaje = "Configuración insegura:\n" + "\n".join(f"  - {a}" for a in avisos)
+        if not settings.DEBUG:
+            logger.error(mensaje)
+            raise RuntimeError(mensaje)
+        logger.warning("[startup] " + mensaje.replace("\n", " | "))
+
     # Paso 1: migraciones idempotentes (SIEMPRE)
     try:
         from app.db.migrations import apply_migrations
@@ -52,7 +66,11 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[startup] No se pudieron aplicar migraciones: {e}")
 
     # Paso 2: init completo solo si está activado
-    if settings.DEBUG or os.getenv("AUTO_INIT_DB", "false").lower() == "true":
+    # NOTA: se lee de ``settings`` (pydantic-settings) y NO de ``os.getenv``:
+    # pydantic-settings NO exporta las variables del archivo ``.env`` al
+    # ``os.environ``, por lo que ``os.getenv("AUTO_INIT_DB")`` siempre
+    # devolvía ``None`` y el flag era INELECTIVO.
+    if settings.DEBUG or settings.AUTO_INIT_DB:
         try:
             from app.db.init_db import init_database
             init_database()
@@ -71,10 +89,30 @@ app = FastAPI(
 )
 
 # === Middlewares ===
+# CORS: la aplicación es *server-rendered* (el frontend lo sirve el mismo
+# FastAPI) y autentica con la cookie ``access_token``.
+#
+# Permitir credenciales (``allow_credentials=True``) junto con el comodín
+# "*" es una combinación que (a) la especificación CORS rechaza — el
+# navegador no envía cookies si la cabecera es ``Access-Control-Allow-Origin:
+# *`` — y (b) es una vulnerabilidad: cualquier sitio web podría ejecutar
+# peticiones autenticadas en nombre del usuario. Por eso, cuando hay
+# comodín se desactivan las credenciales; con orígenes explícitos se
+# mantienen intactas.
+_cors_origins = [o for o in (settings.CORS_ORIGINS or []) if o]
+_cors_wildcard = "*" in _cors_origins
+if _cors_wildcard:
+    logger.warning(
+        "[cors] CORS_ORIGINS contiene '*': se desactiva allow_credentials "
+        "para impedir que orígenes arbitrarios ejecuten peticiones "
+        "autenticadas con la cookie de sesión. Define orígenes explícitos "
+        "en producción."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=not _cors_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -148,6 +186,19 @@ for _fname, _ffunc in ALL_FILTERS.items():
 # Mantener livianos: nada de I/O pesado, solo decisiones de UI.
 from app.services.dev_inbox import is_enabled as _dev_inbox_enabled  # noqa: E402
 templates.env.globals["dev_inbox_enabled"] = _dev_inbox_enabled
+
+# Globals del catálogo de "Resultado de Pruebas" (LOV + acrónimos + colores).
+# ``app.core.resultado_pruebas`` es la única fuente de verdad: las
+# tarjetas del Kanban y el dashboard consumen esta misma paleta, por lo
+# que no pueden divergir entre sí.
+from app.core.resultado_pruebas import (  # noqa: E402
+    info_resultado as _resultado_info,
+    info_resultado_ticket as _resultado_info_ticket,
+    render_badge_resultado as _badge_resultado,
+)
+templates.env.globals["resultado_info"] = _resultado_info
+templates.env.globals["resultado_info_ticket"] = _resultado_info_ticket
+templates.env.globals["badge_resultado"] = _badge_resultado
 
 
 # === Routers API ===
@@ -2254,10 +2305,19 @@ async def dashboard_page(request: Request):
     usuario, redirect = _require_session_or_redirect(request)
     if redirect is not None:
         return redirect
+    # La paleta y los acrónimos de "Resultado de Pruebas" se inyectan desde
+    # el catálogo Python para que la sección "Cuenta de Resultado" use
+    # EXACTAMENTE los mismos colores que el badge de las tarjetas del Kanban.
+    from app.core.resultado_pruebas import acronimos_js, paleta_js
+
     return templates.TemplateResponse(
         request,
         "dashboard/index.html",
-        {"usuario": usuario},
+        {
+            "usuario": usuario,
+            "cuenta_resultado_colores": paleta_js(),
+            "cuenta_resultado_acronimos": acronimos_js(),
+        },
     )
 
 
@@ -2321,7 +2381,8 @@ async def notificaciones_page(request: Request):
 async def tablero_publico(slug: str, request: Request):
     """Vista pública (sin auth) de un tablero con visibilidad=publico."""
     from app.db.session import SessionLocal
-    from app.models.espacio import Tablero, Estado
+    from app.models.espacio import Tablero
+    from app.models.estado import Estado
     from app.models.ticket import Ticket
     from sqlalchemy import func
     from fastapi import HTTPException
@@ -2345,6 +2406,11 @@ async def tablero_publico(slug: str, request: Request):
             {
                 "tablero": tablero, "estados": estados,
                 "slug": slug,
+                # La vista es pública (sin sesión): `base.html` referencia
+                # `usuario` en varios puntos. Se entrega explícitamente como
+                # None para que las guards `{% if usuario %}` no dependan de
+                # que la plantilla herede o no la variable del contexto.
+                "usuario": None,
             },
         )
     finally:

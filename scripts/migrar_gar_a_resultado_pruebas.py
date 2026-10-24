@@ -13,8 +13,8 @@ Este script está pensado para ejecutarse a través del endpoint HTTP
 
 También puede invocarse manualmente desde la línea de comandos:
 
-    cd /workspace/Bitacora-GRM_v2
-    .venv/bin/python -m scripts.migrar_gar_a_resultado_pruebas
+    cd <raíz-del-repositorio>     # p. ej. /workspace
+    python -m scripts.migrar_gar_a_resultado_pruebas
 
 Características
 --------------

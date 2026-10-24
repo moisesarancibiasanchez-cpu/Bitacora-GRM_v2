@@ -526,9 +526,9 @@ def preview_email_credenciales_html(
     # Import local para evitar import circular.
     from app.main import templates as app_templates
     return app_templates.TemplateResponse(
-        "usuarios/credenciales_modal.html",
-        {
-            "request": request,
+        request=request,
+        name="usuarios/credenciales_modal.html",
+        context={
             "target": target,
             "subject": subject,
             "body_text": body_text,

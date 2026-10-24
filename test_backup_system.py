@@ -11,8 +11,8 @@ Cubre:
 - Acción Butler: backup_database y backup_cleanup.
 
 Ejecución:
-    cd /workspace
-    /workspace/Bitacora-GRM_v2/.venv-test/bin/python -m unittest test_backup_system -v
+    cd <raíz-del-repositorio>     # p. ej. /workspace
+    python -m unittest test_backup_system -v
 
 NOTA: Solo SQLite está disponible en el entorno de tests (no hay PostgreSQL
 ni pg_dump). Los caminos PG se omiten o se mockean.

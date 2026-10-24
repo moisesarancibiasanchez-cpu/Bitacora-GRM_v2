@@ -8,7 +8,7 @@
  *
  * Convenciones:
  *   - El backend emite cabeceras `HX-Trigger: <nombre-evento>` (HTMX 1.x)
- *     que disparan un CustomEvent同名 en `document.body`.
+ *     que disparan un CustomEvent con el mismo nombre en `document.body`.
  *   - `window.showToast(msg, type, ms)` está definido en htmx-events.js
  *     y se reutiliza aquí si está disponible.
  */

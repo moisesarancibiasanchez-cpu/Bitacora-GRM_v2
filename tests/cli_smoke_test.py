@@ -60,8 +60,11 @@ finally:
 
 
 def _run_cli(extra_args):
+    # Se usa el intérprete actual (``sys.executable``) en vez de una ruta
+    # absoluta: así el smoke test funciona en cualquier entorno (venv local,
+    # imagen Docker, CI) y no depende de un path hardcodeado.
     cmd = [
-        "/tmp/.venv/bin/python",
+        sys.executable,
         "scripts/bulk_update_fechas_gar_ri_backlog.py",
         *extra_args,
     ]
