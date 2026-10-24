@@ -47,7 +47,9 @@ SEED_DEMO_USERS_ENABLED = os.getenv("SEED_DEMO_USERS", "false").lower() == "true
 def init_database():
     """Crea todas las tablas, aplica migraciones pendientes y carga los datos iniciales."""
     print("=" * 60)
-    print(f"Inicializando BD: {settings.get_database_url()}")
+    # La URL se enmascara: sin esto, la contraseña de PostgreSQL quedaba
+    # escrita en el log de arranque del despliegue en produccion.
+    print(f"Inicializando BD: {settings.get_database_url_enmascarada()}")
     print("=" * 60)
 
     # 1) Aplicar migraciones idempotentes (alinea columnas nuevas)

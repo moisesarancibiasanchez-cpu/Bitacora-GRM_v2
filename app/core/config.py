@@ -248,6 +248,25 @@ class Settings(BaseSettings):
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
+    def get_database_url_enmascarada(self) -> str:
+        """URL de la BD con la contraseña oculta. Para logs y respuestas HTTP.
+
+        Sin esto, ``init_database()`` imprimía la URL completa en el log de
+        arranque de producción, dejando la contraseña de PostgreSQL a la
+        vista de cualquiera con acceso a los logs del despliegue.
+        """
+        url = self.get_database_url()
+        esquema, sep, resto = url.partition("://")
+        if not sep or "@" not in resto:
+            return url
+        credenciales, _, servidor = resto.partition("@")
+        if ":" in credenciales:
+            usuario = credenciales.split(":", 1)[0]
+            credenciales = f"{usuario}:***"
+        else:
+            credenciales = "***"
+        return f"{esquema}://{credenciales}@{servidor}"
+
     # ------------------------------------------------------------------
     # Validación de configuración (informativa, no bloqueante)
     # ------------------------------------------------------------------
