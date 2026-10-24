@@ -42,6 +42,11 @@ un resumen `RESULTADO ...`. El código de salida es `0` si todo pasa.
 | `barrer_rutas.py` | 9 | Barrido de las 38 rutas contra el despliegue, con sesión iniciada: `/health`, login real, y 0 respuestas 5xx. Comprueba además que el dashboard sirve la paleta desde el servidor y que el JS no la re-declara (chequeo por identificador, no por valor de hex: `#16a34a` y `#94a3b8` coinciden con las paletas de prioridad y de etiquetas). |
 | `inventariar_rutas.py` | 1 | Inventario real de rutas contra el esquema OpenAPI del despliegue, contraste con la lista de 38 rutas del README V1.001, y rastreo de enlaces internos rotos en las 13 páginas principales. |
 | `esperar_redeploy.py` | 1 | Vigila `/health` hasta que responda 200 tras un push (30 s entre intentos) y, cuando la app levanta, valida el login y las rutas autenticadas. |
+| `verificar_dist.py` | 12 | Integridad de la salida de build `dist/` antes de publicarla: `index.html` en la raíz, 24 secciones, los 25 recursos de `imgs/` presentes, las 25 anclas internas resueltas, sin andamiaje de la plataforma de hosting y sin placeholders sin resolver (salvo `{{build_date}}`, que rellena el propio script del proyecto). |
+| `verificar_sitio.py` | 9 | Verificación del sitio ya publicado: estado, secciones, descarga real de cada imagen y resolución de cada ancla. |
+| `verificar_secretos_source.py` | 1 | Control de secretos sobre el directorio que se sube como `source_path` a almacenamiento privado. |
+| `recuperar_guia_publicada.py` | 12 | Recupera la versión publicada de la guía de Onboarding separando el contenido del proyecto del andamiaje que inyecta la plataforma de hosting (resaltado de iframe, globo flotante "Created by MiniMax Agent"), conservando los scripts propios del proyecto (resaltado del índice y `{{build_date}}`). No escribe nada si no supera las comprobaciones. |
+| `instalar_guia_recuperada.py` | 1 | Instala la guía recuperada como fuente canónica en `docs/onboarding-demo/` y reconstruye `dist/` (index.html + imgs/). Muestra el diff por líneas contra la versión anterior del repo. |
 
 ## Nota de plataforma
 

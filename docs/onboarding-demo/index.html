@@ -471,6 +471,84 @@
         <div class="fig-caption">🟢 Verde → SLA cumplido, dentro de plazo · 🟡 Ámbar → próximo a vencer · 🔴 Rojo → vencido.</div>
       </div>
 
+      <h3>Indicador de Resultado de Pruebas</h3>
+      <p>
+        En la <strong>zona inferior</strong> de cada tarjeta, junto al semáforo de SLA, aparece el
+        <strong>indicador de Resultado de Pruebas</strong>: una etiqueta con el
+        <strong>acrónimo</strong> de la categoría y el <strong>color</strong> que le corresponde en
+        la lista de valores (LOV). Permite saber de un vistazo si la prueba fue superada, quedó
+        pendiente, fue descartada o no aplica.
+      </p>
+
+      <div class="fig">
+        <img src="imgs/resultado-pruebas.svg" alt="Tarjeta del tablero con el indicador de Resultado de Pruebas en la zona inferior y el catálogo completo de acrónimos y colores">
+        <div class="fig-caption">El indicador vive en la zona inferior de la tarjeta. El catálogo de acrónimos y colores es único para todo el sistema.</div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Categoría (LOV)</th><th>Acrónimo</th><th>Color</th><th>Significado</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>OK</code></td>
+              <td><strong>OK</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#16a34a;vertical-align:-2px;"></span> <code>#16a34a</code></td>
+              <td>Las pruebas fueron superadas.</td>
+            </tr>
+            <tr>
+              <td><code>N/A</code></td>
+              <td><strong>N/A</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#94a3b8;vertical-align:-2px;"></span> <code>#94a3b8</code></td>
+              <td>No aplica para este caso.</td>
+            </tr>
+            <tr>
+              <td><code>OK CON OBS.</code></td>
+              <td><strong>OBS</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#eab308;vertical-align:-2px;"></span> <code>#eab308</code></td>
+              <td>Superada, pero con observaciones pendientes.</td>
+            </tr>
+            <tr>
+              <td><code>POSTERGADA</code></td>
+              <td><strong>POST</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#ea580c;vertical-align:-2px;"></span> <code>#ea580c</code></td>
+              <td>La prueba quedó postergada.</td>
+            </tr>
+            <tr>
+              <td><code>DESESTIMADA</code></td>
+              <td><strong>NOOK</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#7c3aed;vertical-align:-2px;"></span> <code>#7c3aed</code></td>
+              <td>La prueba fue desestimada.</td>
+            </tr>
+            <tr>
+              <td><code>NOK</code></td>
+              <td><strong>NOK</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#dc2626;vertical-align:-2px;"></span> <code>#dc2626</code></td>
+              <td>Las pruebas no fueron superadas.</td>
+            </tr>
+            <tr>
+              <td>(sin resultado)</td>
+              <td><strong>S/D</strong></td>
+              <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#cbd5e1;vertical-align:-2px;"></span> <code>#cbd5e1</code></td>
+              <td>Sin dato: todavía no se ha registrado un resultado.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="info">
+        <strong>Sin dato:</strong> si el ticket todavía no tiene resultado de pruebas registrado, la
+        tarjeta muestra <strong>S/D</strong> (sin dato) en gris claro. Al pasar el cursor sobre la
+        etiqueta aparece el valor completo del catálogo.
+      </div>
+
+      <div class="tip">
+        <strong>Mismos colores en el Dashboard:</strong> la sección
+        <strong>"Cuenta de Resultado"</strong> del Dashboard pinta sus encabezados, sus números y
+        su barra de distribución con <strong>exactamente esta misma paleta</strong>, de modo que un
+        resultado se ve igual en la tarjeta y en el reporte. Ver
+        <a href="#sec-17">sección 17</a>.
+      </div>
+
       <a class="back-top" href="#top">↑ Volver arriba</a>
     </section>
 
@@ -1175,6 +1253,12 @@
         <strong>Consejo:</strong> elige siempre el <strong>Ítem</strong> más específico. Distingue entre un fallo del portal web, del correo o de la base de datos son tres incidencias distintas con causas distintas, aunque lleguen en el mismo ticket.
       </div>
 
+      <div class="info">
+        <strong>Dónde se ve el resultado:</strong> el valor registrado aparece como etiqueta de color
+        en la <strong>zona inferior de cada tarjeta</strong> del tablero y en el detalle del ticket.
+        Ver <a href="#sec-4">"Indicador de Resultado de Pruebas"</a> en la sección 4.
+      </div>
+
       <h3>17.2. El código del expediente</h3>
       <p>
         Los expedientes de garantía llevan un código con el formato
@@ -1203,6 +1287,35 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
         <li>También puede exportar listados para analizarlos fuera del sistema.</li>
         <li>Ambas operaciones están en la sección de administración (ver <a href="#sec-12">sección 12</a>).</li>
       </ul>
+
+      <h3>17.4. La sección "Cuenta de Resultado" del Dashboard</h3>
+      <p>
+        El Dashboard incluye una sección titulada <strong>"Cuenta de Resultado"</strong> que resume
+        cómo se reparten los resultados de pruebas por <strong>módulo</strong>. Es una tabla pivote:
+      </p>
+      <ul>
+        <li><strong>Etiqueta de fila:</strong> una por <strong>módulo</strong> (Auditoría, GAR, Validación…). Los tickets sin módulo se agrupan bajo "(en blanco)".</li>
+        <li><strong>Columnas:</strong> una por categoría del LOV. El encabezado muestra el <strong>acrónimo</strong> (OK, N/A, OBS, POST, NOOK, NOK, S/D) con el <strong>color del catálogo</strong> de fondo; al pasar el cursor aparece el valor completo.</li>
+        <li><strong>Total general:</strong> última columna, con la suma de todos los resultados de esa fila.</li>
+        <li><strong>Totales por columna:</strong> el pie de la tabla resume el total de cada categoría y el total general del reporte.</li>
+      </ul>
+      <div class="info">
+        <strong>Drill-down:</strong> las celdas con datos son clickeables y abren el detalle de los
+        tickets que componen ese módulo y esa categoría. La tabla se puede exportar a CSV para
+        analizarla fuera del sistema.
+      </div>
+      <div class="ok">
+        <strong>Un solo catálogo, un solo color:</strong> la tabla del Dashboard y el indicador de la
+        tarjeta se alimentan del mismo catálogo, de modo que <strong>un resultado nunca puede verse
+        con dos colores distintos</strong>. Por ejemplo, <code>OK CON OBS.</code> es siempre
+        <strong>OBS</strong> en ámbar, y <code>DESESTIMADA</code> es siempre <strong>NOOK</strong> en
+        violeta.
+      </div>
+      <div class="warn">
+        <strong>Alcance del reporte:</strong> la tabla cuenta los tickets del ambiente
+        <code>QA</code>, que es el filtro que trae el reporte. Los tickets de ambiente
+        <code>PRODUCCION</code> o sin ambiente no se contabilizan en esta sección.
+      </div>
 
       <a class="back-top" href="#top">↑ Volver arriba</a>
     </section>
@@ -1395,6 +1508,9 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
             <tr><td><strong>Estado</strong></td><td>Columna del Kanban. Define en qué fase está el ticket.</td></tr>
             <tr><td><strong>Prioridad</strong></td><td>Urgencia del ticket (Crítica / Alta / Media / Baja).</td></tr>
             <tr><td><strong>SLA</strong></td><td>Service Level Agreement — tiempo objetivo de resolución. Si vence, el indicador se pone rojo.</td></tr>
+            <tr><td><strong>Resultado de pruebas</strong></td><td>Categoría de la lista de valores (LOV) registrada en un ticket: <code>OK</code>, <code>N/A</code>, <code>OK CON OBS.</code>, <code>POSTERGADA</code>, <code>DESESTIMADA</code> o <code>NOK</code>.</td></tr>
+            <tr><td><strong>Indicador de Resultado de Pruebas</strong></td><td>Etiqueta de color en la zona inferior de la tarjeta que muestra el acrónimo del resultado: OK, N/A, OBS, POST, NOOK, NOK o S/D (sin dato).</td></tr>
+            <tr><td><strong>Cuenta de Resultado</strong></td><td>Tabla del Dashboard que resume los resultados de pruebas por módulo, con los mismos acrónimos y colores que las tarjetas.</td></tr>
             <tr><td><strong>Asignado</strong></td><td>Agente responsable de resolver el ticket.</td></tr>
             <tr><td><strong>Solicitante</strong></td><td>Quien reporta la incidencia.</td></tr>
             <tr><td><strong>Auditoría</strong></td><td>Registro inalterable de todos los cambios (quién, cuándo, qué).</td></tr>
@@ -1442,6 +1558,7 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
       <h5>Documentación</h5>
       <a href="#sec-1">¿Qué es?</a><br>
       <a href="#sec-4">Interfaz</a><br>
+      <a href="#sec-17">Resultado de pruebas</a><br>
       <a href="#sec-11">Roles</a><br>
       <a href="#sec-23">Glosario</a>
     </div>
@@ -1486,7 +1603,6 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
     });
   });
 </script>
-
 
 </body>
 </html>

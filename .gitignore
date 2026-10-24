@@ -966,5 +966,10 @@
 # ``*`` no cruza directorios.
 /tools/_*.py
 # Diagnóstico puntual de una sesión (no forma parte de la verificación estable).
-/tools/verificacion/_diag_*.py
+# La excepción es _probe_config.py, que es el auxiliar de verificar_config.py.
+/tools/verificacion/_*.py
+!/tools/verificacion/_probe_config.py
+# Salida intermedia de la recuperación de la guía (la versión canónica queda
+# en docs/onboarding-demo/).
+/docs/onboarding-demo-recuperada/
 

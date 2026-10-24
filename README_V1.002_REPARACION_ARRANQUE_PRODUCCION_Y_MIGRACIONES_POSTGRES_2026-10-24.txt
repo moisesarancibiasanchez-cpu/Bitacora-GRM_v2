@@ -16,7 +16,9 @@ Commit publicado:    daf4db3d5debba10422f6d145b18b794cb19302a
 Tipo de publicación: fast-forward (65fc7f0..daf4db3, sin --force)
 Fecha del commit:    2026-10-24T01:09:35-03:00
 Aplicación:          https://bitacora-grmv2-production.up.railway.app
-Guía de Onboarding (estática, sin cambios en este lote):
+Guía de Onboarding (estática, PUBLICADA en este lote):
+                     https://8ww9qr1jzjgp8.space.minimax.io
+URL anterior (V1.001, sigue activa y sin cambios):
                      https://dshj4lrwlf4x.space.mcode.io
 
 Estado de partida (verificado, no supuesto):
@@ -212,7 +214,10 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
 - requirements.txt y requirements-dev.txt: sin cambios. El despliegue sigue
   instalando exactamente las mismas dependencias de antes.
 - railway.toml, mise.toml, gunicorn.conf.py, Dockerfile: sin cambios.
-- La guía de Onboarding (artefacto estático): sin cambios de contenido.
+- La guía de Onboarding: se RECUPERÓ (ver 6.7). No se escribió contenido
+  nuevo: se devolvió al repo la versión que ya estaba publicada y que el repo
+  había perdido. El texto, el diseño, las 24 secciones y las 25 ilustraciones
+  son los mismos que los de la URL anterior.
 - El historial de git: no se reescribió ninguna rama, no se borró ningún
   commit, no se usó --force, no se eliminó ningún tag. La publicación es un
   fast-forward puro.
@@ -318,7 +323,21 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       286 enlaces internos comprobados en 13 páginas, 0 enlaces rotos,
       0 respuestas 5xx.
 
-5.3 Verificación manual en el navegador
+5.3 Verificación del sitio estático
+      python tools/verificacion/verificar_dist.py
+      Resultado obtenido: 12/12 superadas (24 secciones, 25 imágenes
+      presentes, 25 anclas internas resueltas, sin andamiaje de la
+      plataforma, sin placeholders sin resolver).
+
+      python tools/verificacion/verificar_sitio.py https://8ww9qr1jzjgp8.space.minimax.io
+      Resultado obtenido: 9/9 superadas (200, 24 secciones, 25 imágenes
+      cargan, 25 anclas resuelven).
+
+      python tools/verificacion/verificar_secretos_source.py
+      Resultado obtenido: 26 ficheros revisados, 0 posibles secretos en el
+      source_path subido a almacenamiento privado.
+
+5.4 Verificación manual en el navegador
       1) Abrir https://bitacora-grmv2-production.up.railway.app/auth/login
       2) Entrar con admin / admin123
       3) Kanban: cada tarjeta debe mostrar en su ZONA INFERIOR (junto al SLA,
@@ -336,7 +355,7 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       6) Verificar en las herramientas del navegador que /health devuelve
          {"status":"ok", "database":"ok", "redis":"ok"}.
 
-5.4 Verificación del "Resultado de Pruebas" (7 valores)
+5.5 Verificación del "Resultado de Pruebas" (7 valores)
       Con datos reales de QA, comprobar que el badge de la tarjeta y el
       encabezado de la columna del Dashboard coinciden en color y acrónimo
       para los 7 valores: OK, N/A, OK CON OBS. (OBS), POSTERGADA (POST),
@@ -358,7 +377,7 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       Publicación: fast-forward 65fc7f0..daf4db3 sobre main (sin --force)
       Verificado tras publicar: HEAD == origin/main == daf4db3
 
-6.2 Archivos modificados (11) y añadidos (12)
+6.2 Archivos modificados (13) y añadidos (18)
       M app/core/config.py                        +157
       M app/db/migrations.py                      +676
       M app/templates/dashboard/index.html         +33
@@ -370,7 +389,9 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       M .gitignore                                 +26
       M tests/test_script_modules.py               +29
       M tests/cli_smoke_test.py                     +18
+      M docs/onboarding-demo/index.html           (guía recuperada, 6.7)
       A README_V1.002_REPARACION_ARRANQUE_PRODUCCION_Y_MIGRACIONES_POSTGRES_2026-10-24.txt
+      A docs/onboarding-demo/imgs/resultado-pruebas.svg
       A tools/verificacion/README.md
       A tools/verificacion/verificar_arranque.py
       A tools/verificacion/verificar_migrations.py
@@ -378,10 +399,15 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       A tools/verificacion/verificar_cors.py
       A tools/verificacion/verificar_sqlite_lower.py
       A tools/verificacion/verificar_secret_key.sh
-      A tools/verificacion/_probe_config.py
+      A tools/verificacion/verificar_dist.py
+      A tools/verificacion/verificar_sitio.py
+      A tools/verificacion/verificar_secretos_source.py
       A tools/verificacion/barrer_rutas.py
       A tools/verificacion/inventariar_rutas.py
       A tools/verificacion/esperar_redeploy.py
+      A tools/verificacion/recuperar_guia_publicada.py
+      A tools/verificacion/instalar_guia_recuperada.py
+      A tools/verificacion/_probe_config.py
 
 6.3 Referencias de línea exactas
       app/core/config.py:217        _derivar_public_base_url (deriva desde Railway)
@@ -439,6 +465,9 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       start.sh / SECRET_KEY ................. 22/22
       Barrido de rutas en producción ........ 0 respuestas 5xx
       Enlaces internos en producción ........ 286 revisados, 0 rotos
+      Salida de build dist/ ................. 12/12 superadas
+      Sitio estático desplegado ............. 9/9 superadas (25 imágenes, 25 anclas)
+      Secretos en el source_path subido .... 26 ficheros, 0 hallazgos
       Producción /health .................... 200 {"status":"ok","database":"ok","redis":"ok"}
       Login real admin/admin123 ............. 200 (cookie access_token emitida)
       /kanban autenticado ................... 200 con data-resultado-pruebas
@@ -465,7 +494,7 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
          posterior.
       c) No se pudo verificar visualmente la coincidencia de color
          computado entre el badge y el encabezado del Dashboard (falta
-         Playwright/Chromium/Node en este entorno). Ver 5.4.
+         Playwright/Chromium/Node en este entorno). Ver 5.5.
       d) El modo 600 del archivo de clave persistida no es verificable en
          Windows (NTFS hace que chmod sea un no-op; comprobado con un
          experimento control). En Linux sí se aplica.
@@ -477,6 +506,39 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
          tags msg-* en el remoto (lightweight, sobre commits ya publicados,
          sin secretos), no 8, y solo 2 tags sobreviven dentro del bundle
          versionado.
+
+6.7 Recuperación de la guía de Onboarding (hallazgo adicional de este lote)
+      Al desplegar se detectó que el archivo del repo
+      docs/onboarding-demo/index.html estaba DESACTUALIZADO respecto de lo
+      que estaba publicado:
+        - en el repo: 71.736 caracteres, sin las secciones de "Indicador de
+          Resultado de Pruebas" ni de "Cuenta de Resultado";
+        - en el sitio publicado: 115.526 caracteres, con esas 2 secciones.
+      Esas secciones se añadieron en la V1.001 desde un árbol de trabajo que
+      nunca se commiteó: el contenido se publicó, pero se perdió para el repo.
+      Consecuencia: republicar desde el archivo del repo habría hecho
+      REGREDIR el contenido publicado.
+      Recuperación aplicada (con el visto bueno explícito del usuario):
+        1) se descargó la versión publicada;
+        2) se separó el contenido del proyecto del andamiaje que inyecta la
+           plataforma de hosting (script de resaltado de iframe x2, CSS del
+           globo flotante, HTML del globo "Created by MiniMax Agent" y su
+           script). Se conservan los scripts DEL PROYECTO (resaltado de la
+           sección activa del índice y reemplazo de {{build_date}});
+        3) se verificó que la copia recuperada conserva las 24 secciones, el
+           título, las 2 secciones de V1.001 y todas las anclas internas;
+        4) se detectó y recuperó una ilustración que faltaba y que estaba
+           referenciada pero nunca commiteada:
+           imgs/resultado-pruebas.svg (6.049 bytes);
+        5) se construyó dist/ (index.html + imgs/ con 25 ficheros) y se
+           verificó antes de publicar: 12/12 comprobaciones.
+      Archivos de la recuperación:
+        M docs/onboarding-demo/index.html      (71.736 -> 79.057 caracteres)
+        A docs/onboarding-demo/imgs/resultado-pruebas.svg
+      La URL anterior (https://dshj4lrwlf4x.space.mcode.io) SIGUE ACTIVA y
+      con su contenido original: no se replacesó ningún sitio existente, se
+      publicó uno nuevo. Quedan dos URLs públicas para la misma guía; la
+      anterior es la que está documentada en el README V1.001.
 
 --------------------------------------------------------------------------------
 7. INSTRUCCIONES DE DESPLIEGUE OPERACIONAL Y ROLLBACK
@@ -490,6 +552,11 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
         {"status":"ok","app":"Bitácora GRM","version":"0.1.0",
          "database":"ok","redis":"ok"}
         Antes del despliegue la misma ruta respondía HTTP 502.
+      Guía de Onboarding (sitio estático, publicado desde dist/):
+        https://8ww9qr1jzjgp8.space.minimax.io -> HTTP 200
+        Verificado: 24 secciones, 25 imágenes cargan, 25 anclas internas
+        resuelven, sin recursos rotos.
+        La URL anterior (https://dshj4lrwlf4x.space.mcode.io) sigue activa.
       El servicio web está operativo. PENDIENTE DE ACCIÓN DEL USUARIO:
       reiniciar los servicios worker y beat (ver 4.3).
 
