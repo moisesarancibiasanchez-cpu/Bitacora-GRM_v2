@@ -35,14 +35,37 @@ Documento anterior: README_V1.001_INDICADOR_RESULTADO_PRUEBAS_Y_REPARACION_GENER
 --------------------------------------------------------------------------------
 
 Un solo cambio funcional: RESTAURAR EL ARRANQUE DE LA APLICACIÓN EN
-PRODUCCIÓN (dejar el servicio 100% operativo) sin alterar el modelo de datos,
+PRODUCCIÓN (dejar el servicio 100% operativa) sin alterar el modelo de datos,
 los contratos de API ni el flujo ITSM.
 
-La caída no era un fallo aislado: eran tres defectos que se encadenaban dentro
-del lifespan de arranque de FastAPI (app/main.py:47-66). Basta con que UNO de
-ellos fallara para que la transacción de migraciones quedara envenenada
-("InFailedSqlTransaction"), y con ella fallara el arranque completo: 502 en
-todas las rutas.
+PRECISIÓN DE LA CAUSA (verificada con ejecución real, no inferida)
+  El 502 en todas las rutas lo produjo el GUARD DE ARRANQUE, no las
+  migraciones. El lifespan de FastAPI (app/main.py:47-58) aborta con
+  RuntimeError si settings.validar() devuelve avisos, y en ese caso la
+  aplicación NUNCA llega a servir: todas las rutas responden 502. Se
+  reprodujo el abort exacto durante la validación:
+      RuntimeError: Configuración insegura:
+        - PUBLIC_BASE_URL no usa HTTPS con DEBUG=False: ...
+      File "app/main.py", line 58, in lifespan
+          raise RuntimeError(mensaje)
+  Y el guard bloqueaba por tres avisos a la vez en la configuración de
+  Railway: SECRET_KEY vacía o placeholder, PUBLIC_BASE_URL sin HTTPS y
+  CORS_ORIGINS con "*".
+
+  Las migraciones, en cambio, NO abortan el arranque: app/main.py:61-66
+  envuelve apply_migrations() en un try/except que solo registra un
+  warning ("No se pudieron aplicar migraciones"). Por eso el error de
+  PostgreSQL en 4.3 y el desajuste de tildes en 4.6/4.7 eran defectos
+  REALES pero NO la causa del 502: dejaban la base de datos inconsistente
+  (etiquetas prohibidas sin ocultar y, en bases sembradas desde cero, el
+  estado "Producción OK" sin sus transiciones) y, al envenenar la
+  transacción,Arrastrando la ejecución de TODAS las migraciones
+  posteriores. Se corrigen igualmente, porque un fallo de migraciones
+  que se propaga en cascada es un defecto de primer orden.
+
+  En resumen: 3 defectos independentemente corregidos, de los que el
+  guard era el bloqueante del servicio y los dos de migraciones eran
+  bloqueantes de la integridad de los datos.
 
 FALLO RAÍZ 1 - Tipo booleano comparado y asignado como entero
   Archivo: app/db/migrations.py
@@ -85,6 +108,29 @@ FALLO RAÍZ 2 - Comparación de nombres con y sin tilde (estado "Producción OK"
   sin espacios sobrantes) en app/db/migrations.py:35 y :61, usada por 4.6 y 4.7.
   Se conservan y conectan TODOS los estados homónimos que existieran (por si
   una versión anterior dejó duplicados).
+
+  ALCANCE REAL (verificado contra la base de datos de producción):
+  La base de datos de producción NO usa los estados del seed: tiene un flujo
+  propio, configurado desde la UI, con 10 estados:
+      BackLog, En desarrollo, Entregado, APROBADO QA, produccion ok,
+      DESESTIMADA, Despliegue PROD, UAT-QA, Analisis, Bloqueado!
+  y el estado terminal se llama "produccion ok" (minúsculas, SIN tilde), que
+  el literal de la migración sí alcanzaba. Por tanto, en producción:
+    - 4.6 NO insertaba duplicados (el pre-check sí coincidía);
+    - el flujo "produccion ok" YA estaba correctamente configurado con sus
+      transiciones propias, y así sigue (verificado tras el despliegue):
+          APROBADO QA     -> produccion ok   (rol=agente_senior)
+          produccion ok   -> En desarrollo   (rol=administrador, con comentario)
+      más 10 transiciones más del flujo real, 12 en total;
+    - el estado "produccion ok" es ALCANZABLE: entra desde "APROBADO QA" y
+      sale hacia "En desarrollo".
+  El defecto de tildes afectaba, por tanto, a las bases SEMBRADAS desde cero
+  (donde el seed inserta "Producción OK" con tilde): allí 4.6 intentaba
+  duplicar el estado y 4.7 no creaba las 3 transiciones. Se corrige igual
+  porque un despliegue nuevo o una base re-sembrada quedaría con el flujo
+  roto, y porque la comparación normalizada funciona en ambos casos.
+  Verificado tras el despliegue: 10 estados en producción (sin duplicados,
+  sin "Producción OK" con tilde) y 12 transiciones, con el flujo intacto.
 
 FALLO RAÍZ 3 - Guard de arranque que abortaba sin salida
   Archivo: app/core/config.py
@@ -191,6 +237,11 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
   producción ni sobre la de Railway. Toda validación con datos se hizo
   contra una copia SQLite temporal en disco (archivo temporal, borrado al
   terminar) y contra la API de producción en modo lectura.
+  Las migraciones idempotentes se ejecutan solas en cada arranque (es lo que
+  ya hacía el código), pero su efecto neto en la base de producción fue NULO:
+  tras el despliegue se verificaron 10 estados (sin duplicados) y 12
+  transiciones, con el flujo "APROBADO QA" -> "produccion ok" -> "En
+  desarrollo" intacto y exactamente igual que antes.
 - El modelo de datos SQLAlchemy. Cero cambios en app/models/. No se añadió,
   renombró ni eliminó ninguna columna, tabla, índice o restricción.
 - El esquema de la base de datos. No se ejecutó ninguna ALTER TABLE fuera de
@@ -377,37 +428,42 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       Publicación: fast-forward 65fc7f0..daf4db3 sobre main (sin --force)
       Verificado tras publicar: HEAD == origin/main == daf4db3
 
-6.2 Archivos modificados (13) y añadidos (18)
-      M app/core/config.py                        +157
-      M app/db/migrations.py                      +676
-      M app/templates/dashboard/index.html         +33
-      M app/core/resultado_pruebas.py              +11
-      M app/main.py                                 +3
-      M start.sh                                  +186
-      M pyproject.toml                            +138
-      M .env.example                                +7
-      M .gitignore                                 +26
-      M tests/test_script_modules.py               +29
-      M tests/cli_smoke_test.py                     +18
-      M docs/onboarding-demo/index.html           (guía recuperada, 6.7)
+6.2 Archivos modificados (12) y añadidos (19) respecto de la base 65fc7f0
+      M app/core/config.py                        +151  -6
+      M app/db/migrations.py                      +385 -291
+      M app/templates/dashboard/index.html         +25  -8
+      M app/core/resultado_pruebas.py              +11  -0
+      M app/main.py                                 +2  -1
+      M start.sh                                  +186  -0
+      M pyproject.toml                             +85 -53
+      M .env.example                                +6  -1
+      M .gitignore                                 +31  -0
+      M tests/test_script_modules.py               +27  -2
+      M tests/cli_smoke_test.py                    +17  -1
+      M docs/onboarding-demo/index.html           +117  -1
       A README_V1.002_REPARACION_ARRANQUE_PRODUCCION_Y_MIGRACIONES_POSTGRES_2026-10-24.txt
       A docs/onboarding-demo/imgs/resultado-pruebas.svg
       A tools/verificacion/README.md
+      A tools/verificacion/_probe_config.py
+      A tools/verificacion/barrer_rutas.py
+      A tools/verificacion/barrer_secrets_final.py
+      A tools/verificacion/esperar_redeploy.py
+      A tools/verificacion/instalar_guia_recuperada.py
+      A tools/verificacion/inventariar_rutas.py
+      A tools/verificacion/recuperar_guia_publicada.py
       A tools/verificacion/verificar_arranque.py
-      A tools/verificacion/verificar_migrations.py
       A tools/verificacion/verificar_config.py
       A tools/verificacion/verificar_cors.py
-      A tools/verificacion/verificar_sqlite_lower.py
-      A tools/verificacion/verificar_secret_key.sh
       A tools/verificacion/verificar_dist.py
-      A tools/verificacion/verificar_sitio.py
+      A tools/verificacion/verificar_flujo_produccion.py
+      A tools/verificacion/verificar_migrations.py
+      A tools/verificacion/verificar_secret_key.sh
       A tools/verificacion/verificar_secretos_source.py
-      A tools/verificacion/barrer_rutas.py
-      A tools/verificacion/inventariar_rutas.py
-      A tools/verificacion/esperar_redeploy.py
-      A tools/verificacion/recuperar_guia_publicada.py
-      A tools/verificacion/instalar_guia_recuperada.py
-      A tools/verificacion/_probe_config.py
+      A tools/verificacion/verificar_sitio.py
+      A tools/verificacion/verificar_sqlite_lower.py
+      (Las diferencias grandes de app/db/migrations.py son en su mayoría
+      re-indentación: el cambio semántico real son 92 líneas añadidas y 77
+      eliminadas, según `git diff -w`.)
 
 6.3 Referencias de línea exactas
       app/core/config.py:217        _derivar_public_base_url (deriva desde Railway)
@@ -449,8 +505,11 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       tests/test_script_modules.py          c98ba4ae184a63e2db4e6282ed034132d9cb9051a36d7f709ea4ed3b2af28006
       tests/cli_smoke_test.py                9c2775713b03cfee51338cfe67a571ebc4d29830a472e8dc70e8ea2cef0182bd
       .env.example                          3f80afbc0af7fec3c36519cf7017ce793e075e8e69bc24dc02b80d20479d3257
-      .gitignore                            f40575b8629942f5ee698e5794addf3fee96548d516213d374ee50ad31f12608
-
+      .gitignore                            45c6294cc0ec351676411616ba86a48d0a9835c26c5c45da1e7bea5dea4871ad
+      docs/onboarding-demo/index.html       e061a25b33e1784c2e04e617f5d2d45b0503055b4084777f4799f8e4ee1274ae
+      docs/onboarding-demo/imgs/resultado-pruebas.svg
+                                             a875850714a66cf9... (6.049 bytes,
+                                             descargado del sitio publicado)
 6.5 Evidencia de validación (todo con ejecución real, sin mocks ni datos
     falsos)
       Suite pytest ......................... 91 passed, 0 failed (91/91)
@@ -472,6 +531,9 @@ LIMPIEZA DEL ÁRBOL DE TRABAJO
       Login real admin/admin123 ............. 200 (cookie access_token emitida)
       /kanban autenticado ................... 200 con data-resultado-pruebas
       /dashboard autenticado ................ 200 con las islas de la paleta
+      Flujo de estados en producción ......... 10 estados, 12 transiciones,
+                                              "produccion ok" alcanzable desde
+                                              "APROBADO QA" (intacto)
 
 6.6 Hallazgos NO resueltos en este lote (declarados, no ocultados)
       a) PAT de GitHub filtrado. Sigue siendo necesario ROTARLO (ver 7.3). El

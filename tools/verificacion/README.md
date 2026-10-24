@@ -47,6 +47,8 @@ un resumen `RESULTADO ...`. El código de salida es `0` si todo pasa.
 | `verificar_secretos_source.py` | 1 | Control de secretos sobre el directorio que se sube como `source_path` a almacenamiento privado. |
 | `recuperar_guia_publicada.py` | 12 | Recupera la versión publicada de la guía de Onboarding separando el contenido del proyecto del andamiaje que inyecta la plataforma de hosting (resaltado de iframe, globo flotante "Created by MiniMax Agent"), conservando los scripts propios del proyecto (resaltado del índice y `{{build_date}}`). No escribe nada si no supera las comprobaciones. |
 | `instalar_guia_recuperada.py` | 1 | Instala la guía recuperada como fuente canónica en `docs/onboarding-demo/` y reconstruye `dist/` (index.html + imgs/). Muestra el diff por líneas contra la versión anterior del repo. |
+| `verificar_flujo_produccion.py` | 8 | Comprueba contra la base de datos de PRODUCCIÓN que el estado terminal de producción existe una sola vez, que no hay homónimos duplicados, que es alcanzable y que conserva su salida. La base de producción usa un flujo propio (BackLog, En desarrollo, Entregado, APROBADO QA, `produccion ok`, DESESTIMADA, ...) y NO los estados del seed, así que la comprobación se hace sobre el flujo real y no sobre los nombres de ejemplo. |
+| `barrer_secrets_final.py` | 17 | Higiene final del repositorio: credenciales completas en el working tree, tokens en `.git/config` o en la URL del remote, secretos utilizables en el historial publicado, binarios de runtime versionados, árbol de trabajo limpio, `HEAD == origin/main` y cobertura de `.gitignore`. El detector descarta los valores de ejemplo (`re_XXXX...`, `PLACEHOLDER`), que no son secretos filtrados. |
 
 ## Nota de plataforma
 
