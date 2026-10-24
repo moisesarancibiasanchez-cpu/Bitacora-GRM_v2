@@ -908,33 +908,3 @@
 # This allows outer git to track inner repo files while preserving inner git history
 **/.git_backup_by_agent
 **/.git_backup_by_agent/
-
-# ==============================================================================
-# CLONES ANIDADOS DEL PROPIO REPOSITORIO
-# ==============================================================================
-# Un clon de este mismo repositorio (``Bitacora-GRM_v2/``) fue creado dentro
-# de la raíz de trabajo y quedó versionado junto al código canónico: 460 de
-# los 817 archivos del repo eran duplicados de una copia obsoleta (con su
-# propio ``.git`` y su propio ``.venv-test``). No contenía trabajo único y
-# era la causa de las rutas hardcodeadas ``/workspace/Bitacora-GRM_v2`` en
-# varios scripts. Se retiró del control de versiones y del disco.
-#
-# Regla preventiva: el código canónico vive SIEMPRE en la raíz del repo.
-/Bitacora-GRM_v2/
-
-# ==============================================================================
-# DATOS DE RUNTIME Y SCRATCH (NO son código fuente)
-# ==============================================================================
-# ``uploads/`` contiene los adjuntos subidos por los usuarios. En Railway el
-# filesystem es efímero (se borra en cada redeploy) y la copia persistente se
-# guarda en PostgreSQL como BYTEA (ver ``app/services/features_service.py``).
-# Versionar binarios de runtime ensucia el repo y engorda cada clon.
-/uploads/
-# ``tmp/`` es el directorio de trabajo del agente (scripts de auditoría,
-# logs, dumps). Regenerable.
-/tmp/
-# ``extract/`` es salida temporal de extracción web.
-/extract/
-# ``shell_output_save/`` es salida temporal de comandos de shell.
-/shell_output_save/
-
