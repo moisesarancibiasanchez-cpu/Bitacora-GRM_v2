@@ -14,7 +14,7 @@
 | `runtime.txt` | `python-3.12.5` para Railpack | ✅ |
 | `gunicorn.conf.py` | Pool de 2 workers × 4 threads, preload, recycle, logs a stdout | ✅ |
 | `wsgi.py` | Entry point ASGI re-exports `app` desde `app.main` | ✅ |
-| `start.sh` | Detecta rol (`web`/`worker`/`beat`) vía `RAILWAY_SERVICE_ROLE` | ✅ |
+| `start.sh` | Detecta rol (`web`/`worker`/`beat`) por `$PROC_TYPE` > `$APP_ROLE` > `$RAILWAY_SERVICE_ROLE` > `$RAILWAY_SERVICE_NAME` | ✅ |
 | `Dockerfile` | Build Python 3.12-slim, llama `start.sh` | ✅ |
 | `requirements.txt` | + `gunicorn==23.0.0`, `whitenoise==6.7.0`, `alembic==1.13.3` | ✅ |
 | `.env.example` | Documenta todas las variables de entorno (incl. Railway) | ✅ |
@@ -47,39 +47,86 @@ Railway inyectará automáticamente estas variables en cualquier servicio del pr
 
 ### 3. Crear los 3 servicios del backend
 
-Para cada servicio, ir a **"+ New" → GitHub Repo → mismo repo**:
+Para cada servicio, ir a **"+ New" → GitHub Repo → mismo repo**.
 
-#### A) Servicio `web` (FastAPI)
-- **Start Command** (override del `Procfile`):
-  ```
-  gunicorn -c gunicorn.conf.py app.main:app
-  ```
-- **Variables de entorno** (ir a "Variables" tab):
+> **Rol del proceso.** El rol NO se decide por el Start Command, sino por la
+> variable `PROC_TYPE` del servicio. Motivo: mientras Railway lea el
+> `railway.toml` del repo, su `startCommand = "bash start.sh"` tiene prioridad
+> sobre el Start Command del panel, y `RAILWAY_SERVICE_ROLE` (la variable que
+> el `start.sh` original usaba) **no la inyecta Railway** (la lista oficial de
+> variables es exhaustiva y no la incluye). Con el código anterior, un
+> servicio worker o beat caía en el rol `web` y arrancaba gunicorn: quedaba
+> "activo" sin consumir ninguna tarea.
+
+#### A) Servicio `web` (FastAPI) — ya existe
+- **Start Command:** `bash start.sh` (lo impone `railway.toml`; el rol sale
+  `web` por defecto porque no hay `PROC_TYPE`).
+- **Variables de entorno** (pestaña "Variables"):
   ```
   APP_NAME=Bitácora GRM
   APP_VERSION=0.1.0
   DEBUG=false
   USE_SQLITE=false
   SECRET_KEY=<generar-con-secrets.token>
-  CORS_ORIGINS=["https://tu-dominio.up.railway.app"]
+  CORS_ORIGINS=["https://bitacora-grmv2-production.up.railway.app"]
+  PUBLIC_BASE_URL=https://bitacora-grmv2-production.up.railway.app
   ```
-- **Networking:** Genera un dominio (`tu-proyecto.up.railway.app`).
-- **Healthcheck:** Ya está configurado en `railway.toml` apuntando a `/health`.
+- **Networking:** dominio `bitacora-grmv2-production.up.railway.app`.
+- **Healthcheck:** `/health` (viene de `railway.toml`).
 
-#### B) Servicio `worker` (Celery worker)
-- **Start Command:**
-  ```
-  celery -A app.core.celery_app:celery_app worker --loglevel=info --concurrency=2
-  ```
-- Mismas variables de entorno que `web` (sin `CORS_ORIGINS`).
-- **No necesita dominio público** (es interno).
+#### B) Servicio `worker` (Celery worker) — crear
+- **Start Command:** `bash start.sh`
+- **Variable de servicio:** `PROC_TYPE=worker`
+- **Variables de entorno:** las del servicio `web`, **más** las bases de datos.
+  Lo más simple es usar *Shared Variables* del proyecto para `SECRET_KEY`,
+  `DEBUG`, `USE_SQLITE` y `PUBLIC_BASE_URL`, y adjuntar los plugins:
+  - `DATABASE_URL=${{Postgres.DATABASE_URL}}` (o el botón "Attach")
+  - `REDIS_URL=${{Redis.REDIS_URL}}` (o el botón "Attach")
+  - `CELERY_BROKER_URL` y `CELERY_RESULT_BACKEND` **no hacen falta**:
+    `app/core/config.py` los deriva de `REDIS_URL` (bases 1 y 2) cuando no
+    están definidos. Si se definen, mandan sobre el valor derivado.
+- **No necesita dominio público** (es interno). Si se le deja
+  "Healthcheck Path" vacío, no hay healthcheck que pueda fallar (un worker no
+  tiene servidor HTTP).
+- Beat debe ser **un solo servicio**: dos instancias dispararían cada tarea
+  programada dos veces.
 
-#### C) Servicio `beat` (Celery scheduler)
-- **Start Command:**
-  ```
-  celery -A app.core.celery_app:celery_app beat --loglevel=info
-  ```
-- Mismas variables de entorno que `worker`.
+#### C) Servicio `beat` (Celery scheduler) — crear
+- **Start Command:** `bash start.sh`
+- **Variable de servicio:** `PROC_TYPE=beat`
+- **Variables de entorno:** exactamente las del servicio `worker`.
+- **No usar "Cron Schedule" de Railway** para este servicio: el Cron Job de
+  Railway exige que el proceso termine (si no, se saltan las ejecuciones
+  siguientes) y `celery beat` es un planificador permanente. El calendario lo
+  lleva celery (`app/core/celery_app.py`).
+- El fichero de calendario de celery beat se escribe en
+  `/tmp/celerybeat-schedule` (ruta escribible); se puede cambiar con
+  `CELERY_BEAT_SCHEDULE_FILE`.
+
+### 3.1 Reiniciar el worker o el beat (sin recrearlos)
+
+1. Proyecto → entorno `production` → clic en el servicio `worker` (o `beat`).
+2. Pestaña **Deployments** → deployment **ACTIVE** → menú de tres puntos
+   (`⋮`) → **Restart**. Railway redeploya la última imagen sin tocar la
+   configuración.
+   - Equivalente por CLI: `railway redeploy --service worker --environment production`.
+3. En **Variables**, tras cambiar algo, los cambios quedan en *staged changes*:
+   hay que pulsarlos (Deploy) para que se apliquen. Un "Restart" sin Deploy
+   de los cambios previos no aplica las variables nuevas.
+
+Comprobación: en los logs del servicio debe aparecer
+`[start.sh] Iniciando Bitácora GRM (rol=worker)` (o `rol=beat`). Si aparece
+`rol=web`, el `PROC_TYPE` no está llegando al contenedor.
+
+### 3.2 Si el servicio worker/beat aparece "Failed"
+
+| Síntoma | Causa | Solución |
+|---|---|---|
+| Deployment fallido con error de healthcheck | El servicio heredó `healthcheckPath = "/health"` de `railway.toml`, pero no hay servidor HTTP | Service → Settings → Healthcheck Path → vaciar |
+| Logs con `Rol desconocido` o proceso `gunicorn` | Falta `PROC_TYPE` o tiene un valor inválido | Variables → `PROC_TYPE=worker` (o `beat`) → Deploy |
+| `ConnectionError` contra `redis://localhost:6379` | Falta `REDIS_URL` en ese servicio | Adjuntar Redis (o `REDIS_URL=${{Redis.REDIS_URL}}`) → Deploy |
+| El worker arranca pero no consume tareas | No hay `celery beat` (nadie encola las tareas periódicas) | Crear/arrancar el servicio `beat` |
+| `celery beat` se reinicia solo | Dos instancias de beat sobre el mismo calendario | Dejar un único servicio `beat` |
 
 ### 4. Inicializar la base de datos
 
@@ -107,6 +154,22 @@ Abrir `https://tu-proyecto.up.railway.app/health` y comprobar:
 
 Si todo es `ok`, ir a `/kanban` para ver el tablero.
 
+Verificar además el worker y el beat (en los logs de cada servicio):
+
+```
+[start.sh] Iniciando Bitácora GRM (rol=worker)
+[INFO] celery@<host> ready
+```
+
+```
+[start.sh] Iniciando Bitácora GRM (rol=beat)
+[INFO] celery beat v5.x starting
+```
+
+Si el rol resuelto no es el esperado, revisar la variable `PROC_TYPE` de ese
+servicio. La matriz de resolución está verificada en
+`tools/verificacion/verificar_rol_celery.py` (16/16 comprobaciones).
+
 ---
 
 ## 🔍 Variables de entorno detalladas
@@ -120,8 +183,9 @@ Si todo es `ok`, ir a `/kanban` para ver el tablero.
 | `SECRET_KEY` | (placeholder) | **OBLIGATORIO** cambiar en producción. Generar con `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `DATABASE_URL` | (Railway auto) | Inyectada por Railway al adjuntar PostgreSQL |
 | `REDIS_URL` | (Railway auto) | Inyectada por Railway al adjuntar Redis |
-| `CELERY_BROKER_URL` | `redis://.../1` | DB Redis para cola de tareas |
-| `CELERY_RESULT_BACKEND` | `redis://.../2` | DB Redis para resultados |
+| `CELERY_BROKER_URL` | derivado de `REDIS_URL` (db 1) | DB Redis para cola de tareas. Si **no** se define, `app/core/config.py` lo deriva de `REDIS_URL` (base 1) |
+| `CELERY_RESULT_BACKEND` | derivado de `REDIS_URL` (db 2) | DB Redis para resultados. Si **no** se define, se deriva de `REDIS_URL` (base 2) |
+| `PROC_TYPE` | (vacío) | Rol del proceso para `start.sh`: `web` \| `worker` \| `beat`. **Obligatorio** en los servicios worker y beat |
 | `AUTO_INIT_DB` | `false` | Si `true`, ejecuta `init_db` al arranque (solo desarrollo) |
 | `PORT` | (Railway auto) | Inyectada por Railway |
 | `WEB_CONCURRENCY` | `2` | Workers de gunicorn |

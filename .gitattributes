@@ -1,0 +1,8 @@
+# Los scripts de shell se ejecutan en Linux (Railway, Nixpacks).
+# Con CRLF, bash falla antes de arrancar:
+#   /usr/bin/env bash^M -> bad interpreter
+#   set: -e\r: invalid option
+# Por eso se fuerza LF en el working tree y en el blob.
+*.sh    text eol=lf
+*.bash  text eol=lf
+Procfile text eol=lf

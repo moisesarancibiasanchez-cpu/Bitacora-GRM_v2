@@ -2,6 +2,32 @@
 #  railway.toml - Bitácora GRM
 #  Configuración de despliegue para Railway (Railpack builder)
 # =============================================================================
+# =============================================================================
+#  ALCANCE DE ESTE ARCHIVO (verificado contra la documentacion de Railway):
+#
+#  * Railway lee `railway.toml` SOLO para los servicios "legacy" que ya lo
+#    tienen asociado. Los servicios NUEVOS no pueden optar a Config as Code,
+#    asi que un servicio worker/beat creado desde este repositorio NO hereda
+#    este archivo: usa el Start Command definido en su panel.
+#  * "Configuration defined in code will always override values from the
+#    dashboard": mientras este archivo se lea, su `startCommand` tiene
+#    prioridad sobre el Start Command del panel.
+#  * Config as Code esta deprecado: el 2026-12-01 Railway deja de leer estos
+#    archivos. A partir de esa fecha, `DEBUG` y `USE_SQLITE` deben estar
+#    definidos como variables en el panel (o como Shared Variables del
+#    proyecto), no solo aqui.
+#
+#  Por eso el rol web/worker/beat NO se decide por el Start Command, sino
+#  por variables: `start.sh` las lee en este orden:
+#     $PROC_TYPE > $APP_ROLE > $RAILWAY_SERVICE_ROLE > $RAILWAY_SERVICE_NAME
+#  Ver `start.sh` y `tools/verificacion/verificar_rol_celery.py`.
+#
+#  NOTA SOBRE EL HEALTHCHECK: `healthcheckPath` solo tiene sentido para el
+#  servicio web. Si un servicio worker/beat llegara a heredar este archivo,
+#  el healthcheck /health fallaria (no hay servidor HTTP) y el deployment se
+#  marcaria como fallido. Si eso ocurre, vaciar el campo "Healthcheck Path"
+#  de ese servicio en el panel.
+
 [build]
 builder = "NIXPACKS"
 buildCommand = "pip install --upgrade pip && pip install -r requirements.txt"
@@ -22,9 +48,16 @@ APP_VERSION = "0.1.0"
 DEBUG = "false"
 USE_SQLITE = "false"
 
-# === Tres servicios sugeridos en Railway ===
-# 1) web  -> este mismo servicio (FastAPI)
-# 2) worker -> mismo repo, comando "celery ... worker"
-# 3) beat   -> mismo repo, comando "celery ... beat"
-# Crear los servicios adicionales desde el dashboard de Railway apuntando al
-# mismo repositorio y ajustar el startCommand según el Procfile.
+# === Los tres servicios de Bitácora GRM en Railway ===
+# 1) web    -> este mismo servicio (FastAPI + gunicorn)
+# 2) worker -> servicio NUEVO desde el mismo repo, Start Command:
+#                 bash start.sh
+#              y variable de servicio: PROC_TYPE=worker
+# 3) beat   -> servicio NUEVO desde el mismo repo, Start Command:
+#                 bash start.sh
+#              y variable de servicio: PROC_TYPE=beat
+#
+# El rol se decide por la variable PROC_TYPE, NO por el Start Command: asi
+# funciona igual si el servicio hereda este archivo (startCommand = bash
+# start.sh) o si usa el Start Command del panel.
+# Detalle paso a paso en RAILWAY_DEPLOY.md.

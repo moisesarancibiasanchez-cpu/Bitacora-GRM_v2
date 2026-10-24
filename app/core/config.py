@@ -7,10 +7,37 @@ import logging
 import os
 from functools import lru_cache
 from typing import List
-from pydantic import field_validator
+from urllib.parse import urlsplit, urlunsplit
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+# Defaults de Celery. Se usan como sentinel para saber si el valor actual
+# viene del entorno (o de un .env) o es simply el default de la clase.
+_CELERY_BROKER_DEFAULT = "redis://localhost:6379/1"
+_CELERY_BACKEND_DEFAULT = "redis://localhost:6379/2"
+
+
+def _redis_url_con_db(url: str, db: int) -> str:
+    """Devuelve la URL de Redis apuntando a la base de datos ``db``.
+
+    Conserva esquema, credenciales, host, puerto y query. Si la URL no se
+    puede parsear se devuelve tal cual (no se inventa nada).
+    """
+    if not url:
+        return url
+    try:
+        partes = urlsplit(url)
+    except ValueError:
+        return url
+    if not partes.scheme or not partes.netloc:
+        # URL sin esquema (p. ej. "host:6379"): no se puede reescribir de
+        # forma segura, se deja intacta.
+        return url
+    return urlunsplit(
+        (partes.scheme, partes.netloc, f"/{db}", partes.query, partes.fragment)
+    )
 
 
 class Settings(BaseSettings):
@@ -55,9 +82,15 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "bitacora_grm"
 
     # === Redis / Celery ===
+    # ``REDIS_URL`` es lo único que Railway inyecta al adjuntar el plugin de
+    # Redis. ``CELERY_BROKER_URL`` y ``CELERY_RESULT_BACKEND`` se derivan
+    # automáticamente de ``REDIS_URL`` (bases 1 y 2) cuando no se definen de
+    # forma explícita: ver ``_derivar_urls_celery``. Sin ese derivado, un
+    # servicio worker/beat desplegado en Railway publicaba contra
+    # ``redis://localhost:6379`` (el default local) y fallaba al encolar.
     REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    CELERY_BROKER_URL: str = _CELERY_BROKER_DEFAULT
+    CELERY_RESULT_BACKEND: str = _CELERY_BACKEND_DEFAULT
 
     # === Autenticación ===
     JWT_ALGORITHM: str = "HS256"
@@ -171,6 +204,36 @@ class Settings(BaseSettings):
     # envío mientras se ajusta la plantilla). El admin puede togglearlo
     # desde la UI.
     REPORTE_ENTREGAS_HABILITADO: bool = True
+
+    # ------------------------------------------------------------------
+    # Derivación de las URLs de Celery a partir de REDIS_URL
+    # ------------------------------------------------------------------
+    @model_validator(mode="after")
+    def _derivar_urls_celery(self) -> "Settings":
+        """Deriva broker/backend de Celery desde ``REDIS_URL`` si no se definieron.
+
+        Railway sólo inyecta ``REDIS_URL`` al adjuntar el plugin de Redis; los
+        campos ``CELERY_BROKER_URL`` / ``CELERY_RESULT_BACKEND`` defaults a
+        ``localhost``. Sin este derivado, los servicios *worker* y *beat*
+        intentaban publicar contra ``redis://localhost:6379/1`` y fallaban con
+        ``ConnectionError`` nada más arrancar.
+
+        Sólo se deriva cuando el valor NO viene del entorno: se respeta
+        siempre la configuración explícita (panel de Railway o ``.env``).
+        """
+        broker_explicito = (
+            "CELERY_BROKER_URL" in os.environ
+            or self.CELERY_BROKER_URL != _CELERY_BROKER_DEFAULT
+        )
+        backend_explicito = (
+            "CELERY_RESULT_BACKEND" in os.environ
+            or self.CELERY_RESULT_BACKEND != _CELERY_BACKEND_DEFAULT
+        )
+        if not broker_explicito:
+            self.CELERY_BROKER_URL = _redis_url_con_db(self.REDIS_URL, 1)
+        if not backend_explicito:
+            self.CELERY_RESULT_BACKEND = _redis_url_con_db(self.REDIS_URL, 2)
+        return self
 
     def get_database_url(self) -> str:
         """Devuelve la URL de BD; si no se configuró, construye la de PostgreSQL."""

@@ -2,8 +2,9 @@
 # =============================================================================
 #  start.sh - Bitácora GRM
 #  Punto de entrada único para Railway (lo invoca `railway.toml`).
-#  Detecta si el proceso es web, worker o beat leyendo la variable
-#  $RAILWAY_SERVICE_ROLE o $PROC_TYPE.
+#  Detecta si el proceso es web, worker o beat leyendo, por orden:
+#    $PROC_TYPE / $APP_ROLE > $RAILWAY_SERVICE_ROLE > $RAILWAY_SERVICE_NAME
+#  (Railway NO inyecta RAILWAY_SERVICE_ROLE; ver el bloque de deteccion).
 # =============================================================================
 set -e
 
@@ -194,8 +195,76 @@ _asegurar_secret_key() {
 _asegurar_secret_key
 
 # 1) Detectar rol del proceso
-ROLE="${RAILWAY_SERVICE_ROLE:-${PROC_TYPE:-web}}"
-ROLE="$(echo "$ROLE" | tr '[:upper:]' '[:lower:]')"
+# -----------------------------------------------------------------------------
+# Orden de precedencia:
+#   1) $PROC_TYPE / $APP_ROLE  -> variable del servicio (panel de Railway)
+#   2) $RAILWAY_SERVICE_ROLE   -> compatibilidad Heroku (Railway NO la pone)
+#   3) $RAILWAY_SERVICE_NAME   -> Railway SIEMPRE la inyecta; de aqui se
+#                                 infiere el rol a partir del nombre del
+#                                 servicio ("worker", "beat", "web"...)
+#   4) web                     -> valor por defecto (web, Docker, local)
+#
+# OJO: Railway NO define `RAILWAY_SERVICE_ROLE` ni `RAILWAY_SERVICE_TYPE`
+# (lista oficial exhaustiva: https://docs.railway.com/variables/reference).
+# Confiar solo en esas variables hacia que TODO servicio (worker y beat
+# incluidos) resolviera el rol "web" y arrancara gunicorn en vez de celery:
+# el servicio quedaba "activo" pero nunca consumia ninguna tarea.
+#
+# "cron" NO se mapea a "beat" a proposito: el Cron Job de Railway exige que
+# el proceso termine (si no, se saltan las ejecuciones siguientes) y celery
+# beat es un planificador permanente.
+
+_normalizar_rol() {
+    local valor
+    valor="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' \t-_')"
+    case "$valor" in
+        web|api|app|webapp|http|server)    echo "web" ;;
+        worker|queue|consumer)              echo "worker" ;;
+        beat|scheduler|celerybeat)          echo "beat" ;;
+        *)                                  echo "" ;;
+    esac
+}
+
+ROL_DETECTADO=""
+
+_detectar_rol() {
+    local fuente valor rol
+
+    # 1) Variable explicita del servicio.
+    for fuente in PROC_TYPE APP_ROLE RAILWAY_SERVICE_ROLE; do
+        valor="$(printenv "$fuente" 2>/dev/null || true)"
+        if [[ -n "$valor" ]]; then
+            rol="$(_normalizar_rol "$valor")"
+            if [[ -z "$rol" ]]; then
+                echo "[start.sh] ERROR: rol desconocido en $fuente='$valor'." >&2
+                echo "[start.sh] Valores admitidos: web | worker | beat" >&2
+                exit 1
+            fi
+            ROL_DETECTADO="$rol"
+            echo "[start.sh] Rol detectado desde $fuente='$valor' -> $rol"
+            return 0
+        fi
+    done
+
+    # 2) Nombre del servicio (Railway siempre lo inyecta).
+    valor="${RAILWAY_SERVICE_NAME:-}"
+    if [[ -n "$valor" ]]; then
+        case "$(printf '%s' "$valor" | tr '[:upper:]' '[:lower:]')" in
+            *worker*)                    ROL_DETECTADO="worker"; echo "[start.sh] Rol detectado desde RAILWAY_SERVICE_NAME='$valor' -> worker"; return 0 ;;
+            *beat*|*scheduler*)          ROL_DETECTADO="beat";   echo "[start.sh] Rol detectado desde RAILWAY_SERVICE_NAME='$valor' -> beat";   return 0 ;;
+            *web*|*api*)                 ROL_DETECTADO="web";    echo "[start.sh] Rol detectado desde RAILWAY_SERVICE_NAME='$valor' -> web";    return 0 ;;
+        esac
+    fi
+
+    # 3) Por defecto, web.
+    ROL_DETECTADO="web"
+    echo "[start.sh] AVISO: no se pudo determinar el rol; se asume 'web'." >&2
+    echo "[start.sh] AVISO: define PROC_TYPE=worker|beat en el servicio para" >&2
+    echo "[start.sh] AVISO: arrancar celery en lugar de gunicorn." >&2
+}
+
+_detectar_rol
+ROLE="$ROL_DETECTADO"
 
 echo "[start.sh] Iniciando Bitácora GRM (rol=$ROLE)"
 
@@ -244,11 +313,18 @@ case "$ROLE" in
         exec celery -A app.core.celery_app:celery_app worker --loglevel=info --concurrency=2
         ;;
     beat)
+        # El fichero de calendario de celery beat debe estar en una ruta
+        # escribible: el CWD del contenedor puede ser de solo lectura.
+        # Solo debe existir UNA instancia de beat en el proyecto (dos beats
+        # dispararian cada tarea dos veces).
         echo "[start.sh] Lanzando celery beat..."
-        exec celery -A app.core.celery_app:celery_app beat --loglevel=info
+        exec celery -A app.core.celery_app:celery_app beat --loglevel=info \
+            --schedule="${CELERY_BEAT_SCHEDULE_FILE:-/tmp/celerybeat-schedule}"
         ;;
     *)
-        echo "[start.sh] Rol desconocido '$ROLE', cayendo a web"
+        # `_detectar_rol` ya aborta ante un rol explicito desconocido, asi que
+        # solo se llega aqui con el rol por defecto.
+        echo "[start.sh] Rol desconocido '$ROLE', cayendo a web" >&2
         exec gunicorn -c gunicorn.conf.py app.main:app
         ;;
 esac
