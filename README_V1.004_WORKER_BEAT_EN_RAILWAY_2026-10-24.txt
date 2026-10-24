@@ -74,13 +74,14 @@ corrigió una fuga de credenciales detectada durante el despliegue.
                      DATABASE_URL y REDIS_URL como referencias
                      ${{Postgres.DATABASE_URL}} / ${{Redis.REDIS_URL}}
                      y AUTO_INIT_DB=false (solo el web aplica migraciones)
-    - Despliegue   : a13e18b1-175f-402f-a7ac-5432f3821664  -> SUCCESS
+    - Despliegue   : c357af79-4713-44e6-87f3-165073c40e23  -> SUCCESS
 
   beat (1c16b13c-4533-40c9-b63e-43b00cb14041)
     - Start Command : bash start.sh
     - Healthcheck   : (vacío)
     - Variables    : 22 (idénticas a las del worker, con PROC_TYPE=beat)
-    - Despliegue   : ee86d872-9026-424d-af9c-d35dec649721  -> SUCCESS
+    - Despliegue   : 14bc293d-548d-4e2a-8b03-4b9453fe696a  -> SUCCESS
+                     (tras el incidente descrito en 6.3.1)
 
   El web NO se tocó: ni variables, ni start command, ni healthcheck, ni
   reinicio. Sigue con su despliegue d8408b2a-5a09-45bb-bb74-6d76fadae8da.
@@ -109,8 +110,9 @@ corrigió una fuga de credenciales detectada durante el despliegue.
 3. QUÉ NO SE MODIFICÓ
 --------------------------------------------------------------------------------
 
-- El servicio web: ni una variable, ni un reinicio, ni un redeploy forzado.
-  Su despliegue sigue siendo d8408b2a.
+- El servicio web: ni una variable, ni un cambio de start command, ni de
+  healthcheck, ni un reinicio manual. Sólo lo redesplegó automáticamente
+  Railway al recibir el push de este lote (despliegue 553f6ec2).
 - La base de datos: 0 escrituras de esquema. En el arranque del web las
   migracionesapplied=0 skipped=25 indexes=21 errors=0 data_migrated=2
   (idempotentes, sin cambios). El worker y el beat NO ejecutan migraciones
@@ -278,7 +280,7 @@ corrigió una fuga de credenciales detectada durante el despliegue.
   168e679e8c4843f97f5854061da7ed79c27dc13feff8f49448bf46a190247fe6  tools/verificacion/verificar_railway_worker_beat.py
 6.3) Evidencia: logs reales de producción
 -------------------------------------------------------------------------------
-  worker (despliegue a13e18b1, SUCCESS):
+  worker (despliegue c357af79, SUCCESS):
     [start.sh] SECRET_KEY generado (len=64) y persistido en /data/secret_key
     [start.sh] Rol detectado desde PROC_TYPE='worker' -> worker
     [start.sh] Iniciando Bitácora GRM (rol=worker)
@@ -296,7 +298,7 @@ corrigió una fuga de credenciales detectada durante el despliegue.
     Connected to redis://default:***@redis.railway.internal:6379/1
     celery@618587578f5f ready.
 
-  beat (despliegue ee86d872, SUCCESS):
+  beat (despliegue 14bc293d, SUCCESS):
     [start.sh] Rol detectado desde PROC_TYPE='beat' -> beat
     [start.sh] Lanzando celery beat...
     celery beat v5.4.0 (opalescent) is starting.
@@ -314,7 +316,8 @@ corrigió una fuga de credenciales detectada durante el despliegue.
             received
     worker: Task ... succeeded in 0.1858279574662447s: {'ok': True, 'pr...}
 
-  web (despliegue d8408b2a, SUCCESS) - sin cambios en este lote:
+  web (despliegue 553f6ec2, SUCCESS): redeploy automático por el push (sin
+  cambios manuales de configuración en el servicio web):
     [start.sh] SECRET_KEY generado (len=64) y persistido en /data/secret_key
     [start.sh] AVISO: no se pudo determinar el rol; se asume 'web'.
     [start.sh] Verificando/Aplicando migraciones...
@@ -322,15 +325,44 @@ corrigió una fuga de credenciales detectada durante el despliegue.
                  data_migrated=2
     [start.sh] Lanzando gunicorn (web)...
     [INFO] Starting gunicorn 23.0.0 / Listening at: http://0.0.0.0:8080 (1)
+    Inicializando BD: postgresql://postgres:***@postgres.railway.internal:5432/railway
+      (tras el fix de este lote: la URL va enmascarada; antes mostraba la
+       contraseña completa)
+
+6.3.1) Incidente: un despliegue puede quedarse en DEPLOYING sin arrancar
+-------------------------------------------------------------------------------
+  Al redesplegar los tres servicios con el commit del fix, el despliegue del
+  beat (78faf027) se quedó 18 minutos en estado DEPLOYING con CERO líneas de
+  log. Diagnóstico: el despliegue ANTERIOR del beat (ee86d872) seguía en
+  marcha y enviando tareas con normalidad (Scheduler: Sending due task a las
+  20:15, 20:20, 20:25 y 20:30), es decir, Railway conserva el contenedor
+  activo mientras el nuevo no arranca: NO era una caída de servicio.
+
+  Resolución (por API):
+    1) deploymentCancel(id: "78faf027-...") -> True. Tras la cancelación, el
+       latestDeployment vuelve al despliegue SUCCESS anterior y el beat siguió
+       encolando tareas.
+    2) serviceInstanceRedeploy(environmentId, serviceId) -> nuevo despliegue
+       14bc293d: BUILDING -> DEPLOYING -> SUCCESS en ~3 minutos, arrancando
+       con rol=beat y /tmp/celerybeat-schedule.
+
+  Lección operativa: si un despliegue se queda en DEPLOYING sin logs, el
+  servicio anterior suele seguir sirviendo; comprobar los logs del
+  despliegue ANTERIOR antes de asumir una caída, y usar deploymentCancel +
+  serviceInstanceRedeploy para desbloquear.
 
 6.4) Comprobaciones ejecutadas
 -------------------------------------------------------------------------------
   tools/verificacion/verificar_railway_worker_beat.py   24/24 OK
+      (ejecutado sobre los despliegues finales c357af79 / 14bc293d)
   Enmascarado de la URL de BD                             9/9 OK
   pytest tests/ -q --tb=line                              91 passed, 0 failed
   Barrido de rutas contra producción                       0x5xx, todas OK
   /health                                                  200 {"status":"ok",
       "database":"ok","redis":"ok"}
+  Log de arranque del web tras el fix                     "Inicializando BD:
+      postgresql://postgres:***@postgres.railway.internal:5432/railway"
+      y ninguna linea del log con una contraseña real
 
 6.5) Hallazgos NO resueltos (declarados, no ocultados)
 -------------------------------------------------------------------------------
