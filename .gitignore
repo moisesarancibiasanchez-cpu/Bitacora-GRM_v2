@@ -937,4 +937,8 @@
 /extract/
 # ``shell_output_save/`` es salida temporal de comandos de shell.
 /shell_output_save/
+# ``imgs/`` contiene las capturas de evidencia de QA (Playwright) y las
+# ilustraciones usadas para construir el artefacto estatico ``dist/``. Son
+# regenerables y no forman parte del codigo fuente de la aplicacion.
+/imgs/
 
