@@ -83,6 +83,9 @@ Alcance             : 24 archivos modificados, 6 archivos nuevos, 460 archivos
     │    │ GRM_v2 en 3 docstrings                     │ otros entornos           │
     │ 17 │ Binarios de runtime y scratch versionados  │ BAJA — repo inflado,     │
     │    │ (uploads/, shell_output_save/)             │ clones de 289 MB         │
+    │ 18 │ Regresión externa: un commit automático    │ MEDIA — el repo volvía   │
+    │    │ revirtió el .gitignore endurecido y       │ a 363 archivos y podía  │
+    │    │ reinscribió 25 binarios de uploads/       │ volver a inflar el clon │
     └────┴──────────────────────────────────────────┴───────────────────────────┘
 
 1.4 Estado de validación ANTES de este release
@@ -726,6 +729,53 @@ Alcance             : 24 archivos modificados, 6 archivos nuevos, 460 archivos
        extract/, logs/ y una BD de test). Todos sus archivos de código eran
        copias idénticas o desactualizadas de la raíz.
 
+2.22 REGRESIÓN EXTERNA — RESTAURACIÓN DEL .gitignore Y RETIRADA DE uploads/
+     Hallazgo detectado DURANTE la preparación del release: un commit
+     automático ajeno al control de cambios (0b7fcec, "Message 455676274565485")
+     revirtió el `.gitignore` endurecido de la §2.17 y reinscribió 25 binarios
+     de runtime de `uploads/` en el control de versiones. Efecto: el árbol
+     versionado volvía de 338 a 363 archivos y el clon anidado podía
+     re-inflarse sin que nada lo impidiera.
+
+     Diagnóstico (el diff fue EXACTAMENTE las 30 líneas añadidas en §2.17):
+
+         $ git diff 373b9e5 HEAD -- .gitignore
+         @@ -908,33 +908,3 @@
+          **/.git_backup_by_agent
+          **/.git_backup_by_agent/
+         -
+         -# ==============================================
+         -# CLONES ANIDADOS DEL PROPIO REPOSITORIO
+         -# ==============================================
+         -...
+         -/Bitacora-GRM_v2/
+         -# ==============================================
+         -# DATOS DE RUNTIME Y SCRATCH (NO son código fuente)
+         -# ==============================================
+         -/uploads/
+         -/tmp/
+         -/extract/
+         -/shell_output_save/
+
+     Corrección aplicada (commit 9968e1f):
+
+         git checkout 373b9e5 -- .gitignore
+         git rm -r --cached uploads
+
+     Verificación posterior:
+         - `.gitignore` contiene las 5 reglas raíz: /Bitacora-GRM_v2/,
+           /uploads/, /tmp/, /extract/, /shell_output_save/
+         - Archivos versionados: 363 -> 338
+         - `uploads/` versionados: 25 -> 0 (los archivos permanecen en disco)
+         - Clon anidado versionado: 0 (sin cambio)
+         - `.env` versionado: 0 (sin cambio)
+
+     Nota operativa: esta regresión puede repetirse si un proceso externo
+     vuelve a commitear el árbol de trabajo. Por eso las reglas viven en
+     `.gitignore` (control de contenido) y no sólo en la disciplina del
+     committer, y por eso el `.gitignore` restaurado se versiona en el
+     mismo commit que la eliminación de `uploads/`.
+
 --------------------------------------------------------------------------------
  3. CAMBIO ÚNICO
 --------------------------------------------------------------------------------
@@ -1034,14 +1084,52 @@ J. Test de no-regresión de la suite (post-despliegue, opcional)
 - Autor                : MiniMax Agent
 - Fecha                : 2026-10-24
 
+7.1 Cadena de commits publicada (main)
+
+  1c74595  (base)                Message 455637603586253
+    |
+  373b9e5  feat(resultado)       Indicador de Resultado de Pruebas con paleta
+          |                      unificada + reparacion general
+          |                      517 archivos, +3168 / -142274
+  0b7fcec  (automatico externo)  Message 455676274565485
+          |                      Revertio .gitignore y reinscribio uploads/
+  9968e1f  chore(repo)           Restaura .gitignore endurecido y saca
+          |                      uploads/ del control de versiones
+          |                      (ver seccion 2.22)
+  95822c3  chore(release)        Actualiza la trazabilidad de este README
+          |                      con los hashes finales
+          |
+  23d153f  Merge origin/main    Integra 678ff27 (feat(itsm-kanban-mvp)) sin
+          |                      reescribir historia. Sin conflictos: el
+          |                      contenido itsm_kanban_mvp/ ya era identico.
+          |
+  <push>   origin/main          Publicacion en GitHub
+
+7.2 Estado final del repositorio tras la publicacion
+
+  - Archivos versionados        : 338 (base: 817)
+  - Clon anidado versionado     : 0
+  - Binarios de runtime (uploads/): 0 (conservados en disco)
+  - .env versionado             : 0 (solo .env.example)
+  - .gitignore con reglas raiz  : 5 (/Bitacora-GRM_v2/, /uploads/, /tmp/,
+                                  /extract/, /shell_output_save/)
+  - itsm_kanban_mvp/ versionado : 41 archivos (integrado desde origin/main)
+  - Working tree                : limpio
+
 --------------------------------------------------------------------------------
  8. INSTRUCCIONES DE DESPLIEGUE OPERACIONAL (resumen ejecutivo)
 --------------------------------------------------------------------------------
 
-1. Commit (incluyendo este README):
+1. Publicación en GitHub (ya ejecutada; se documenta para reproducibilidad):
        git add -A
        git commit -m "feat(resultado): indicador de Resultado de Pruebas con paleta unificada + reparación general"
+       # origin/main tenía un commit propio (678ff27) no presente en local:
+       git fetch origin main
+       git merge origin/main --no-edit     # sin conflictos; no reescribe historia
        git push origin main
+       # Si el entorno no tiene credential helper, usar un token:
+       #   GIT_TERMINAL_PROMPT=0 git push \
+       #     https://<TOKEN>@github.com/moisesarancibiasanchez-cpu/Bitacora-GRM_v2.git main
 
 2. Verificación del Worker (CRÍTICA, ver §5):
        En Railway: reiniciar el servicio "worker" después del redeploy.
