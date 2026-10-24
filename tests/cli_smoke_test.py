@@ -69,7 +69,23 @@ def _run_cli(extra_args):
         *extra_args,
     ]
     print(f"\n$ {' '.join(cmd)}")
-    p = subprocess.run(cmd, capture_output=True, text=True, env=os.environ.copy())
+    # El script hace ``from app.db.session import SessionLocal``, así que la
+    # raíz del repo tiene que estar en su ``sys.path``. No se da por supuesto
+    # que el paquete esté instalado: se pasa por ``PYTHONPATH``, que el
+    # subproceso hereda. (El runner de pytest, además, ya insure la raíz en
+    # el primer nivel; esto cubre el segundo nivel, el script real.)
+    env = os.environ.copy()
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    actual = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = repo_root + (os.pathsep + actual if actual else "")
+    p = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
     return p.returncode, p.stdout, p.stderr
 
 

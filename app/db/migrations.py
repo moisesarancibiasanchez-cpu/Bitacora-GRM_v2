@@ -20,6 +20,8 @@ Convenciones:
 from __future__ import annotations
 
 import logging
+import unicodedata
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import inspect, text
@@ -28,6 +30,43 @@ from sqlalchemy.engine import Engine
 from app.db.base import Base
 
 logger = logging.getLogger(__name__)
+
+
+def _normalizar_texto(valor: str) -> str:
+    """Normaliza un nombre para compararlo de forma tolerante.
+
+    Convierte a minúsculas, elimina los acentos y colapsa los espacios
+    sobrantes. Se usa para comparar nombres de estados en las migraciones
+    de datos: el nombre canónico del estado es ``'Producción OK'`` (con
+    tilde), pero la comparación SQL ``LOWER(nombre) = 'produccion ok'``
+    (sin tilde) NUNCA coincidía en PostgreSQL ni en SQLite.
+
+    Esa incoherencia provocaba dos fallos reales:
+
+    * el pre-check de 4.6 no encontraba el estado ya existente, así que en
+      cada arranque se insertaba una fila **duplicada** de 'Producción OK';
+    * los ``INSERT`` de 4.7 no resolvían los ids de origen/destino, así que
+      las 3 transiciones del flujo 'Producción OK' **nunca** se creaban.
+
+    Normalizar en Python es portable: funciona igual en PostgreSQL y SQLite
+    sin depender de funciones de un dialecto concreto.
+    """
+    if not valor:
+        return ""
+    descompuesto = unicodedata.normalize("NFD", str(valor))
+    sin_acentos = "".join(c for c in descompuesto if not unicodedata.combining(c))
+    return " ".join(sin_acentos.lower().split())
+
+
+def _estados_por_nombre(conn, nombre_normalizado: str) -> List[int]:
+    """Ids de todos los estados cuyo nombre normalizado coincide.
+
+    Puede devolver más de un id: si una versión anterior de la migración
+    insertó filas duplicadas de 'Producción OK' (por el bug de acentos),
+    todas deben quedar conectadas con sus transiciones.
+    """
+    filas = conn.execute(text("SELECT id, nombre FROM estados")).fetchall()
+    return [fila[0] for fila in filas if _normalizar_texto(fila[1]) == nombre_normalizado]
 
 
 def _get_default_engine() -> Engine:
@@ -280,69 +319,96 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
       ``Ventas``, ``RRHH`` → ``activo = 0``. Esto las oculta de la UI sin
       perderlas en los tickets que ya las tengan asignadas.
 
-    Cada paso está envuelto en su propio try/except para que un fallo
-    puntual no impida que los otros pasos se ejecuten. Los errores se
-    registran en el log y el método continúa.
+    Cada paso está envuelto en su propio SAVEPOINT (``begin_nested()``)
+    para que un fallo puntual no impida que los otros pasos se ejecuten.
+    Ante un error, SQLAlchemy hace rollback únicamente al SAVEPOINT y la
+    transacción exterior sigue vigente. Los errores se registran en el log
+    y el método continúa.
     """
     total = 0
     is_pg = eng.dialect.name == "postgresql"
+    ts_now = datetime.now(timezone.utc)
 
     # 4.1) Renombrar POSTERGADA A GARANTÍA → POSTERGADA
     try:
-        # En PostgreSQL el UPDATE retorna el número de filas afectadas;
-        # en SQLite depende del rowcount del cursor.
-        res = conn.execute(text(
-            "UPDATE tickets SET resultado_pruebas = 'POSTERGADA' "
-            "WHERE resultado_pruebas = 'POSTERGADA A GARANTÍA'"
-        ))
-        n = res.rowcount if hasattr(res, "rowcount") else 0
-        if n:
-            logger.info("[migrations] data: %d tickets 'POSTERGADA A GARANTÍA' → 'POSTERGADA'", n)
-            total += n
+        with conn.begin_nested():
+            # En PostgreSQL el UPDATE retorna el número de filas afectadas;
+            # en SQLite depende del rowcount del cursor.
+            res = conn.execute(text(
+                "UPDATE tickets SET resultado_pruebas = 'POSTERGADA' "
+                "WHERE resultado_pruebas = 'POSTERGADA A GARANTÍA'"
+            ))
+            n = res.rowcount if hasattr(res, "rowcount") else 0
+            if n:
+                logger.info("[migrations] data: %d tickets 'POSTERGADA A GARANTÍA' → 'POSTERGADA'", n)
+                total += n
     except Exception as e:
-        logger.warning("[migrations] data: no se pudo normalizar resultado_pruebas: %s", e)
+        logger.warning(
+            "[migrations] data: normalizar resultado_pruebas falló (aislado): %s", e
+        )
 
     # 4.2) Renombrar codigos existentes GRM-INC-YYYY-NNNNNN → INC-NNN
     #      Solo afecta a los codigos que aún tengan el prefijo antiguo.
     #      El NNN se extrae del último segmento numérico (sin padding).
     try:
-        if is_pg:
-            # PostgreSQL: SUBSTRING con regex + CAST a int para limpiar ceros
-            res = conn.execute(text(
-                "UPDATE tickets "
-                "SET codigo = 'INC-' || CAST(CAST(SUBSTRING(codigo FROM '([0-9]+)$') AS INTEGER) AS TEXT) "
-                "WHERE codigo ~ '^GRM-INC-[0-9]{4}-[0-9]+$'"
-            ))
-        else:
-            # SQLite: emular con SUBSTR y CAST
-            res = conn.execute(text(
-                "UPDATE tickets "
-                "SET codigo = 'INC-' || CAST(CAST(SUBSTR(codigo, -6) AS INTEGER) AS TEXT) "
-                "WHERE codigo LIKE 'GRM-INC-____-______'"
-            ))
-        n = res.rowcount if hasattr(res, "rowcount") else 0
-        if n:
-            logger.info("[migrations] data: %d tickets renombrados al formato INC-NNN", n)
-            total += n
+        with conn.begin_nested():
+            if is_pg:
+                # PostgreSQL: SUBSTRING con regex + CAST a int para limpiar ceros
+                res = conn.execute(text(
+                    "UPDATE tickets "
+                    "SET codigo = 'INC-' || CAST(CAST(SUBSTRING(codigo FROM '([0-9]+)$') AS INTEGER) AS TEXT) "
+                    "WHERE codigo ~ '^GRM-INC-[0-9]{4}-[0-9]+$'"
+                ))
+            else:
+                # SQLite: emular con SUBSTR y CAST
+                res = conn.execute(text(
+                    "UPDATE tickets "
+                    "SET codigo = 'INC-' || CAST(CAST(SUBSTR(codigo, -6) AS INTEGER) AS TEXT) "
+                    "WHERE codigo LIKE 'GRM-INC-____-______'"
+                ))
+            n = res.rowcount if hasattr(res, "rowcount") else 0
+            if n:
+                logger.info("[migrations] data: %d tickets renombrados al formato INC-NNN", n)
+                total += n
     except Exception as e:
         # No es fatal: si el regex no es soportado por esta versión de PG,
         # el código simplemente no se renombra. La app sigue funcionando.
-        logger.warning("[migrations] data: no se pudo renombrar codigos (no fatal): %s", e)
+        logger.warning(
+            "[migrations] data: renombrar codigos falló (aislado, no fatal): %s", e
+        )
 
     # 4.3) Soft-delete de etiquetas prohibidas.
     #      Compara en minúsculas para tolerar variantes de mayúsculas.
     try:
-        res = conn.execute(text(
-            "UPDATE etiquetas SET activo = 0 "
-            "WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') "
-            "AND activo <> 0"
-        ))
-        n = res.rowcount if hasattr(res, "rowcount") else 0
-        if n:
-            logger.info("[migrations] data: %d etiquetas soft-deleted (Contabilidad, software, Ventas, RRHH)", n)
-            total += n
+        with conn.begin_nested():
+            # ``etiquetas.activo`` es BOOLEAN en PostgreSQL
+            # (``app/models/etiqueta.py``: ``Column(Boolean)``). Con un
+            # booleano, PostgreSQL rechaza tanto la comparación con un
+            # entero (``operator does not exist: boolean <> integer``) como
+            # la asignación de un entero
+            # (``column "activo" is of type boolean but expression is of
+            # type integer``). Por eso el literal cambia según el dialecto:
+            # en PG se usa ``FALSE``/``IS TRUE``; en SQLite la columna se
+            # almacena como entero y se conserva ``0``/``<> 0``.
+            if is_pg:
+                activo_set = "FALSE"
+                activo_condition = "AND activo IS TRUE"
+            else:
+                activo_set = "0"
+                activo_condition = "AND activo <> 0"
+            res = conn.execute(text(
+                f"UPDATE etiquetas SET activo = {activo_set} "
+                "WHERE LOWER(TRIM(nombre)) IN ('contabilidad', 'software', 'ventas', 'rrhh') "
+                f"{activo_condition}"
+            ))
+            n = res.rowcount if hasattr(res, "rowcount") else 0
+            if n:
+                logger.info("[migrations] data: %d etiquetas soft-deleted (Contabilidad, software, Ventas, RRHH)", n)
+                total += n
     except Exception as e:
-        logger.warning("[migrations] data: no se pudieron ocultar etiquetas prohibidas (no fatal): %s", e)
+        logger.warning(
+            "[migrations] data: ocultar etiquetas prohibidas falló (aislado, no fatal): %s", e
+        )
 
     # 4.4) Relajar la restricción NOT NULL de ``auditorias.ticket_id``.
     #      La tabla registra eventos tanto de tickets como de
@@ -352,32 +418,35 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #      Esta migración es idempotente: si la columna ya acepta NULL,
     #      ``DROP NOT NULL`` no hace nada.
     try:
-        if is_pg:
-            # PostgreSQL: ``DROP NOT NULL`` es idempotente (si la columna
-            # ya es nullable, ALTER TABLE la deja igual sin error).
-            conn.execute(text(
-                "ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL"
-            ))
-            logger.info("[migrations] data: auditorias.ticket_id ahora permite NULL")
-            total += 1
-        else:
-            # SQLite no soporta ALTER COLUMN. Se hace un check de pragma
-            # para detectar si la columna ya es nullable; si no lo es,
-            # se omite (es una BD de tests, no de producción).
-            res = conn.execute(text("PRAGMA table_info(auditorias)"))
-            cols = res.fetchall() if hasattr(res, "fetchall") else []
-            for col in cols:
-                # PRAGMA table_info: (cid, name, type, notnull, dflt, pk)
-                if len(col) >= 4 and col[1] == "ticket_id" and col[3] == 1:
-                    logger.warning(
-                        "[migrations] data: SQLite: auditorias.ticket_id sigue siendo NOT NULL. "
-                        "No se modifica (requeriría recrear la tabla)."
-                    )
-                    break
+        with conn.begin_nested():
+            if is_pg:
+                # PostgreSQL: ``DROP NOT NULL`` es idempotente (si la columna
+                # ya es nullable, ALTER TABLE la deja igual sin error).
+                conn.execute(text(
+                    "ALTER TABLE auditorias ALTER COLUMN ticket_id DROP NOT NULL"
+                ))
+                logger.info("[migrations] data: auditorias.ticket_id ahora permite NULL")
+                total += 1
             else:
-                logger.info("[migrations] data: auditorias.ticket_id ya es nullable en SQLite")
+                # SQLite no soporta ALTER COLUMN. Se hace un check de pragma
+                # para detectar si la columna ya es nullable; si no lo es,
+                # se omite (es una BD de tests, no de producción).
+                res = conn.execute(text("PRAGMA table_info(auditorias)"))
+                cols = res.fetchall() if hasattr(res, "fetchall") else []
+                for col in cols:
+                    # PRAGMA table_info: (cid, name, type, notnull, dflt, pk)
+                    if len(col) >= 4 and col[1] == "ticket_id" and col[3] == 1:
+                        logger.warning(
+                            "[migrations] data: SQLite: auditorias.ticket_id sigue siendo NOT NULL. "
+                            "No se modifica (requeriría recrear la tabla)."
+                        )
+                        break
+                else:
+                    logger.info("[migrations] data: auditorias.ticket_id ya es nullable en SQLite")
     except Exception as e:
-        logger.warning("[migrations] data: no se pudo relajar NOT NULL en auditorias.ticket_id: %s", e)
+        logger.warning(
+            "[migrations] data: relajar NOT NULL en auditorias.ticket_id falló (aislado): %s", e
+        )
 
     # 4.5) Extender el enum nativo de PostgreSQL usado por la columna
     #      ``tickets.tipo`` con el valor ``RESULTADO_PRUEBAS`` que se
@@ -409,12 +478,13 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #        minúsculas (``tipoincidencia``) y puede haber otros enums
     #        en la BD (p.ej. ``prioridad``). El ``LIMIT 1`` de la versión
     #        anterior era propenso a tomar el enum equivocado.
-    #      - ``ALTER TYPE ... ADD VALUE`` debe committearse en su
-    #        PROPIA transacción ANTES de poder usarse: PG prohíbe usar
-    #        un valor recién añadido dentro de la misma transacción que
-    #        lo creó. Por eso usamos un ``eng.begin()`` anidado que
-    #        hace commit al salir del bloque.
-    #      - ``ADD VALUE IF NOT EXISTS`` es idempotente en PG ≥ 12.
+    #      - La extensión usa una conexión AUTOCOMMIT propia. En PG < 12,
+    #        ``ALTER TYPE ... ADD VALUE`` no puede ejecutarse dentro de
+    #        un bloque transaccional; en AUTOCOMMIT cada DDL es su propia
+    #        transacción y el valor queda usable inmediatamente.
+    #      - El camino completo, incluido ``RENAME VALUE``, requiere
+    #        PG ≥ 10. ``ADD VALUE IF NOT EXISTS`` requiere PG ≥ 12; en
+    #        PG 10/11 se comprueba primero y se usa ``ADD VALUE`` simple.
     #      - PG distingue MAYÚSCULAS de minúsculas en los valores de
     #        un enum. Si una versión anterior de la migración añadió
     #        ``'resultado_pruebas'`` (minúsculas) y luego se renombró
@@ -425,9 +495,14 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #        luego ADD VALUE IF NOT EXISTS (idempotente).
     if is_pg:
         enum_name = None
+        enum_conn = None
         try:
+            enum_conn = eng.connect().execution_options(
+                isolation_level="AUTOCOMMIT"
+            )
+
             # 1) Detectar el enum EXACTO usado por ``tickets.tipo``.
-            res = conn.execute(text(
+            res = enum_conn.execute(text(
                 "SELECT t.typname "
                 "FROM pg_type t "
                 "JOIN pg_attribute a ON a.atttypid = t.oid "
@@ -440,72 +515,59 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             ))
             row = res.fetchone() if hasattr(res, "fetchone") else None
             enum_name = row[0] if row else None
-        except Exception as e:
-            logger.warning(
-                "[migrations] data: no se pudo inspeccionar el enum de tickets.tipo: %s",
-                e,
-            )
 
-        if not enum_name:
-            logger.warning(
-                "[migrations] data: no se encontró el enum usado por tickets.tipo; "
-                "no se extendió con 'RESULTADO_PRUEBAS'. Si tu tipo PG tiene un "
-                "nombre distinto, ejecuta manualmente: "
-                "ALTER TYPE <nombre> ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS';"
-            )
-        else:
-            try:
+            if not enum_name:
+                logger.warning(
+                    "[migrations] data: no se encontró el enum usado por tickets.tipo; "
+                    "no se extendió con 'RESULTADO_PRUEBAS'. Si tu tipo PG tiene un "
+                    "nombre distinto, ejecuta manualmente: "
+                    "ALTER TYPE <nombre> ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS';"
+                )
+            else:
+                server_version_num = int(
+                    enum_conn.execute(text("SHOW server_version_num")).scalar()
+                )
+
                 # 2) Si la versión anterior de la migración añadió
                 #    ``'resultado_pruebas'`` (minúsculas), renombrarlo
                 #    a MAYÚSCULAS para que coincida con la serialización
                 #    que hace SQLAlchemy del miembro del enum.
-                #    PG distingue case en los enumlabels, por lo que
-                #    ``'resultado_pruebas'`` y ``'RESULTADO_PRUEBAS'``
-                #    son dos valores distintos. PG ≥ 10 soporta
-                #    ``ALTER TYPE ... RENAME VALUE``.
-                check = eng.connect()
-                try:
-                    with check.begin() as conn3:
-                        # Detectar si existe la versión minúsculas
-                        res_min = conn3.execute(text(
-                            "SELECT 1 FROM pg_enum e "
-                            "JOIN pg_type t ON t.oid = e.enumtypid "
-                            "WHERE t.typname = :n AND e.enumlabel = 'resultado_pruebas'"
-                        ), {"n": enum_name})
-                        exists_min = res_min.fetchone() is not None
-                        res_may = conn3.execute(text(
-                            "SELECT 1 FROM pg_enum e "
-                            "JOIN pg_type t ON t.oid = e.enumtypid "
-                            "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
-                        ), {"n": enum_name})
-                        exists_may = res_may.fetchone() is not None
-                finally:
-                    check.close()
+                res_min = enum_conn.execute(text(
+                    "SELECT 1 FROM pg_enum e "
+                    "JOIN pg_type t ON t.oid = e.enumtypid "
+                    "WHERE t.typname = :n AND e.enumlabel = 'resultado_pruebas'"
+                ), {"n": enum_name})
+                exists_min = res_min.fetchone() is not None
+                res_may = enum_conn.execute(text(
+                    "SELECT 1 FROM pg_enum e "
+                    "JOIN pg_type t ON t.oid = e.enumtypid "
+                    "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
+                ), {"n": enum_name})
+                exists_may = res_may.fetchone() is not None
 
-                # ALTER TYPE ... RENAME VALUE debe committearse en su
-                # PROPIA transacción (misma restricción que ADD VALUE).
                 if exists_min and not exists_may:
-                    with eng.begin() as conn_ren:
-                        conn_ren.execute(text(
+                    if server_version_num >= 100000:
+                        enum_conn.execute(text(
                             f"ALTER TYPE {enum_name} "
                             f"RENAME VALUE 'resultado_pruebas' TO 'RESULTADO_PRUEBAS'"
                         ))
-                    logger.info(
-                        "[migrations] data: enum PG '%s' renombrado "
-                        "'resultado_pruebas' → 'RESULTADO_PRUEBAS'",
-                        enum_name,
-                    )
-                    exists_may = True
+                        logger.info(
+                            "[migrations] data: enum PG '%s' renombrado "
+                            "'resultado_pruebas' → 'RESULTADO_PRUEBAS'",
+                            enum_name,
+                        )
+                        exists_may = True
+                    else:
+                        logger.warning(
+                            "[migrations] data: no se pudo renombrar el valor "
+                            "minúscula del enum PG '%s': RENAME VALUE requiere PG ≥ 10",
+                            enum_name,
+                        )
                 elif exists_min and exists_may:
                     # Ambos existen (estado degenerado de un re-deploy
-                    # durante una migración a medias). Intentamos
-                    # borrar el de minúsculas renombrándolo a algo
-                    # "temporal" y luego drop. PG no permite DROP
-                    # VALUE directamente, así que usamos RENAME para
-                    # "absorber" y luego re-renombrar: la opción
-                    # segura es simplemente dejar ambos (el de
-                    # minúsculas es inerte porque SQLAlchemy ya usa
-                    # el de mayúsculas). Log informativo.
+                    # durante una migración a medias). PG no permite DROP
+                    # VALUE; el valor minúscula queda inerte porque
+                    # SQLAlchemy ya usa el de mayúsculas.
                     logger.warning(
                         "[migrations] data: enum PG '%s' tiene TANTO "
                         "'resultado_pruebas' COMO 'RESULTADO_PRUEBAS'. "
@@ -516,30 +578,28 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
                         enum_name, enum_name,
                     )
 
-                # 3) ADD VALUE IF NOT EXISTS (idempotente) en su
-                #    PROPIA transacción para cumplir la restricción
-                #    de PG que prohíbe usar el valor recién añadido
-                #    en la misma transacción que lo creó.
+                # 3) Extender el enum en su propia unidad transaccional.
+                #    IF NOT EXISTS evita errores al reiniciar en PG ≥ 12.
                 if not exists_may:
-                    with eng.begin() as conn2:
-                        conn2.execute(text(
+                    if server_version_num >= 120000:
+                        enum_conn.execute(text(
                             f"ALTER TYPE {enum_name} "
                             f"ADD VALUE IF NOT EXISTS 'RESULTADO_PRUEBAS'"
+                        ))
+                    else:
+                        enum_conn.execute(text(
+                            f"ALTER TYPE {enum_name} "
+                            f"ADD VALUE 'RESULTADO_PRUEBAS'"
                         ))
 
                 # 4) Verificar que el valor en MAYÚSCULAS quedó
                 #    registrado tras el commit (defensivo).
-                check2 = eng.connect()
-                try:
-                    with check2.begin() as conn4:
-                        res = conn4.execute(text(
-                            "SELECT 1 FROM pg_enum e "
-                            "JOIN pg_type t ON t.oid = e.enumtypid "
-                            "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
-                        ), {"n": enum_name})
-                        ok = res.fetchone() is not None
-                finally:
-                    check2.close()
+                res = enum_conn.execute(text(
+                    "SELECT 1 FROM pg_enum e "
+                    "JOIN pg_type t ON t.oid = e.enumtypid "
+                    "WHERE t.typname = :n AND e.enumlabel = 'RESULTADO_PRUEBAS'"
+                ), {"n": enum_name})
+                ok = res.fetchone() is not None
                 if ok:
                     logger.info(
                         "[migrations] data: enum PG '%s' contiene "
@@ -554,14 +614,15 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
                         "manualmente el estado del enum.",
                         enum_name,
                     )
-            except Exception as e:
-                logger.warning(
-                    "[migrations] data: no se pudo extender el enum '%s' "
-                    "usado por tickets.tipo con 'RESULTADO_PRUEBAS' "
-                    "(puede que la versión de PG sea < 12 y no soporte "
-                    "ADD VALUE IF NOT EXISTS): %s",
-                    enum_name, e,
-                )
+        except Exception as e:
+            logger.warning(
+                "[migrations] data: extender el enum '%s' usado por "
+                "tickets.tipo con 'RESULTADO_PRUEBAS' falló (aislado): %s",
+                enum_name, e,
+            )
+        finally:
+            if enum_conn is not None:
+                enum_conn.close()
 
     # 4.6) Asegurar que existe el estado "Producción OK".
     #      Idempotente: solo se inserta si no existe por nombre. Esto
@@ -570,52 +631,64 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #      ``db.query(Estado).count() > 0``).
     #      Importante: la tabla ``estados`` hereda ``TimestampMixin``,
     #      por lo que ``created_at`` y ``updated_at`` son NOT NULL.
-    #      Usamos ``datetime.utcnow()`` explícito en SQL porque ni
-    #      SQLite ni PG aplican los defaults de SQLAlchemy al INSERT
+    #      Usamos ``datetime.now(timezone.utc)`` explícito en SQL porque
+    #      ni SQLite ni PG aplican los defaults de SQLAlchemy al INSERT
     #      raw.
     #      La búsqueda es case-INSENSITIVE para tolerar BDs que ya
     #      tengan una versión previa con nombre distinto
     #      (``'produccion ok'``, ``'PRODUCCION OK'``, etc.).
     try:
-        from datetime import datetime as _dt
-        ts_now = _dt.utcnow()
-        # Pre-check: ¿ya existe algún estado "producción ok" (case-insensitive)?
-        existe_prod = conn.execute(text(
-            "SELECT 1 FROM estados WHERE LOWER(nombre) = 'produccion ok' LIMIT 1"
-        )).fetchone()
-        if not existe_prod:
-            if is_pg:
-                res = conn.execute(text(
-                    "INSERT INTO estados (nombre, descripcion, color, orden, "
-                    "es_inicial, es_final, categoria, sla_horas, archivado, "
-                    "limite_wip, created_at, updated_at) "
-                    "SELECT 'Producción OK', "
-                    "       'Corrección desplegada y verificada en ambiente productivo', "
-                    "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
-                    "       FALSE, TRUE, 'produccion_ok', NULL, FALSE, NULL, "
-                    "       :ts, :ts"
-                ), {"ts": ts_now})
+        with conn.begin_nested():
+            # Pre-check: ¿ya existe el estado "Producción OK"?
+            # La comparación se hace con el texto NORMALIZADO (minúsculas y
+            # sin acentos) para que 'Producción OK', 'produccion ok' y
+            # 'PRODUCCION OK' sean el mismo estado. Antes se comparaba con
+            # SQL contra el literal sin tilde ('produccion ok'), que jamás
+            # coincidía con el nombre insertado ('Producción OK'): el
+            # pre-check fallaba siempre y esta migración insertaba una
+            # fila duplicada en CADA arranque de la aplicación.
+            ids_existentes = _estados_por_nombre(conn, "produccion ok")
+            existe_prod = bool(ids_existentes)
+            if existe_prod and len(ids_existentes) > 1:
+                logger.warning(
+                    "[migrations] data: hay %d estados con el nombre 'Producción OK' "
+                    "(ids=%s). Se conservan todos y se les crean sus transiciones.",
+                    len(ids_existentes), ids_existentes,
+                )
+            if not existe_prod:
+                if is_pg:
+                    res = conn.execute(text(
+                        "INSERT INTO estados (nombre, descripcion, color, orden, "
+                        "es_inicial, es_final, categoria, sla_horas, archivado, "
+                        "limite_wip, created_at, updated_at) "
+                        "SELECT 'Producción OK', "
+                        "       'Corrección desplegada y verificada en ambiente productivo', "
+                        "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
+                        "       FALSE, TRUE, 'produccion_ok', NULL, FALSE, NULL, "
+                        "       :ts, :ts"
+                    ), {"ts": ts_now})
+                else:
+                    res = conn.execute(text(
+                        "INSERT INTO estados (nombre, descripcion, color, orden, "
+                        "es_inicial, es_final, categoria, sla_horas, archivado, "
+                        "limite_wip, created_at, updated_at) "
+                        "SELECT 'Producción OK', "
+                        "       'Corrección desplegada y verificada en ambiente productivo', "
+                        "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
+                        "       0, 1, 'produccion_ok', NULL, 0, NULL, :ts, :ts"
+                    ), {"ts": ts_now})
+                n = res.rowcount if hasattr(res, "rowcount") else 0
+                if n:
+                    logger.info("[migrations] data: estado 'Producción OK' insertado (orden=%s)", n)
+                    total += n
             else:
-                res = conn.execute(text(
-                    "INSERT INTO estados (nombre, descripcion, color, orden, "
-                    "es_inicial, es_final, categoria, sla_horas, archivado, "
-                    "limite_wip, created_at, updated_at) "
-                    "SELECT 'Producción OK', "
-                    "       'Corrección desplegada y verificada en ambiente productivo', "
-                    "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
-                    "       0, 1, 'produccion_ok', NULL, 0, NULL, :ts, :ts"
-                ), {"ts": ts_now})
-            n = res.rowcount if hasattr(res, "rowcount") else 0
-            if n:
-                logger.info("[migrations] data: estado 'Producción OK' insertado (orden=%s)", n)
-                total += n
-        else:
-            logger.info(
-                "[migrations] data: estado 'Producción OK' ya existe (case-insensitive); no se inserta"
-            )
+                logger.info(
+                    "[migrations] data: estado 'Producción OK' ya existe "
+                    "(comparación normalizada, sin acentos); no se inserta"
+                )
     except Exception as e:
         logger.warning(
-            "[migrations] data: no se pudo insertar estado 'Producción OK': %s", e,
+            "[migrations] data: insertar estado 'Producción OK' falló (aislado): %s", e,
         )
 
     # 4.7) Asegurar que existen las 3 transiciones del flujo Producción OK.
@@ -641,38 +714,57 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
         ]
         for origen_lc, destino_lc, rol, req_comentario, desc in nuevas_transiciones:
             try:
-                # Pre-check case-insensitive: ¿ya existe la combinación?
-                existe = conn.execute(text(
-                    "SELECT 1 FROM transiciones_estado t "
-                    "JOIN estados o ON o.id = t.estado_origen_id "
-                    "JOIN estados d ON d.id = t.estado_destino_id "
-                    "WHERE LOWER(o.nombre) = :origen AND LOWER(d.nombre) = :destino"
-                ), {"origen": origen_lc, "destino": destino_lc}).fetchone()
-                if existe:
-                    continue
-                res = conn.execute(text(
-                    f"INSERT INTO transiciones_estado "
-                    f"(estado_origen_id, estado_destino_id, rol_requerido, "
-                    f" requiere_comentario, descripcion) "
-                    f"SELECT (SELECT id FROM estados WHERE LOWER(nombre) = :origen), "
-                    f"       (SELECT id FROM estados WHERE LOWER(nombre) = :destino), "
-                    f"       :rol, :req, :desc "
-                    f"WHERE EXISTS (SELECT 1 FROM estados WHERE LOWER(nombre) = :origen) "
-                    f"  AND EXISTS (SELECT 1 FROM estados WHERE LOWER(nombre) = :destino)"
-                ), {
-                    "origen": origen_lc, "destino": destino_lc,
-                    "rol": rol, "req": req_comentario, "desc": desc,
-                })
-                n = res.rowcount if hasattr(res, "rowcount") else 0
-                if n:
-                    logger.info(
-                        "[migrations] data: transición '%s' → '%s' insertada (rol=%s)",
-                        origen_lc, destino_lc, rol,
-                    )
-                    total += n
+                with conn.begin_nested():
+                    # Los ids de origen y destino se resuelven con la
+                    # comparación NORMALIZADA (ver ``_estados_por_nombre``).
+                    # Antes se comparaba en SQL contra literales sin tilde
+                    # ('produccion ok'), que nunca coincidían con el nombre
+                    # real del estado ('Producción OK'): los sub-SELECT de
+                    # los INSERT devolvían NULL y las 3 transiciones del
+                    # flujo 'Producción OK' NO SE CREABAN NUNCA.
+                    ids_origen = _estados_por_nombre(conn, origen_lc)
+                    ids_destino = _estados_por_nombre(conn, destino_lc)
+                    if not ids_origen or not ids_destino:
+                        logger.warning(
+                            "[migrations] data: transición '%s'→'%s' NO insertada: "
+                            "estado origen=%s destino=%s no encontrado en 'estados'.",
+                            origen_lc, destino_lc, ids_origen or "∅", ids_destino or "∅",
+                        )
+                        continue
+                    # Se inserta para CADA combinación origen×destino: si una
+                    # versión anterior de esta migración dejó filas
+                    # duplicadas de 'Producción OK', todas quedan conectadas.
+                    for id_origen in ids_origen:
+                        for id_destino in ids_destino:
+                            # Pre-check idempotente por combinación de ids.
+                            existe = conn.execute(text(
+                                "SELECT 1 FROM transiciones_estado "
+                                "WHERE estado_origen_id = :origen_id "
+                                "  AND estado_destino_id = :destino_id"
+                            ), {"origen_id": id_origen, "destino_id": id_destino}).fetchone()
+                            if existe:
+                                continue
+                            res = conn.execute(text(
+                                "INSERT INTO transiciones_estado "
+                                "(estado_origen_id, estado_destino_id, rol_requerido, "
+                                " requiere_comentario, descripcion) "
+                                "VALUES (:origen_id, :destino_id, :rol, :req, :desc)"
+                            ), {
+                                "origen_id": id_origen, "destino_id": id_destino,
+                                "rol": rol, "req": req_comentario, "desc": desc,
+                            })
+                            n = res.rowcount if hasattr(res, "rowcount") else 0
+                            if n:
+                                logger.info(
+                                    "[migrations] data: transición '%s' → '%s' insertada "
+                                    "(origen_id=%s destino_id=%s rol=%s)",
+                                    origen_lc, destino_lc, id_origen, id_destino, rol,
+                                )
+                                total += n
             except Exception as e_inner:
                 logger.warning(
-                    "[migrations] data: no se pudo insertar transición '%s'→'%s': %s",
+                    "[migrations] data: insertar transición '%s'→'%s' falló "
+                    "(aislado): %s",
                     origen_lc, destino_lc, e_inner,
                 )
     except Exception as e:
@@ -687,10 +779,8 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
     #      Los códigos son slugs en MAYÚSCULAS que se referencian desde
     #      TicketEtapa y nunca se borran (soft-delete via `activo=0`).
     #
-    #      ``ts_now`` se reutiliza del bloque 4.6 anterior (definido dentro
-    #      del try de 4.6). Es seguro porque su asignación no puede
-    #      fallar y refleja el momento del arranque. Si en el futuro se
-    #      reorganiza 4.6, mover la asignación aquí.
+    #      ``ts_now`` se define al inicio de esta función y se reutiliza
+    #      en los bloques 4.6 y 4.8 para compartir el mismo instante UTC.
     try:
         etapas_seed = [
             # (codigo,                 nombre,                                          orden, color)
@@ -707,54 +797,57 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
         ]
         if is_pg:
             for codigo, nombre, orden, color in etapas_seed:
-                # Comprobar existencia por código (case-sensitive)
-                existe = conn.execute(text(
-                    "SELECT 1 FROM etapas_proyecto WHERE codigo = :c LIMIT 1"
-                ), {"c": codigo}).fetchone()
-                if existe:
-                    continue
                 try:
-                    conn.execute(text(
-                        "INSERT INTO etapas_proyecto "
-                        "(codigo, nombre, orden, color, activo, "
-                        " created_at, updated_at) "
-                        "VALUES (:codigo, :nombre, :orden, :color, 1, :ts, :ts)"
-                    ), {"codigo": codigo, "nombre": nombre,
-                        "orden": orden, "color": color, "ts": ts_now})
-                    logger.info(
-                        "[migrations] data: etapa '%s' insertada (orden=%d)",
-                        codigo, orden,
-                    )
-                    total += 1
+                    with conn.begin_nested():
+                        # Comprobar existencia por código (case-sensitive)
+                        existe = conn.execute(text(
+                            "SELECT 1 FROM etapas_proyecto WHERE codigo = :c LIMIT 1"
+                        ), {"c": codigo}).fetchone()
+                        if existe:
+                            continue
+                        conn.execute(text(
+                            "INSERT INTO etapas_proyecto "
+                            "(codigo, nombre, orden, color, activo, "
+                            " created_at, updated_at) "
+                            "VALUES (:codigo, :nombre, :orden, :color, 1, :ts, :ts)"
+                        ), {"codigo": codigo, "nombre": nombre,
+                            "orden": orden, "color": color, "ts": ts_now})
+                        logger.info(
+                            "[migrations] data: etapa '%s' insertada (orden=%d)",
+                            codigo, orden,
+                        )
+                        total += 1
                 except Exception as e_inner:
                     logger.warning(
-                        "[migrations] data: no se pudo insertar etapa '%s': %s",
+                        "[migrations] data: insertar etapa '%s' falló (aislado): %s",
                         codigo, e_inner,
                     )
         else:
             # SQLite: misma lógica pero con lazo separado para aislar errores
             for codigo, nombre, orden, color in etapas_seed:
-                existe = conn.execute(text(
-                    "SELECT 1 FROM etapas_proyecto WHERE codigo = :c LIMIT 1"
-                ), {"c": codigo}).fetchone()
-                if existe:
-                    continue
                 try:
-                    conn.execute(text(
-                        "INSERT INTO etapas_proyecto "
-                        "(codigo, nombre, orden, color, activo, "
-                        " created_at, updated_at) "
-                        "VALUES (:codigo, :nombre, :orden, :color, 1, :ts, :ts)"
-                    ), {"codigo": codigo, "nombre": nombre,
-                        "orden": orden, "color": color, "ts": ts_now})
-                    logger.info(
-                        "[migrations] data: etapa '%s' insertada (orden=%d, SQLite)",
-                        codigo, orden,
-                    )
-                    total += 1
+                    with conn.begin_nested():
+                        existe = conn.execute(text(
+                            "SELECT 1 FROM etapas_proyecto WHERE codigo = :c LIMIT 1"
+                        ), {"c": codigo}).fetchone()
+                        if existe:
+                            continue
+                        conn.execute(text(
+                            "INSERT INTO etapas_proyecto "
+                            "(codigo, nombre, orden, color, activo, "
+                            " created_at, updated_at) "
+                            "VALUES (:codigo, :nombre, :orden, :color, 1, :ts, :ts)"
+                        ), {"codigo": codigo, "nombre": nombre,
+                            "orden": orden, "color": color, "ts": ts_now})
+                        logger.info(
+                            "[migrations] data: etapa '%s' insertada (orden=%d, SQLite)",
+                            codigo, orden,
+                        )
+                        total += 1
                 except Exception as e_inner:
                     logger.warning(
-                        "[migrations] data: no se pudo insertar etapa '%s' (SQLite): %s",
+                        "[migrations] data: insertar etapa '%s' (SQLite) falló "
+                        "(aislado): %s",
                         codigo, e_inner,
                     )
     except Exception as e:
@@ -762,42 +855,43 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             "[migrations] data: error general insertando etapas del proyecto: %s", e,
         )
 
-    # 4.6) Reporte diario de entregas: marcar como ``es_entrega=True``
+    # 4.9) Reporte diario de entregas: marcar como ``es_entrega=True``
     #      los estados terminales reconocidos por convención. La
     #      comparación es case-insensitive y diacritic-insensitive
     #      (toleramos "ENTREGADO", "Entregado", "entregado", etc.).
     #      El admin puede luego agregar más estados desde la UI de
     #      configuración del reporte diario.
     try:
-        if is_pg:
-            res = conn.execute(text(
-                "UPDATE estados SET es_entrega = TRUE "
-                "WHERE LOWER(TRANSLATE(TRIM(nombre), 'áéíóúÁÉÍÓÚ', 'aeiouAEIOU')) "
-                "IN ('entregado','entregada','resuelto','resuelta',"
-                "'cerrado','cerrada','completado','completada',"
-                "'finalizado','finalizada','produccion ok','deploy ok') "
-                "AND es_entrega = FALSE"
-            ))
-        else:
-            res = conn.execute(text(
-                "UPDATE estados SET es_entrega = 1 "
-                "WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(nombre),"
-                "'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u')) "
-                "IN ('entregado','entregada','resuelto','resuelta',"
-                "'cerrado','cerrada','completado','completada',"
-                "'finalizado','finalizada','produccion ok','deploy ok') "
-                "AND es_entrega = 0"
-            ))
-        n = res.rowcount if hasattr(res, "rowcount") else 0
-        if n:
-            logger.info(
-                "[migrations] data: %d estados marcados como es_entrega=True",
-                n,
-            )
-            total += n
+        with conn.begin_nested():
+            if is_pg:
+                res = conn.execute(text(
+                    "UPDATE estados SET es_entrega = TRUE "
+                    "WHERE LOWER(TRANSLATE(TRIM(nombre), 'áéíóúÁÉÍÓÚ', 'aeiouAEIOU')) "
+                    "IN ('entregado','entregada','resuelto','resuelta',"
+                    "'cerrado','cerrada','completado','completada',"
+                    "'finalizado','finalizada','produccion ok','deploy ok') "
+                    "AND es_entrega = FALSE"
+                ))
+            else:
+                res = conn.execute(text(
+                    "UPDATE estados SET es_entrega = 1 "
+                    "WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(nombre),"
+                    "'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u')) "
+                    "IN ('entregado','entregada','resuelto','resuelta',"
+                    "'cerrado','cerrada','completado','completada',"
+                    "'finalizado','finalizada','produccion ok','deploy ok') "
+                    "AND es_entrega = 0"
+                ))
+            n = res.rowcount if hasattr(res, "rowcount") else 0
+            if n:
+                logger.info(
+                    "[migrations] data: %d estados marcados como es_entrega=True",
+                    n,
+                )
+                total += n
     except Exception as e:
         logger.warning(
-            "[migrations] data: no se pudieron marcar estados es_entrega: %s", e,
+            "[migrations] data: marcar estados es_entrega falló (aislado): %s", e,
         )
 
     return total

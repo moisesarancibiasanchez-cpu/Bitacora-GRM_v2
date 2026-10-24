@@ -942,3 +942,29 @@
 # regenerables y no forman parte del codigo fuente de la aplicacion.
 /imgs/
 
+# ==============================================================================
+# SCRATCH DE DIAGNÓSTICO EN LA RAÍZ DEL REPO (NO son código fuente)
+# ==============================================================================
+# Scripts auxiliares de una sola ejecución (diagnóstico, auditoría, pruebas
+# puntuales, utilidades de commit). Convención de nombres: prefijo ``_``.
+#
+# El patrón usa ``/`` inicial para que NO afecte a los directorios: sólo se
+# ignoran archivos SUELTOS en la raíz. Los scripts de verificación que sí
+# forman parte del proyecto viven en ``tools/verificacion/`` y se versionan
+# con normalidad.
+/_*.py
+/_*.ps1
+/_*.bat
+/_*.sh
+/_*.md
+/_*.json
+/smoke_test.py
+/smoke_test_results.json
+
+# Scripts de barrido auxiliares que se generan dentro de ``tools/``. El patrón
+# ``/tools/_*.py`` no alcanza a ``tools/verificacion/_probe_config.py`` porque
+# ``*`` no cruza directorios.
+/tools/_*.py
+# Diagnóstico puntual de una sesión (no forma parte de la verificación estable).
+/tools/verificacion/_diag_*.py
+

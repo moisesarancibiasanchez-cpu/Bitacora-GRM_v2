@@ -2308,7 +2308,7 @@ async def dashboard_page(request: Request):
     # La paleta y los acrónimos de "Resultado de Pruebas" se inyectan desde
     # el catálogo Python para que la sección "Cuenta de Resultado" use
     # EXACTAMENTE los mismos colores que el badge de las tarjetas del Kanban.
-    from app.core.resultado_pruebas import acronimos_js, paleta_js
+    from app.core.resultado_pruebas import acronimos_js, fallback_js, paleta_js
 
     return templates.TemplateResponse(
         request,
@@ -2317,6 +2317,7 @@ async def dashboard_page(request: Request):
             "usuario": usuario,
             "cuenta_resultado_colores": paleta_js(),
             "cuenta_resultado_acronimos": acronimos_js(),
+            "cuenta_resultado_fallback": fallback_js(),
         },
     )
 

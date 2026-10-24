@@ -290,6 +290,17 @@ def acronimos_js() -> Dict[str, str]:
     return dict(ACRONIMOS)
 
 
+def fallback_js() -> Dict[str, str]:
+    """Color de respaldo serializable para el dashboard.
+
+    Es el mismo :data:`COLOR_FALLBACK` que usa el backend cuando un valor
+    no está en el catálogo. Se inyecta al dashboard para que su JavaScript
+    **no** tenga que re-declarar los hex a mano (ni siquiera los del
+    fallback), manteniendo la regla "una sola fuente de verdad".
+    """
+    return dict(COLOR_FALLBACK)
+
+
 # ---------------------------------------------------------------------------
 # Render del badge (compartido por los 3 renderizadores de tarjeta)
 # ---------------------------------------------------------------------------

@@ -257,6 +257,7 @@
            siempre coherentes. No duplicar colores aquí. #}
         <script id="cuenta-resultado-paleta" type="application/json">{{ cuenta_resultado_colores | tojson }}</script>
         <script id="cuenta-resultado-acronimos" type="application/json">{{ cuenta_resultado_acronimos | tojson }}</script>
+        <script id="cuenta-resultado-fallback" type="application/json">{{ cuenta_resultado_fallback | default({}, true) | tojson }}</script>
       </div>
 
       <!-- ===== LISTA DE INCIDENCIAS RECIENTES (entre Cuenta de Resultado y Top agentes) =====
@@ -906,7 +907,7 @@
     // mapa RESULTADO_COLORS con tonos DISTINTOS a los del dashboard y del
     // badge de las tarjetas, lo que hacía que el mismo dato se pintara de
     // dos formas distintas. Ahora ambos caminos consumen la misma fuente.
-    const colorDe = (r) => (CUENTA_RESULTADO_COLORES[r] || {}).bg || '#475569';
+    const colorDe = (r) => (colorResultado(r) || {}).bg;
     const maxFila = Math.max.apply(null, cuenta.map(f => f.total)) || 1;
 
     // Filtrar solo columnas con datos
@@ -1300,10 +1301,11 @@
   // ===================================================================
 
   // Color del texto de los números en CADA CELDA de datos: debe coincidir con
-  // el color del texto de la columna "Total general". Se usa #1f2937 (slate-800)
-  // en TODAS las columnas para garantizar contraste legible sobre los fondos
-  // tenues (`color.bg + '22'`). Los headers sí mantienen su color original
-  // porque su fondo es sólido (no el tinte `+ '22'`).
+  // el color del texto de la columna "Total general". Se usa el `cellText`
+  // del catálogo (mismo valor en TODAS las columnas) para garantizar
+  // contraste legible sobre los fondos tenues (`color.bg + '22'`). Los
+  // headers sí mantienen su color original porque su fondo es sólido
+  // (no el tinte `+ '22'`).
   //
   // La paleta y los acrónimos se LEEN del JSON inyectado por el servidor
   // (renderizado desde app/core/resultado_pruebas.py). Ese módulo es la única
@@ -1323,6 +1325,21 @@
     if (!el) return {};
     try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
   })();
+
+  // Color de respaldo (el mismo COLOR_FALLBACK del catálogo Python).
+  // Se inyecta desde el servidor para que el JS no re-declare ningún hex
+  // de la paleta: ni los del catálogo ni los del fallback.
+  const CUENTA_RESULTADO_FALLBACK = (function () {
+    const el = document.getElementById('cuenta-resultado-fallback');
+    if (!el) return {};
+    try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
+  })();
+
+  // Resuelve los colores de una columna del pivote. Si el valor no está en
+  // el catálogo se usa el color de respaldo (también viene del catálogo).
+  function colorResultado(c) {
+    return CUENTA_RESULTADO_COLORES[c] || CUENTA_RESULTADO_FALLBACK;
+  }
 
   // Devuelve el acrónimo de una columna (con fallback al propio texto).
   function acronimoResultado(c) {
@@ -1390,7 +1407,7 @@
     thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
       '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
       columnas.map(c => {
-        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        const color = colorResultado(c);
         const acro = acronimoResultado(c);
         return '<th class="px-3 py-2 font-semibold border border-slate-700 text-center"'
              + ' style="background:' + color.bg + '; color:' + color.text + ';"'
@@ -1406,7 +1423,7 @@
       const trClass = esBlanco ? 'italic text-slate-400 bg-slate-50/50' : 'text-slate-700';
       const celdas = columnas.map(c => {
         const v = f.valores[c] || 0;
-        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569', cellText: '#1f2937' };
+        const color = colorResultado(c);
         const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
         const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
         // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
@@ -1448,7 +1465,7 @@
       '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
       columnas.map(c => {
         const v = totales[c] || 0;
-        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
+        const color = colorResultado(c);
         const contenido = v === 0 ? '—' : v;
         return '<td class="px-3 py-2 border border-slate-400 text-center font-mono"'
              + ' style="background:' + color.bg + '; color:' + color.text + ';">'

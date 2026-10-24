@@ -3,11 +3,14 @@ Configuración central de la aplicación.
 Soporta modo desarrollo (SQLite) y producción (PostgreSQL/Redis) vía variables de entorno.
 """
 import json
+import logging
 import os
 from functools import lru_cache
 from typing import List
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -198,6 +201,99 @@ class Settings(BaseSettings):
             return True
         return "change-me" in clave.lower()
 
+    def _cors_explicitamente_configurado(self) -> bool:
+        """True si ``CORS_ORIGINS`` viene del entorno o del ``.env``.
+
+        Distingue el comodín configurado a propósito (un descuido) del valor
+        por defecto de la clase (``["*"]``), que es el que usa el arranque
+        local sin ``.env``. Se apoya en la marca global
+        ``_CORS_ORIGINS_EXPLICITO``, calculada antes de que
+        ``_exportar_a_environ`` vuelque los defaults al entorno.
+        """
+        return _CORS_ORIGINS_EXPLICITO
+
+    @field_validator("PUBLIC_BASE_URL", mode="after")
+    @classmethod
+    def _derivar_public_base_url(cls, valor: str) -> str:
+        """Deriva ``PUBLIC_BASE_URL`` de las variables que Railway inyecta.
+
+        Por qué hace falta
+        -----------------
+        ``validar()`` aborta el arranque en producción si ``PUBLIC_BASE_URL``
+        no usa HTTPS. El default de la clase es ``http://localhost:8000``,
+        así que un despliegue en Railway que no defina la variable a mano
+        queda con HTTP y el guard aborta la aplicación entera (502 en todas
+        las rutas) aunque todo lo demás esté correcto.
+
+        Railway expone automáticamente ``RAILWAY_PUBLIC_DOMAIN`` (y
+        ``RAILWAY_STATIC_URL``) en cada servicio. Derivando de ahí se obtiene
+        una URL HTTPS correcta **sin relajar el guard**: la comprobación
+        sigue exigiendo HTTPS, pero el valor ya llega en HTTPS.
+
+        Reglas
+        ------
+        * Si el valor ya es HTTPS se respeta tal cual.
+        * Si ``PUBLIC_BASE_URL`` fue configurada explícitamente (entorno o
+          ``.env``) NO se toca: si alguien la puso en HTTP a propósito, el
+          guard debe seguir avisando y abortando.
+        * Sólo se derivan variables del proveedor (``RAILWAY_*``): fuera de
+          ese entorno el valor por defecto se mantiene intacto.
+        """
+        actual = (valor or "").strip()
+        if actual.startswith("https://"):
+            return actual
+
+        if _public_base_url_configurado_explicitamente():
+            return actual
+
+        for clave in ("RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL"):
+            bruto = (os.environ.get(clave) or "").strip()
+            if not bruto:
+                continue
+            # ``RAILWAY_STATIC_URL`` puede venir como URL completa; en los
+            # dos casos se normaliza a https:// sin barra final.
+            derivado = bruto.rstrip("/")
+            if "://" in derivado:
+                if not derivado.startswith("https://"):
+                    continue
+            else:
+                derivado = "https://" + derivado
+            logger.info(
+                "[config] PUBLIC_BASE_URL derivado de %s: %s", clave, derivado
+            )
+            return derivado
+
+        return actual
+
+    def _advertir_cors_comodin(self) -> None:
+        """Registra el aviso NO bloqueante por ``CORS_ORIGINS=['*']``.
+
+        Por qué el comodín NO es explotable con credenciales en este código:
+
+        * ``app/main.py`` construye el middleware con
+          ``allow_credentials=not _cors_wildcard``: con el comodín las
+          credenciales quedan **desactivadas**.
+        * Starlette, con ``allow_origins=['*']`` y ``allow_credentials=False``,
+          responde ``Access-Control-Allow-Origin: *`` y **no** emite
+          ``Access-Control-Allow-Credentials``. El navegador, por tanto, no
+          adjunta cookies ni credenciales en las peticiones cross-origin: no
+          hay lectura de respuestas autenticadas (ni CSRF vía CORS).
+        * El riesgo residual queda acotado a orígenes cruzados **sin**
+          credenciales (endpoints públicos) y se cierra definiendo los
+          orígenes reales en ``CORS_ORIGINS``.
+        """
+        logger.warning(
+            "[cors] CORS_ORIGINS contiene '*' con DEBUG=False: se continúa el "
+            "arranque con advertencia (no es bloqueante). El middleware "
+            "desactiva allow_credentials ante el comodín "
+            "(allow_credentials=not _cors_wildcard en app/main.py), por lo que "
+            "el navegador no envía cookies ni credenciales en las peticiones "
+            "cross-origin y no hay exfiltración de sesión vía CORS. El riesgo "
+            "residual queda acotado a orígenes sin credenciales. "
+            "Recomendación: define CORS_ORIGINS con los orígenes reales "
+            "(PUBLIC_BASE_URL / dashboard)."
+        )
+
     def validar(self) -> list[str]:
         """Devuelve la lista de avisos de configuración insegura.
 
@@ -216,6 +312,18 @@ class Settings(BaseSettings):
 
         En producción (DEBUG=False) la aplicación DEBE abortar si hay avisos;
         en desarrollo los avisos son únicamente informativos.
+
+        Excepciones a ese contrato:
+
+        * ``CORS_ORIGINS`` con ``'*'`` y ``DEBUG=False`` **no** es bloqueante:
+          se degrada a advertencia (ver ``_advertir_cors_comodin``) porque el
+          middleware desactiva ``allow_credentials`` ante el comodín y, por
+          tanto, no es explotable con credenciales.
+        * ``CORS_ORIGINS`` con ``'*'`` explícito y ``DEBUG=True`` **sí** es
+          bloqueante: en desarrollo el comodín es un descuido de configuración
+          (la app es server-rendered y same-origin, no necesita ``"*"``) y se
+          aborta aquí, porque ``app/main.py`` sólo aborta cuando
+          ``DEBUG=False``.
         """
         avisos: list[str] = []
 
@@ -225,13 +333,23 @@ class Settings(BaseSettings):
                 "define una clave aleatoria fuerte (p. ej. `openssl rand -hex 32`)."
             )
 
-        if not self.DEBUG:
-            origenes = list(self.CORS_ORIGINS or [])
-            if "*" in origenes:
-                avisos.append(
-                    "CORS_ORIGINS contiene '*' con DEBUG=False: "
-                    "restringe los orígenes permitidos en producción."
+        origenes = list(self.CORS_ORIGINS or [])
+        comodin = "*" in origenes
+
+        if self.DEBUG:
+            if comodin and self._cors_explicitamente_configurado():
+                raise RuntimeError(
+                    "Configuración insegura:\n"
+                    "  - CORS_ORIGINS contiene '*' con DEBUG=True: define los "
+                    "orígenes explícitos en desarrollo (p. ej. "
+                    "http://localhost:8000)."
                 )
+        else:
+            if comodin:
+                # Degradado a advertencia: con el comodín el middleware
+                # desactiva allow_credentials, así que no es explotable con
+                # credenciales (ver _advertir_cors_comodin).
+                self._advertir_cors_comodin()
             if not origenes:
                 avisos.append(
                     "CORS_ORIGINS está vacío con DEBUG=False: "
@@ -280,6 +398,25 @@ def _leer_env_file(ruta) -> dict:
     except OSError:
         pass
     return valores
+
+
+def _public_base_url_configurado_explicitamente() -> bool:
+    """True si ``PUBLIC_BASE_URL`` fue fijada a mano (entorno real o ``.env``).
+
+    Se usa para decidir si el valor puede derivarse de las variables del
+    proveedor (``RAILWAY_PUBLIC_DOMAIN``). Si la variable fue configurada
+    explícitamente, el guard de HTTPS debe seguir evaluando **ese** valor
+    tal cual (y abortar si no es HTTPS); nunca se sobrescribe la
+    configuración deliberada del despliegue.
+    """
+    if "PUBLIC_BASE_URL" in os.environ:
+        return True
+    env_file = Settings.model_config.get("env_file")
+    if isinstance(env_file, (list, tuple)):
+        env_file = env_file[0] if env_file else None
+    if not env_file:
+        return False
+    return "PUBLIC_BASE_URL" in _leer_env_file(env_file)
 
 
 # Campos de ``Settings`` cuyo tipo es ``List[str]``.
@@ -353,6 +490,14 @@ def _preparar_listas_del_entorno() -> None:
 
 
 _preparar_listas_del_entorno()
+
+# ``_exportar_a_environ`` (más abajo) vuelca también los valores por defecto
+# de ``Settings`` al ``os.environ``, así que ``CORS_ORIGINS`` siempre acaba
+# estando definido. Aquí, justo después de normalizar las listas, se anota si
+# el valor venía realmente del entorno o del ``.env`` (o si es el default de
+# la clase, ``["*"]``). Se usa para distinguir "comodín configurado a
+# propósito" de "comodín por defecto".
+_CORS_ORIGINS_EXPLICITO = "CORS_ORIGINS" in os.environ
 
 settings = get_settings()
 
