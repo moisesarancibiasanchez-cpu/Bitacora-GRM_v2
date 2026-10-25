@@ -7,10 +7,16 @@ Salida:
   * rutas registradas en el despliegue (codigo de ruta, no solo el path)
   * de la lista del README, cuales existen y cuales no (con su ruta real
     equivalente cuando la documentada esta desactualizada)
-  * enlaces internos rotos detectados en las 17 paginas principales
+  * enlaces internos, anclas e identificadores auditados en las 17 paginas
+    principales, con la sesion del administrador
+
+Requiere las variables de entorno BITACORA_ADMIN_USER y
+BITACORA_ADMIN_PASSWORD. Si falta alguna, termina con codigo 2 sin
+realizar la verificacion.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from urllib.parse import urljoin, urlparse
@@ -51,10 +57,49 @@ EQUIVALENTES = {
 FUERA_DEL_ESQUEMA_PERO_VALIDAS = ("/docs", "/openapi.json")
 
 PATRON_ENLACE = re.compile(r'(?:href|src|action)\s*=\s*["\']([^"\'>]+)["\']')
+PATRON_ID = re.compile(r'\bid\s*=\s*["\']([^"\']+)["\']')
+
+
+def _credenciales_admin():
+    usuario = os.environ.get("BITACORA_ADMIN_USER")
+    password = os.environ.get("BITACORA_ADMIN_PASSWORD")
+    faltantes = []
+    if not usuario:
+        faltantes.append("BITACORA_ADMIN_USER")
+    if not password:
+        faltantes.append("BITACORA_ADMIN_PASSWORD")
+    if faltantes:
+        print(
+            "NO VERIFICABLE: faltan las variables de entorno obligatorias: %s"
+            % ", ".join(faltantes)
+        )
+        return None
+    return usuario, password
+
+
+def _redirige_a_login(respuesta) -> bool:
+    ubicacion = respuesta.headers.get("location", "")
+    return urlparse(ubicacion).path.rstrip("/") == "/auth/login"
 
 
 def main() -> int:
-    with httpx.Client(base_url=BASE, timeout=30, follow_redirects=True) as c:
+    credenciales = _credenciales_admin()
+    if credenciales is None:
+        return 2
+    usuario_admin, password_admin = credenciales
+
+    with httpx.Client(base_url=BASE, timeout=30, follow_redirects=False) as c:
+        # --- 0) Sesion de administrador -----------------------------------
+        r = c.post("/api/v1/auth/login",
+                   json={"username": usuario_admin, "password": password_admin})
+        print("LOGIN del administrador -> %s" % r.status_code)
+        if r.status_code != 200:
+            print("No se pudo autenticar la sesion de administrador.")
+            return 1
+        if not c.cookies.get("access_token"):
+            print("El login no devolvio la cookie de sesion access_token.")
+            return 1
+
         # --- 1) Esquema OpenAPI -------------------------------------------
         r = c.get("/openapi.json")
         if r.status_code != 200:
@@ -70,13 +115,8 @@ def main() -> int:
             print("  %-58s [%s]" % (ruta, metodos))
 
         # --- 2) Contraste con la lista de V1.001 --------------------------
-        # El path de OpenAPI no lleva el prefijo /api/v1: se normaliza.
-        base_path = ""
-        if "paths" in esquema and esquema["paths"]:
-            prefijos = {p.split("/")[1] for p in esquema["paths"] if p.startswith("/")}
-        else:
-            prefijos = set()
-
+        # OpenAPI publica las API con el prefijo /api/v1; el contraste
+        # acepta tanto el path documentado como su equivalente prefijado.
         print("")
         print("=" * 78)
         print(" CONTRASTE CON LAS 36 RUTAS DE LA LISTA DEL README V1.001")
@@ -85,7 +125,6 @@ def main() -> int:
         existen, faltan = [], []
         for ruta in RUTAS_V1001:
             limpio = ruta.split("?")[0]
-            # Se aceptan tanto el path tal cual como con prefijo /api/v1.
             if limpio in registrados:
                 existen.append(ruta)
                 continue
@@ -113,36 +152,46 @@ def main() -> int:
                 print("     - %-28s -> sin equivalente en el esquema (%s)" % (
                     ruta, rr.status_code))
 
-        # --- 3) Enlaces internos en las paginas ---------------------------
+        # --- 3) Enlaces, anclas e identificadores de las paginas ----------
         print("")
         print("=" * 78)
         print(" ENLACES INTERNOS EN LAS PAGINAS PRINCIPALES")
         print("=" * 78)
+        paginas = ("/kanban", "/dashboard", "/tickets", "/espacios",
+                   "/tableros", "/notificaciones", "/catalogos",
+                   "/roles-funciones", "/usuarios", "/tickets/nuevo",
+                   "/admin/reporte-entregas", "/vistas/tabla",
+                   "/vistas/gantt", "/vistas/timeline", "/vistas/panel",
+                   "/vistas/planner", "/vistas/calendario")
         rotos = []
+        rotos_ancla = []
+        redirecciones_login = []
         total = 0
-        for pagina in ("/kanban", "/dashboard", "/tickets", "/espacios",
-                       "/tableros", "/notificaciones", "/catalogos",
-                       "/roles-funciones", "/usuarios", "/tickets/nuevo",
-                       "/admin/reporte-entregas", "/vistas/tabla",
-                       "/vistas/gantt", "/vistas/timeline", "/vistas/panel",
-                       "/vistas/planner", "/vistas/calendario"):
+        total_ids = 0
+        for pagina in paginas:
             rr = c.get(pagina)
-            if rr.status_code != 200:
-                print("  %-28s -> %s (no se analizan enlaces)" % (pagina, rr.status_code))
+            if 300 <= rr.status_code < 400 and _redirige_a_login(rr):
+                redirecciones_login.append(pagina)
                 continue
+            if rr.status_code != 200:
+                print("  %-28s -> %s (no se analizan enlaces)" % (
+                    pagina, rr.status_code))
+                continue
+
             html = rr.text
+            ids_pagina = set(PATRON_ID.findall(html))
+            total_ids += len(ids_pagina)
             encontrados = set(PATRON_ENLACE.findall(html))
             rotos_pagina = []
+            anclas_rotas_pagina = []
             for enlace in encontrados:
-                if enlace.startswith(("#", "mailto:", "tel:", "javascript:")):
+                if enlace.startswith(("mailto:", "tel:", "javascript:")):
                     continue
                 parseado = urlparse(enlace)
-                if parseado.scheme in ("http", "https"):
+                if parseado.scheme in ("http", "https") or parseado.netloc:
                     continue  # externo: fuera del alcance
-                destino = parseado.path or "/"
-                if not destino.startswith("/"):
-                    destino = urljoin(BASE + pagina, destino)
-                destino = destino.split("?")[0].split("#")[0]
+                destino_url = urlparse(urljoin(BASE + pagina, enlace))
+                destino = destino_url.path
                 if not destino:
                     continue
                 total += 1
@@ -150,16 +199,41 @@ def main() -> int:
                 if r2.status_code in (404, 405, 500):
                     rotos_pagina.append((destino, r2.status_code))
                     rotos.append((pagina, destino, r2.status_code))
-            print("  %-28s -> %s | enlaces internos=%d | rotos=%d"
-                  % (pagina, rr.status_code, len(encontrados), len(rotos_pagina)))
+                    continue
+                fragmento = destino_url.fragment
+                if (fragmento and r2.status_code == 200 and
+                        "html" in r2.headers.get("content-type", "").lower()):
+                    ids_destino = set(PATRON_ID.findall(r2.text))
+                    if fragmento not in ids_destino:
+                        anclas_rotas_pagina.append((destino, fragmento))
+                        rotos_ancla.append((pagina, destino, fragmento))
+
+            print("  %-28s -> %s | enlaces internos=%d | ids=%d | rotos=%d | anclas rotas=%d"
+                  % (pagina, rr.status_code, len(encontrados), len(ids_pagina),
+                     len(rotos_pagina), len(anclas_rotas_pagina)))
             for destino, code in rotos_pagina[:5]:
                 print("        ROTO %s -> %s" % (destino, code))
 
+        if redirecciones_login:
+            print("  HALLAZGO AGREGADO: SIN SESIÓN / redirección a login en %d "
+                  "página(s): %s" % (len(redirecciones_login),
+                                      ", ".join(redirecciones_login)))
+
         print("")
         print("  total de enlaces internos comprobados: %d" % total)
+        print("  identificadores HTML revisados: %d" % total_ids)
         print("  enlaces internos rotos: %d" % len(rotos))
+        print("  anclas internas rotas: %d" % len(rotos_ancla))
+        print("  hallazgos agregados de redireccion a login: %d"
+              % (1 if redirecciones_login else 0))
         for origen, destino, code in rotos[:20]:
             print("     %-24s -> %-50s %s" % (origen, destino, code))
+        for origen, destino, fragmento in rotos_ancla[:20]:
+            print("     %-24s -> %-50s ancla #%s" % (
+                origen, destino, fragmento))
+
+        if rotos or rotos_ancla or redirecciones_login:
+            return 1
         return 0
 
 

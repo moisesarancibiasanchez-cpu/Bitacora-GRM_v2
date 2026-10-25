@@ -26,10 +26,15 @@ catalogo de 'Resultado de Pruebas' se sirve sin duplicar la paleta.
 
 Uso:
     python tools/verificacion/barrer_rutas.py [BASE_URL]
+
+Requiere las variables de entorno BITACORA_ADMIN_USER y
+BITACORA_ADMIN_PASSWORD. Si falta alguna, termina con codigo 2 sin
+realizar la verificacion.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -69,6 +74,23 @@ PARAMETROS = {
 FALLOS = []
 
 
+def _credenciales_admin():
+    usuario = os.environ.get("BITACORA_ADMIN_USER")
+    password = os.environ.get("BITACORA_ADMIN_PASSWORD")
+    faltantes = []
+    if not usuario:
+        faltantes.append("BITACORA_ADMIN_USER")
+    if not password:
+        faltantes.append("BITACORA_ADMIN_PASSWORD")
+    if faltantes:
+        print(
+            "NO VERIFICABLE: faltan las variables de entorno obligatorias: %s"
+            % ", ".join(faltantes)
+        )
+        return None
+    return usuario, password
+
+
 def _check(nombre, condicion, detalle=""):
     if condicion:
         print("PASA " + nombre + (" :: " + detalle if detalle else ""))
@@ -88,6 +110,12 @@ def main() -> int:
     print(" BARRIDO DE RUTAS contra %s" % BASE)
     print("=" * 78)
 
+    credenciales = _credenciales_admin()
+    if credenciales is None:
+        return 2
+    usuario_admin, password_admin = credenciales
+
+    ruta_estados = None
     with httpx.Client(base_url=BASE, timeout=45, follow_redirects=False) as c:
         # --- 1) Estado de salud -------------------------------------------
         r = c.get("/health")
@@ -102,8 +130,8 @@ def main() -> int:
 
         # --- 2) Login real ------------------------------------------------
         r = c.post("/api/v1/auth/login",
-                   json={"username": "admin", "password": "admin123"})
-        _check("login admin/admin123 responde 200", r.status_code == 200,
+                   json={"username": usuario_admin, "password": password_admin})
+        _check("login del administrador responde 200", r.status_code == 200,
                "status=%s" % r.status_code)
         if r.status_code != 200:
             print("ABORTANDO: sin sesion no se puede validar el resto.")
@@ -147,11 +175,27 @@ def main() -> int:
         r = c.get("/openapi.json")
         if r.status_code != 200:
             _check("se puede leer /openapi.json", False, "status=%s" % r.status_code)
+            _check(
+                "el esquema expone exactamente una ruta GET de estados del reporte",
+                False,
+                "no se pudo derivar la ruta porque OpenAPI no esta disponible",
+            )
         else:
             esquema = r.json()
             gets = sorted(p for p, ops in esquema.get("paths", {}).items()
                           if "get" in ops)
             print("  endpoints GET en el esquema: %d" % len(gets))
+            coincidencias_estados = [
+                path for path in gets
+                if path.endswith("/reporte-entregas/estados")
+            ]
+            _check(
+                "el esquema expone exactamente una ruta GET de estados del reporte",
+                len(coincidencias_estados) == 1,
+                "coincidencias=%r" % (coincidencias_estados,),
+            )
+            if len(coincidencias_estados) == 1:
+                ruta_estados = coincidencias_estados[0]
             conteo_api = Counter()
             detalles_api = []
             for path in gets:
@@ -194,22 +238,30 @@ def main() -> int:
                    rr.status_code == 404, "status=%s" % rr.status_code)
 
         # --- 6) Estado 'Produccion OK' y sus transiciones -----------------
-        r = c.get("/api/v1/reporte-entregas/estados")
-        if r.status_code == 200:
-            try:
-                cuerpo = r.json()
-            except Exception:
-                cuerpo = {}
-            _check("el endpoint de estados responde 200", True, "ok")
-            texto = json.dumps(cuerpo, ensure_ascii=False)
-            _check(
-                "produccion expone el estado 'Produccion OK'",
-                "Producci" in texto and "OK" in texto,
-                "encontrado en la respuesta de estados",
-            )
+        if ruta_estados is None:
+            print("INFO  no se consulta el endpoint de estados: no se pudo "
+                  "derivar una coincidencia unica del OpenAPI (fallo registrado)")
         else:
-            print("INFO  /api/v1/reporte-entregas/estados -> %s "
-                  "(ruta protegida o inexistente; no se puede verificar por API)" % r.status_code)
+            r = c.get(ruta_estados)
+            if r.status_code == 200:
+                try:
+                    cuerpo = r.json()
+                except Exception:
+                    cuerpo = {}
+                _check("el endpoint de estados responde 200", True,
+                       "ruta=%s" % ruta_estados)
+                texto = json.dumps(cuerpo, ensure_ascii=False)
+                _check(
+                    "produccion expone el estado 'Produccion OK'",
+                    "producci" in texto.lower() and "ok" in texto.lower(),
+                    "encontrado en la respuesta de estados",
+                )
+            else:
+                _check(
+                    "el endpoint de estados responde 200",
+                    False,
+                    "ruta=%s status=%s" % (ruta_estados, r.status_code),
+                )
 
         # --- 7) Catalogo de Resultado de Pruebas --------------------------
         r = c.get("/api/v1/catalogos/etiquetas")

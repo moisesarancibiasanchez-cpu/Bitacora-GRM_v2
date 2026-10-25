@@ -27,11 +27,10 @@ Solución aplicada
   ``tests/test_script_modules.py``. Así conservan su base de datos aislada y su
   contrato de código de salida (``0`` = OK, ``1`` = fallo) sin poder abortar
   la sesión de pytest.
-* ``DATABASE_URL`` se fija aquí, **antes de cualquier import de ``app``**, de
-  modo que ningún test pueda escribir sobre la base de datos de desarrollo
-  (``bitacora_grm.db``). Si el entorno ya trae una ``DATABASE_URL`` explícita
-  (CI, Railway, etc.) se respeta; en caso contrario se usa una SQLite
-  desechable.
+* ``DATABASE_URL`` se fuerza aquí, **antes de cualquier import de ``app``**, a
+  una SQLite nueva y desechable bajo ``tests/tmp/``. Así, ningún test puede
+  escribir sobre la base de datos de desarrollo, de CI o de producción,
+  aunque el entorno traiga una ``DATABASE_URL`` real.
 * Se fijan valores de entorno seguros para el arranque de la app en tests
   (``SECRET_KEY`` real, ``AUTO_INIT_DB`` apagado, sin usuarios demo).
 
@@ -44,6 +43,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 # --- 1. Rutas --------------------------------------------------------------
@@ -53,10 +53,16 @@ if str(RAIZ) not in sys.path:
 
 # --- 2. Base de datos de la suite -----------------------------------------
 # El motor SQLAlchemy se crea a nivel de módulo (app/db/session.py), por lo
-# que el valor debe fijarse ANTES de importar la app. Nunca debe apuntar a la
-# base de datos de desarrollo.
-if not os.environ.get("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "sqlite:///./test_pytest_suite.db"
+# que el valor debe fijarse ANTES de importar la app. Nunca debe respetarse
+# una DATABASE_URL externa: la suite siempre usa un fichero SQLite nuevo,
+# vacio y disposable bajo tests/tmp/.
+TMP_DIR = RAIZ / "tests" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+db_fd, db_path = tempfile.mkstemp(
+    prefix="pytest_suite_", suffix=".sqlite", dir=str(TMP_DIR)
+)
+os.close(db_fd)
+os.environ["DATABASE_URL"] = "sqlite:///" + db_path.replace("\\", "/")
 
 # --- 3. Entorno de arranque seguro ----------------------------------------
 # ``SECRET_KEY`` real (la app aborta en producción con una clave vacía) y

@@ -18,12 +18,31 @@ Lo que se comprueba es que el arreglo del bug de tildes NO alteró ese flujo:
 """
 from __future__ import annotations
 
+import os
+
 import httpx
 
 BASE = "https://bitacora-grmv2-production.up.railway.app"
 TRANSICIONES_ESPERADAS = 12
 
 FALLOS = []
+
+
+def _credenciales_admin():
+    usuario = os.environ.get("BITACORA_ADMIN_USER")
+    password = os.environ.get("BITACORA_ADMIN_PASSWORD")
+    faltantes = []
+    if not usuario:
+        faltantes.append("BITACORA_ADMIN_USER")
+    if not password:
+        faltantes.append("BITACORA_ADMIN_PASSWORD")
+    if faltantes:
+        print(
+            "NO VERIFICABLE: faltan las variables de entorno obligatorias: %s"
+            % ", ".join(faltantes)
+        )
+        return None
+    return usuario, password
 
 
 def _check(nombre, condicion, detalle=""):
@@ -35,10 +54,15 @@ def _check(nombre, condicion, detalle=""):
 
 
 def main() -> int:
+    credenciales = _credenciales_admin()
+    if credenciales is None:
+        return 2
+    usuario_admin, password_admin = credenciales
+
     with httpx.Client(base_url=BASE, timeout=40, follow_redirects=True) as c:
         r = c.post("/api/v1/auth/login",
-                   json={"username": "admin", "password": "admin123"})
-        _check("login admin/admin123", r.status_code == 200, "status=%s" % r.status_code)
+                   json={"username": usuario_admin, "password": password_admin})
+        _check("login del administrador", r.status_code == 200, "status=%s" % r.status_code)
         if r.status_code != 200:
             return 1
 

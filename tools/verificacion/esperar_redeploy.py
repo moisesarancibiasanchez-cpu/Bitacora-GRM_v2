@@ -3,11 +3,15 @@
 
 Imprime el estado cada 30 s. Termina con codigo 0 cuando la aplicacion
 responde 200 en /health y ademas valida /, /kanban y /dashboard con la
-cookie de sesion (login real admin/admin123).
+cookie de sesion del administrador.
+
+Requiere las variables de entorno BITACORA_ADMIN_USER y
+BITACORA_ADMIN_PASSWORD. Si falta alguna, termina con codigo 2.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 
@@ -19,6 +23,23 @@ INTERVALO = 30
 MAX_INTENTOS = 24  # 12 minutos
 
 
+def _credenciales_admin():
+    usuario = os.environ.get("BITACORA_ADMIN_USER")
+    password = os.environ.get("BITACORA_ADMIN_PASSWORD")
+    faltantes = []
+    if not usuario:
+        faltantes.append("BITACORA_ADMIN_USER")
+    if not password:
+        faltantes.append("BITACORA_ADMIN_PASSWORD")
+    if faltantes:
+        print(
+            "NO VERIFICABLE: faltan las variables de entorno obligatorias: %s"
+            % ", ".join(faltantes)
+        )
+        return None
+    return usuario, password
+
+
 def _estado(ruta):
     try:
         r = httpx.get(BASE + ruta, timeout=TIMEOUT, follow_redirects=False)
@@ -28,6 +49,11 @@ def _estado(ruta):
 
 
 def main() -> int:
+    credenciales = _credenciales_admin()
+    if credenciales is None:
+        return 2
+    usuario_admin, password_admin = credenciales
+
     for intento in range(1, MAX_INTENTOS + 1):
         codigo, detalle = _estado("/health")
         marca = "OK " if codigo == 200 else "-- "
@@ -46,19 +72,23 @@ def main() -> int:
                 # Login real y acceso a las rutas autenticadas.
                 try:
                     r = c.post("/api/v1/auth/login",
-                               json={"username": "admin", "password": "admin123"})
-                    print("  login admin/admin123    -> %s" % r.status_code)
-                    if r.status_code == 200:
-                        for ruta in ("/kanban", "/dashboard"):
-                            rr = c.get(ruta)
-                            cuerpo = rr.text
-                            print("  %-26s -> %s | badge=%s | paleta=%s" % (
-                                ruta, rr.status_code,
-                                "data-resultado-pruebas" in cuerpo,
-                                'id="cuenta-resultado-paleta"' in cuerpo,
-                            ))
+                               json={"username": usuario_admin,
+                                     "password": password_admin})
+                    print("  login administrador    -> %s" % r.status_code)
+                    if r.status_code != 200:
+                        print("  No se pudo validar la sesion autenticada.")
+                        return 1
+                    for ruta in ("/kanban", "/dashboard"):
+                        rr = c.get(ruta)
+                        cuerpo = rr.text
+                        print("  %-26s -> %s | badge=%s | paleta=%s" % (
+                            ruta, rr.status_code,
+                            "data-resultado-pruebas" in cuerpo,
+                            'id="cuenta-resultado-paleta"' in cuerpo,
+                        ))
                 except Exception as exc:
                     print("  login -> error: %s" % exc)
+                    return 1
             return 0
         time.sleep(INTERVALO)
 

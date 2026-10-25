@@ -13,6 +13,10 @@ El escenario replica el de Railway:
   * SECRET_KEY válida (o ausente: se prueba la generación de start.sh aparte)
   * CORS_ORIGINS con el comodín (degradado a advertencia, no bloqueante)
   * RAILWAY_PUBLIC_DOMAIN presente -> PUBLIC_BASE_URL se deriva solo
+
+El login usa las variables de entorno BITACORA_ADMIN_USER y
+BITACORA_ADMIN_PASSWORD. Si falta alguna, termina con codigo 2 sin
+crear la base temporal ni importar la aplicacion.
 """
 from __future__ import annotations
 
@@ -27,6 +31,48 @@ if RAIZ not in sys.path:
 FALLOS = []
 
 
+def _credenciales_admin():
+    usuario = os.environ.get("BITACORA_ADMIN_USER")
+    password = os.environ.get("BITACORA_ADMIN_PASSWORD")
+    faltantes = []
+    if not usuario:
+        faltantes.append("BITACORA_ADMIN_USER")
+    if not password:
+        faltantes.append("BITACORA_ADMIN_PASSWORD")
+    if faltantes:
+        print(
+            "NO VERIFICABLE: faltan las variables de entorno obligatorias: %s"
+            % ", ".join(faltantes)
+        )
+        return None
+    return usuario, password
+
+
+def _preparar_admin_temporal(usuario, password):
+    """Alinea el administrador de la BD temporal con las credenciales reales."""
+    from app.core.security import hash_password
+    from app.db.session import SessionLocal
+    from app.models.usuario import RolUsuario, Usuario
+
+    with SessionLocal() as db:
+        admin = db.query(Usuario).filter(Usuario.username == usuario).first()
+        if admin is None:
+            admin = Usuario(
+                username=usuario,
+                email="verificacion-local@bitacora.local",
+                nombre_completo=usuario,
+                hashed_password=hash_password(password),
+                rol=RolUsuario.ADMINISTRADOR,
+                is_active=True,
+            )
+            db.add(admin)
+        else:
+            admin.hashed_password = hash_password(password)
+            admin.rol = RolUsuario.ADMINISTRADOR
+            admin.is_active = True
+        db.commit()
+
+
 def _check(nombre, condicion, detalle=""):
     if condicion:
         print("PASA " + nombre + (" :: " + detalle if detalle else ""))
@@ -36,6 +82,11 @@ def _check(nombre, condicion, detalle=""):
 
 
 def main() -> int:
+    credenciales = _credenciales_admin()
+    if credenciales is None:
+        return 2
+    usuario_admin, password_admin = credenciales
+
     db_fd, db_path = tempfile.mkstemp(suffix=".sqlite", prefix="arranque_")
     os.close(db_fd)
     os.environ["DATABASE_URL"] = "sqlite:///" + db_path.replace("\\", "/")
@@ -80,14 +131,18 @@ def main() -> int:
             "status=%s" % r.status_code,
         )
 
+        # El administrador de la BD temporal usa las credenciales reales
+        # recibidas por entorno; no hay credenciales fijas en este script.
+        _preparar_admin_temporal(usuario_admin, password_admin)
+
         # Login real con las credenciales de la app (endpoint JSON).
         r = client.post(
             "/api/v1/auth/login",
-            json={"username": "admin", "password": "admin123"},
+            json={"username": usuario_admin, "password": password_admin},
             follow_redirects=False,
         )
         _check(
-            "login admin/admin123 responde 200",
+            "login del administrador responde 200",
             r.status_code == 200,
             "status=%s cuerpo=%r" % (r.status_code, r.text[:200]),
         )
