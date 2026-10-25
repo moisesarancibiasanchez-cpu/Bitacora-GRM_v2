@@ -552,8 +552,11 @@
     </form>
   </dialog>
 
-  {# ============ Modal genérico: Detalle de Ticket ============ #}
-  <dialog id="modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
+  {# ============ Modal genérico: Detalle de Ticket ============
+     El detalle del ticket se carga en el contenedor global #modal-root
+     (base.html). Este <dialog> conserva un id ÚNICO por vista para no
+     duplicar el id global. #}
+  <dialog id="gantt-modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
 
 </div>
 {% endblock %}

@@ -25,11 +25,18 @@
 
     const div = document.createElement('div');
     div.className = `toast border-l-4 ${colors[type] || colors.info} bg-white shadow-lg rounded-r-md px-4 py-3 text-sm flex items-start gap-2 min-w-[260px] animate-fade-in`;
+    // El icono y el mensaje se insertan como texto plano (textContent): el
+    // mensaje puede venir del backend (p.ej. evt.detail.message) y no debe
+    // poder inyectar HTML dentro del toast.
     div.innerHTML = `
-      <span class="font-bold w-4 inline-block text-center">${icons[type] || 'i'}</span>
-      <span class="flex-1">${message}</span>
+      <span class="font-bold w-4 inline-block text-center"></span>
+      <span class="flex-1"></span>
       <button class="text-slate-400 hover:text-slate-600" onclick="this.parentElement.remove()">×</button>
     `;
+    const iconSpan = div.children[0];
+    const msgSpan = div.children[1];
+    if (iconSpan) iconSpan.textContent = icons[type] || 'i';
+    if (msgSpan) msgSpan.textContent = message == null ? '' : String(message);
     container.appendChild(div);
     setTimeout(() => div.remove(), duration);
   }

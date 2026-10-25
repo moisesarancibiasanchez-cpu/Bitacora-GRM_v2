@@ -564,6 +564,19 @@
     toastTimer = setTimeout(() => toast.classList.remove("is-show"), 2800);
   }
 
+  // Escapa texto plano para insertarlo dentro de un fragmento HTML.
+  // Los datos del histórico (código, título, estado) vienen del backend y
+  // pueden contener caracteres reservados, por lo que no deben inyectar marcado.
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   async function api(path, opts = {}) {
     const resp = await fetch(API + path, {
       headers: { "HX-Request": "true" },
@@ -722,13 +735,13 @@
 
       const r = document.getElementById("hist-resumen");
       if (resumen.length === 0) {
-        r.innerHTML = "Sin entregas registradas en los últimos "
+        r.textContent = "Sin entregas registradas en los últimos "
                       + dias + " días.";
       } else {
         r.innerHTML = resumen.map(x =>
-          `<span class="re-pill re-pill-on">${x.fecha}</span> ` +
-          `<strong>${x.total}</strong> entregas ` +
-          `(<em>${x.enviadas} enviadas</em>) `
+          `<span class="re-pill re-pill-on">${escapeHtml(x.fecha)}</span> ` +
+          `<strong>${escapeHtml(x.total)}</strong> entregas ` +
+          `(<em>${escapeHtml(x.enviadas)} enviadas</em>) `
         ).join(" · ");
       }
 
@@ -739,11 +752,11 @@
       } else {
         u.innerHTML = ultimas.map(e =>
           `<div class="re-hist-row">
-            <span class="re-hist-ticket">${e.ticket_codigo || ""}</span>
-            <span class="truncate">${e.ticket_titulo || ""}</span>
-            <span class="text-xs text-slate-500">${e.estado_destino_nombre || ""}</span>
+            <span class="re-hist-ticket">${escapeHtml(e.ticket_codigo || "")}</span>
+            <span class="truncate">${escapeHtml(e.ticket_titulo || "")}</span>
+            <span class="text-xs text-slate-500">${escapeHtml(e.estado_destino_nombre || "")}</span>
             <span class="ml-auto text-xs text-slate-500">
-              ${e.fecha_entrega ? e.fecha_entrega.slice(0,16).replace("T"," ") : ""}
+              ${escapeHtml(e.fecha_entrega ? e.fecha_entrega.slice(0,16).replace("T"," ") : "")}
               ${e.reporte_enviado_en
                 ? " · <em>enviado</em>" : " · <em>pendiente</em>"}
             </span>

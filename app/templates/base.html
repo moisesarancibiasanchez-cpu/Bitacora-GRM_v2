@@ -232,7 +232,12 @@
   <!-- Toaster de notificaciones (HTMX events) -->
   <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm"></div>
 
-  <!-- Contenedor global para modales HTMX -->
+  <!-- Contenedor global para modales HTMX.
+       IMPORTANTE: este es el ÚNICO elemento con id="modal-root" de la app.
+       Las vistas que necesitaban su propio diálogo (planner, gantt, calendario)
+       usan ids únicos por vista para no duplicar este id: con ids repetidos,
+       document.getElementById('modal-root') devuelve el nodo equivocado y los
+       modales dejan de funcionar. -->
   <div id="modal-root" class="contents"></div>
 
   <!-- Command Palette (Búsqueda global) -->

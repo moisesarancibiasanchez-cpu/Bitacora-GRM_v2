@@ -258,6 +258,10 @@
         <script id="cuenta-resultado-paleta" type="application/json">{{ cuenta_resultado_colores | tojson }}</script>
         <script id="cuenta-resultado-acronimos" type="application/json">{{ cuenta_resultado_acronimos | tojson }}</script>
         <script id="cuenta-resultado-fallback" type="application/json">{{ cuenta_resultado_fallback | default({}, true) | tojson }}</script>
+        {# Columnas del pivote, en el orden que define el catálogo (SSOT).
+           Es la misma lista que devuelve /api/v1/metricas/cuenta-resultado:
+           el JS no debe redeclarar los valores del LOV. #}
+        <script id="cuenta-resultado-lov" type="application/json">{{ cuenta_resultado_lov | tojson }}</script>
       </div>
 
       <!-- ===== LISTA DE INCIDENCIAS RECIENTES (entre Cuenta de Resultado y Top agentes) =====
@@ -901,7 +905,13 @@
       cont.innerHTML = '<p class="text-xs text-slate-400 text-center py-6">Sin incidencias cerradas con resultado de pruebas en el periodo</p>';
       return;
     }
-    const RESULTADOS = ['OK', 'OK CON OBS.', 'NOK', 'POSTERGADA', 'DESESTIMADA', 'N/A'];
+    // Columnas del pivote: se toman de la lista inyectada por el servidor
+    // desde el catálogo (app/core/resultado_pruebas.py). Antes esta función
+    // declaraba aquí su propia lista de valores del LOV, que podía
+    // desviarse del catálogo sin que nada lo detectara.
+    const RESULTADOS = CUENTA_RESULTADO_LOV.length
+      ? CUENTA_RESULTADO_LOV
+      : Object.keys(CUENTA_RESULTADO_COLORES);
     // Paleta compartida: se lee de CUENTA_RESULTADO_COLORES (inyectada desde
     // app/core/resultado_pruebas.py). Antes esta función declaraba su propio
     // mapa RESULTADO_COLORS con tonos DISTINTOS a los del dashboard y del
@@ -1333,6 +1343,16 @@
     const el = document.getElementById('cuenta-resultado-fallback');
     if (!el) return {};
     try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
+  })();
+
+  // Columnas del pivote en el orden del catálogo. Se inyecta desde el
+  // servidor (app/core/resultado_pruebas.py) con la MISMA lista que
+  // devuelve el endpoint /api/v1/metricas/cuenta-resultado, de modo que el
+  // JS no re-declara los valores del LOV.
+  const CUENTA_RESULTADO_LOV = (function () {
+    const el = document.getElementById('cuenta-resultado-lov');
+    if (!el) return [];
+    try { return JSON.parse(el.textContent) || []; } catch (e) { return []; }
   })();
 
   // Resuelve los colores de una columna del pivote. Si el valor no está en

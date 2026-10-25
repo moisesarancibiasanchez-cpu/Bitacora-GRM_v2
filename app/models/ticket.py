@@ -7,6 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 import enum
 
+from app.core.resultado_pruebas import RESULTADOS_LOV
 from app.db.base import Base, TimestampMixin
 
 
@@ -66,16 +67,11 @@ ITEM_LOV = (
 )
 
 # LOV de resultado de pruebas.
-# Actualizado: "POSTERGADA A GARANTÍA" -> "POSTERGADA" y se agrega
-# "DESESTIMADA" para que el solicitante pueda descartar un ticket.
-RESULTADO_PRUEBAS_LOV = (
-    "OK",
-    "N/A",
-    "OK CON OBS.",
-    "POSTERGADA",
-    "DESESTIMADA",
-    "NOK",
-)
+# La lista de valores vive ÚNICAMENTE en el catálogo
+# ``app/core/resultado_pruebas.py`` (SSOT). Aquí solo se reexporta para
+# mantener compatibilidad con los imports existentes
+# (``from app.models.ticket import RESULTADO_PRUEBAS_LOV``).
+RESULTADO_PRUEBAS_LOV = RESULTADOS_LOV
 
 
 # LOV de QA Testers.
