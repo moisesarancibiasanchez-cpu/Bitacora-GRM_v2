@@ -49,7 +49,12 @@ Commits del lote:    26cf486  fix(migraciones): poblar el metadata, fail-closed
                               determinista y auditoria documental
                       3b1ffab  docs(verificacion): recuentos reales de los
                               verificadores y ruta corregida
-                      (este commit) docs(release): README V1.006
+                      0583d26  fix(salud): interpretar la lista que devuelve
+                              Celery control.ping()
+                      04c2f2a  feat(salud): catalogo de tareas del worker en
+                              /salud-celery
+                      (este commit) docs(release): README V1.006 con el addendum
+                              de la verificacion en produccion
 Tipo de publicacion: fast-forward (sin --force)
 Push:                90a2879..<nuevo>  main -> main
 Fecha:               2026-10-25
@@ -411,8 +416,8 @@ Desde la raiz del repositorio:
 
     C:\Python311embed\python.exe -X utf8 -m pytest tests/ -q --tb=line
 
-Resultado esperado: 124 passed (91 de V1.005 + 6 de test_v1005_regressions
-+ 27 de test_v1006_regressions). Tiempos observados: 8 min 44 s.
+Resultado esperado: 126 passed (91 de V1.005 + 6 de test_v1005_regressions
++ 29 de test_v1006_regressions). Tiempos observados: 10 min 48 s.
 
 5.2) Arrancable y esquema (local)
 ---------------------------------
@@ -539,8 +544,14 @@ Lectura esperada del campo `beat`:
          docs/REPORTE_VALIDACION_FINAL.md, docs/TRELLO_FEATURES_ANALYSIS.md,
          docs/VALIDATION_REPORT.md, docs/demo-interactiva/README.md
 
+0583d26  fix(salud): interpretar la lista que devuelve Celery control.ping()
+         app/main.py, tests/test_v1006_regressions.py
+
+04c2f2a  feat(salud): catalogo de tareas del worker en /salud-celery
+         app/main.py
+
 Parche completo del lote:
-    git diff 90a2879..3b1ffab
+    git diff 90a2879..04c2f2a
 
 6.2) Ficheros intervenidos por el funcional
 ---------------------------------------------
@@ -570,8 +581,8 @@ configure esa variable creera que fija la duracion y no sera cierto.
 
 6.4) Evidencia de la validacion
 --------------------------------
-  Suite pytest completa:            124 passed, 0 failed (8 min 44 s)
-  test_v1006_regressions.py:         27 passed
+  Suite pytest completa:            126 passed, 0 failed (10 min 48 s)
+  test_v1006_regressions.py:         29 passed
   test_v1005_regressions.py:          6 passed
   verificar_arranque.py:             16 PASA / 0 FALLA
   verificar_migrations.py:            13 PASA / 0 FALLA
@@ -591,6 +602,13 @@ configure esa variable creera que fija la duracion y no sera cierto.
                                       /salud-celery)
   GitHub:                             197 paths y 123 GET antes del
                                       despliegue; 198 y 124 despues
+  Barrido autenticado (post-deploy):  todas las comprobaciones superadas,
+                                      0 respuestas 5xx (111 respuestas 200
+                                      en la API, 0 errores)
+  Verificador en negro (post-deploy):  26 comprobaciones, 1 FALLO: el latido
+                                      del beat, porque los servicios worker y
+                                      beat NO se redesplegaron (ver el
+                                      ADDENDUM 8)
 
 6.5) Hallazgos declarados que NO se corrigieron
 -------------------------------------------------
@@ -1102,6 +1120,121 @@ A.12) railway.toml (extracto)
     AUTO_INIT_DB = "false"
 
     (Se elimino la clave TOMB duplicada `PYTHONDONTWRITEBYTECODE`.)
+
+--------------------------------------------------------------------------------
+8. ADDENDUM: VERIFICACION EN PRODUCCION Y CORRECCIONES POSTERIORES
+--------------------------------------------------------------------------------
+
+Este addendum se anade al mismo incremento (no es un lote nuevo): documenta
+lo que se Midio en produccion DESPUES de publicar el README, las dos
+correcciones que salieron de esa medicion y el un punto que queda
+pendiente del propietario.
+
+8.1) Lo que se verifico en produccion (todo con peticiones GET)
+-------------------------------------------------------------------
+  - El servicio web se redesplego correctamente: el esquema paso de 197 a
+    198 paths y de 123 a 124 rutas GET, y expone `/salud-celery`.
+  - Barrido autenticado (`barrer_rutas.py`): TODAS las comprobaciones
+    superadas y 0 respuestas 5xx. Reparto de la API: 111 respuestas 200,
+    2 x 307, 1 x 410, 3 x 422, 2 x 404 y 5 x 403, todos esperables
+    (recursos inexistentes o acceso restringido, ninguno por ruta rota).
+  - `/salud-celery` sin sesion responde 401 y con rol no administrador 403.
+  - Verificador en negro: 26 comprobaciones, 25 PASA y 1 FALLA (el latido
+    del beat, ver 8.3).
+
+8.2) Correccion 1: `Control.ping()` devuelve una lista, no un dict
+-------------------------------------------------------------------
+La primera version del endpoint trataba la respuesta del ping como un
+diccionario. Celery 5.6.3 devuelve una LISTA de diccionarios
+(`[{'celery@worker1': {'ok': 'pong'}}, ...]`), de modo que la llamada a
+`respuestas.keys()` lanzaba `AttributeError`. La excepcion caia en el
+`except`, con dos efectos: el campo `detalle` anunciaba un error que no
+existia ("error al preguntar al broker: 'list' object has no attribute
+'keys'") y la lista de workers quedaba siempre vacia, aunque `responde`
+fuese True porque la lista tenia elementos.
+
+Correccion: commit 0583d26. Se aceptan las dos formas (lista de dicts y
+dict plano) y se listan los nombres de los workers que responden. Con la
+correccion, produccion devuelve `workers: ['celery@fb03d2da82df']`.
+
+Se anadieron dos tests de regresion (con un control de Celery simulado):
+uno con dos workers que responden y otro con ninguno.
+
+8.3) Hallazgo: los servicios worker y beat NO se redesplegan al hacer push
+----------------------------------------------------------------------------
+El latido del beat no aparecio en Redis. La medicion lo localizo de forma
+concluyente:
+
+  - `worker.tareas_registradas` = 12 y `worker.conoce_latido` = False.
+    El codigo actual registra 13 tareas (12 de V1.005 + la nueva
+    `app.tasks.salud_tasks.registrar_latido`): al worker le falta
+    EXACTAMENTE la nueva.
+  - El ping responde con `celery@fb03d2da82df` y la cola esta a 0.
+  - 22 comprobaciones seguidas a lo largo de 11 minutos: siempre 12
+    tareas, nunca el latido.
+  - El servicio web, en cambio, si se redesplego en cada push (el
+    endpoint nuevo aparece y la correccion del ping se ve en produccion).
+
+Conclusion: el push a `main` redespliega el servicio web, pero los
+servicios `worker` (51e22b0c) y `beat` (1c16b13c) siguen con el codigo
+anterior. Por eso el beat no planifica `latido-salud` y el worker no
+conoce la tarea. NO es un fallo del codigo de este lote: es la
+configuracion de despliegue automatico de esos dos servicios en el panel
+de Railway (o un build que no llega a publicarse). El servicio web no se
+toca: es el que sirve las peticiones.
+
+NO se pudo resolver desde este entorno:
+  - El token de proyecto de Railway responde "Not Authorized" (revocado):
+    la API no permite consultar ni reiniciar despliegues. Se verifico
+    con una consulta de solo lectura.
+  - El navegador embebido no responde (la navegacion a railway.app agota
+    el tiempo limite), de modo que tampoco se pudo operar el panel.
+
+8.4) Correccion 2: el catalogo de tareas del worker en el endpoint
+-------------------------------------------------------------------
+Con solo dos senales ("hay worker" y "no hay latido") no se puede
+distinguir un worker con codigo viejo de un worker sano al que el beat
+no publica la tarea. Se anade `inspect().registered()` (mismo mecanismo
+de fanout que el ping) al endpoint: `worker.tareas_registradas` y
+`worker.conoce_latido` dicen exactamente donde esta la rotura.
+
+Correccion: commit 04c2f2a.
+
+8.5) Lo que el propietario tiene que hacer para cerrar el punto
+-----------------------------------------------------------------
+En el panel de Railway, proyecto Bitacora-GRM_v2, entorno production:
+
+  1. Servicio `worker` (51e22b0c) -> Deployments -> desplegar la version
+     actual (o "Restart" si ya esta desplegada). Lo mismo en el servicio
+     `beat` (1c16b13c).
+  2. Revisar en el panel que ambos servicios tienen activada la opcion
+     de despliegue automatico ante un push a `main`, para que no vuelva
+     a pasar en el siguiente lote.
+  3. Comprobar el resultado con sesion de administrador:
+       GET /salud-celery
+     y esperar a que `worker.conoce_latido` sea `true` y `beat.ok` sea
+     `true` (el beat escribe el latido cada minuto; en cuanto el worker
+     y el beat tengan el codigo nuevo, el latido aparece en menos de dos
+     minutos).
+
+  Al redesplegar, ademas, la `SECRET_KEY` se regenera si no hay volumen
+  montado en `/data`: se observo que las sesiones abiertas dejan de
+  valer (401) en el mismo instante del redespliegue. Es otra vez la
+  accion 6.6.3.
+
+8.6) Lo que NO se pudo verificar
+---------------------------------
+  - Que el servicio `beat` este vivo: no hay ninguna senal externa que
+    lo demuestre en este despliegue. El detector de "SLA recalculado"
+    solo sirve si existe un ticket con `sla_cumplido == -1` Y su
+    vencimiento ya paso; en produccion hay exactamente uno y su
+    vencimiento es el 2026-11-19, asi que no produce cambio observable.
+    La unica prueba concluyente es el latido, que requiere el
+    redespliegue de 8.5.
+  - El estado interno de los despliegues en el panel (el token esta
+    revocado).
+  - Permisos 600 sobre NTFS, QA visual con navegador y el
+    comportamiento interno de Railway.
 
 ================================================================================
 FIN DEL README V1.006
