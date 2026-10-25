@@ -1,12 +1,23 @@
 # -*- coding: utf-8 -*-
 """Barrido de rutas contra la aplicacion desplegada (con sesion iniciada).
 
-Recorre las 38 rutas del proyecto y las clasifica segun su respuesta real:
+Recorre:
+  * las PAGINAS de la aplicacion (lista curada y verificada), y
+  * TODOS los endpoints GET del esquema OpenAPI real del despliegue.
+
+Las rutas de la API ya NO se mantienen a mano: se derivan de /openapi.json.
+La lista manual anterior (heredada del README V1.001) estaba desactualizada
+y arrastraba 10 rutas que no existen (login, registro, logout, referencias,
+roles, calendario, timeline, metricas, dependencias y p/demo), de modo que el
+barrido reportaba 404 "esperados" y no detectaba una ruta realmente rota.
+Ahora una ruta inexistente es un FALLO del propio barrido.
+
+Clasifica cada respuesta real:
   * 200/2xx  -> ruta operativa
-  * 302/307  -> redirige (a /auth/login si la sesion no se aplico, o al
-                flujo normal de la app si la sesion si se aplico)
-  * 401/403  -> endpoint protegido (correcto sin credenciales de admin)
-  * 404/405  -> ruta inexistente o metodo no permitido
+  * 302/307  -> redirige (la app redirige "/" a /kanban y /onboarding a su
+                version con barra final)
+  * 401/403  -> endpoint protegido (correcto)
+  * 404      -> ruta inexistente (FALLO, salvo las de la lista RUTAS_SIN_DATOS)
   * 5xx      -> ERROR DE SERVIDOR (fallo real)
 
 Ademas verifica que el estado 'Produccion OK' y sus transiciones existen en
@@ -27,18 +38,33 @@ import httpx
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "https://bitacora-grmv2-production.up.railway.app"
 
-RUTAS = [
-    "/", "/login", "/registro", "/logout",
-    "/kanban", "/dashboard", "/tickets", "/espacios", "/tableros",
-    "/admin/reporte-entregas", "/admin/deadline", "/notificaciones",
+# Paginas HTML de la aplicacion (verificadas una a una contra el despliegue).
+PAGINAS = [
+    "/", "/kanban", "/dashboard", "/tickets", "/tickets/nuevo", "/tickets/tabla",
+    "/espacios", "/tableros", "/notificaciones", "/catalogos",
+    "/roles-funciones", "/usuarios", "/usuarios/nuevo", "/usuarios/tabla",
+    "/admin/reporte-entregas", "/admin/deadline",
     "/vistas/tabla", "/vistas/timeline", "/vistas/panel", "/vistas/gantt",
-    "/vistas/planner", "/catalogos", "/referencias", "/roles",
-    "/calendario", "/timeline", "/metricas", "/dependencias",
-    "/health", "/docs", "/openapi.json", "/api/v1/auth/me",
-    "/api/v1/buscar?q=test", "/api/v1/tickets", "/api/v1/usuarios",
-    "/api/v1/etiquetas", "/api/v1/catalogos/etiquetas", "/api/v1/kanban",
-    "/onboarding", "/p/demo",
+    "/vistas/planner", "/vistas/calendario",
+    "/importar-exportar", "/butler",
+    "/auth/login", "/auth/registro",
+    "/health", "/ready", "/info", "/docs", "/openapi.json",
 ]
+
+# Rutas cuyo 404 es correcto porque el PATRON existe pero no hay datos.
+RUTAS_SIN_DATOS = {
+    "/p/demo": "no existe ningun tablero publico con el slug 'demo'",
+}
+
+# Valores plausibles para los parametros de ruta del esquema.
+PARAMETROS = {
+    "id": "1", "ticket_id": "1", "usuario_id": "1", "espacio_id": "1",
+    "tablero_id": "1", "estado_id": "1", "etiqueta_id": "1", "rol_id": "1",
+    "adjunto_id": "1", "tipo_id": "1", "tipo_objeto": "ticket",
+    "objeto_id": "1", "slug": "demo", "codigo": "demo", "nombre": "prueba",
+    "fecha": "2026-10-24", "formato": "csv", "filename": "demo.sql",
+    "record_id": "1", "destino_id": "1",
+}
 
 FALLOS = []
 
@@ -51,12 +77,18 @@ def _check(nombre, condicion, detalle=""):
         FALLOS.append(nombre)
 
 
+def _resolver(path: str) -> str:
+    for nombre in re.findall(r"{(\w+)}", path):
+        path = path.replace("{%s}" % nombre, PARAMETROS.get(nombre, "1"))
+    return path
+
+
 def main() -> int:
     print("=" * 78)
     print(" BARRIDO DE RUTAS contra %s" % BASE)
     print("=" * 78)
 
-    with httpx.Client(base_url=BASE, timeout=30, follow_redirects=False) as c:
+    with httpx.Client(base_url=BASE, timeout=45, follow_redirects=False) as c:
         # --- 1) Estado de salud -------------------------------------------
         r = c.get("/health")
         _check("/health responde 200", r.status_code == 200, "status=%s" % r.status_code)
@@ -80,36 +112,88 @@ def main() -> int:
         _check("se obtiene la cookie de sesion", bool(token),
                "cookie presente=%s" % bool(token))
 
-        # --- 3) Barrido con sesion ----------------------------------------
+        # --- 3) Paginas HTML ----------------------------------------------
+        print("")
+        print("  PAGINAS")
+        print("  " + "-" * 42)
         conteo = Counter()
         detalles = []
-        for ruta in RUTAS:
+        for ruta in PAGINAS:
             try:
                 rr = c.get(ruta)
                 code = rr.status_code
             except Exception as exc:
                 code = 0
-                rr = None
                 detalles.append((ruta, "ERROR %s" % exc))
                 conteo["error"] += 1
                 continue
             conteo[code] += 1
             detalles.append((ruta, code))
-
-        print("")
-        print("  ruta                         codigo")
-        print("  " + "-" * 42)
         for ruta, code in detalles:
-            print("  %-28s %s" % (ruta, code))
-
+            print("  %-30s %s" % (ruta, code))
         print("")
-        print("  resumen: %s" % dict(conteo))
+        print("  resumen de paginas: %s" % dict(conteo))
 
-        # 5xx = fallo real de servidor.
-        errores5xx = [r for r, c_ in detalles if isinstance(c_, int) and 500 <= c_ < 600]
-        _check("ninguna ruta devuelve 5xx", not errores5xx, "errores=%r" % errores5xx)
+        # Una pagina debe responder 200 (o 307 si redirige por diseño).
+        paginas_rojas = [(r, c_) for r, c_ in detalles
+                         if not (isinstance(c_, int) and c_ in (200, 307))]
+        _check("todas las paginas existen (200 o 307)",
+               not paginas_rojas, "roto=%r" % (paginas_rojas[:8],))
 
-        # --- 4) Estado 'Produccion OK' y sus transiciones -----------------
+        # --- 4) Rutas de la API derivadas del OpenAPI real ----------------
+        print("")
+        print("  ENDPOINTS GET DEL ESQUEMA OPENAPI")
+        print("  " + "-" * 42)
+        r = c.get("/openapi.json")
+        if r.status_code != 200:
+            _check("se puede leer /openapi.json", False, "status=%s" % r.status_code)
+        else:
+            esquema = r.json()
+            gets = sorted(p for p, ops in esquema.get("paths", {}).items()
+                          if "get" in ops)
+            print("  endpoints GET en el esquema: %d" % len(gets))
+            conteo_api = Counter()
+            detalles_api = []
+            for path in gets:
+                url = _resolver(path)
+                try:
+                    rr = c.get(url)
+                    code = rr.status_code
+                except Exception as exc:
+                    code = 0
+                    detalles_api.append((path, "ERROR %s" % exc))
+                    conteo_api["error"] += 1
+                    continue
+                conteo_api[code] += 1
+                detalles_api.append((path, code))
+            for path, code in detalles_api:
+                if isinstance(code, int) and code >= 400:
+                    print("    %-52s %s" % (path, code))
+            print("")
+            print("  resumen de la API: %s" % dict(conteo_api))
+
+            errores5xx = [(p, c_) for p, c_ in detalles_api
+                          if isinstance(c_, int) and 500 <= c_ < 600]
+            _check("ningun endpoint GET de la API devuelve 5xx",
+                   not errores5xx, "errores=%r" % (errores5xx[:8],))
+
+            # Un 404 en un endpoint del propio esquema significa que el
+            # parametro de ejemplo no existe: se informa, no se considera
+            # fallo del despliegue.
+            sin_dato = [(p, c_) for p, c_ in detalles_api
+                        if isinstance(c_, int) and c_ == 404]
+            if sin_dato:
+                print("  INFO  %d endpoint(s) devuelven 404 con el parametro de "
+                      "ejemplo (recurso inexistente, no ruta rota): %s"
+                      % (len(sin_dato), [p for p, _ in sin_dato][:6]))
+
+        # --- 5) Rutas con 404 esperado por falta de datos -----------------
+        for ruta, motivo in RUTAS_SIN_DATOS.items():
+            rr = c.get(ruta)
+            _check("%s devuelve 404 (motivo: %s)" % (ruta, motivo),
+                   rr.status_code == 404, "status=%s" % rr.status_code)
+
+        # --- 6) Estado 'Produccion OK' y sus transiciones -----------------
         r = c.get("/api/v1/reporte-entregas/estados")
         if r.status_code == 200:
             try:
@@ -127,12 +211,12 @@ def main() -> int:
             print("INFO  /api/v1/reporte-entregas/estados -> %s "
                   "(ruta protegida o inexistente; no se puede verificar por API)" % r.status_code)
 
-        # --- 5) Catalogo de Resultado de Pruebas --------------------------
+        # --- 7) Catalogo de Resultado de Pruebas --------------------------
         r = c.get("/api/v1/catalogos/etiquetas")
         _check("el catalogo de etiquetas responde 200", r.status_code == 200,
                "status=%s" % r.status_code)
 
-        # --- 6) El dashboard NO debe re-declarar la paleta ----------------
+        # --- 8) El dashboard NO debe re-declarar la paleta ----------------
         r = c.get("/dashboard")
         if r.status_code == 200:
             html = r.text
@@ -164,6 +248,11 @@ def main() -> int:
                 not fuera,
                 "lineas con hex junto a un consumidor de la paleta=%r" % (fuera[:3],),
             )
+
+        # --- 9) No debe quedar ningun endpoint de diagnostico exposed -----
+        r = c.get("/_diag/tickets")
+        _check("el endpoint de diagnostico /_diag/tickets ya no existe",
+               r.status_code == 404, "status=%s" % r.status_code)
 
     print("")
     if FALLOS:

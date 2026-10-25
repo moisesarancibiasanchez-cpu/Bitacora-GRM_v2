@@ -78,7 +78,7 @@
 | `/p/{slug}` | Tablero público | OK |
 | `/dev/inbox` | Dev inbox | OK |
 | `/dev/inbox/` | Dev inbox (con /) | OK |
-| `/_diag/tickets` | Diagnóstico tickets | OK |
+| `/_diag/tickets` | Diagnóstico tickets | RETIRADO (2026-10-24): endpoint temporal sin autenticación; la comprobación equivalente vive ahora en `tools/verificacion/diagnostico_tickets.py` |
 | `/usuarios/{id}/editar` | Editar usuario | OK |
 | `/tickets/exportar-csv` | Exportar CSV | OK |
 
