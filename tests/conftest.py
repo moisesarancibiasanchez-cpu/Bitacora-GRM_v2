@@ -46,6 +46,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 # --- 1. Rutas --------------------------------------------------------------
 RAIZ = Path(__file__).resolve().parent.parent
 if str(RAIZ) not in sys.path:
@@ -89,3 +91,37 @@ collect_ignore = [
     "test_bulk_update_gar_ri.py",
     "test_reporte_entregas.py",
 ]
+
+
+# --- 5. Limpieza de la base temporal -------------------------------------
+# La base creada arriba es un recurso exclusivo de esta sesión de pytest. Al
+# terminar se cierran las sesiones y los engines que pudieron quedar abiertos
+# y se eliminan SQLite y sus archivos auxiliares. No se toca ninguna otra base
+# ni ningún fichero del repositorio.
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_suite_database():
+    yield
+
+    for module in list(sys.modules.values()):
+        archivo = str(getattr(module, "__file__", "") or "")
+        if not archivo.endswith("test_trello_features.py"):
+            continue
+        sesion = getattr(module, "db", None)
+        if sesion is not None:
+            sesion.close()
+        motor = getattr(module, "engine_test", None)
+        if motor is not None:
+            motor.dispose()
+
+    try:
+        from app.db.session import engine as motor_app
+
+        motor_app.dispose()
+    except (ImportError, AttributeError):
+        pass
+
+    ruta_sqlite = Path(db_path)
+    for sufijo in ("", "-wal", "-shm"):
+        ruta_auxiliar = Path(str(ruta_sqlite) + sufijo)
+        if ruta_auxiliar.exists():
+            ruta_auxiliar.unlink()
