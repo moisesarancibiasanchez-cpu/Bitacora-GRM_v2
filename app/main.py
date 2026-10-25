@@ -2558,6 +2558,10 @@ def salud_celery(request: Request):
       - ``colas``: profundidad de la cola del broker. Si crece sin
         consumirse, el worker está caído; si está a cero con un worker
         respondiendo, el flujo está bien.
+      - ``worker.tareas_registradas`` y ``worker.conoce_latido``: el
+        catálogo de tareas que el worker tiene registrado. Distingue un
+        worker con código viejo (no conoce la tarea del latido) de un
+        worker sano al que simplemente nadie publica la tarea.
 
     Existe porque verificar el worker y el beat exigía la API de Railway
     (token de proyecto), que puede estar revocada: sin esta señal, "el
@@ -2610,6 +2614,27 @@ def salud_celery(request: Request):
         worker["detalle"] = f"error al preguntar al broker: {exc}"
     worker["consulta_segundos"] = round(time.monotonic() - inicio, 2)
 
+    # --- catalogo de tareas del worker ---
+    # `inspect().registered()` usa el mismo mecanismo de fanout que el ping.
+    # Sirve para distinguir "el worker no conoce la tarea" (worker con codigo
+    # viejo, todavia no redesplegado) de "el worker la conoce pero nadie la
+    # publica" (el beat no la planifica).
+    try:
+        registro = celery_app.control.inspect(timeout=2.0).registered() or {}
+        tareas = set()
+        for lista in registro.values():
+            if isinstance(lista, (list, tuple, set)):
+                tareas.update(str(t) for t in lista)
+        worker["tareas_registradas"] = len(tareas)
+        worker["conoce_latido"] = "app.tasks.salud_tasks.registrar_latido" in tareas
+        worker["detalle_registro"] = (
+            "OK" if registro else "el worker no respondio al catalogo de tareas"
+        )
+    except Exception as exc:  # noqa: BLE001
+        worker["tareas_registradas"] = None
+        worker["conoce_latido"] = None
+        worker["detalle_registro"] = f"no se pudo leer el catalogo de tareas: {exc}"
+
     # --- beat: el ultimo latido escrito en Redis ---
     beat = leer_latido()
 
@@ -2647,7 +2672,6 @@ def salud_celery(request: Request):
         "tareas_programadas": programadas,
         "generado": ahora.isoformat(),
     }
-
 
 # === Estáticos: `StaticFiles` de FastAPI (nativo ASGI) ===
 # NOTA (retirado 2026-10-24): este bloque envolvía la aplicación con
