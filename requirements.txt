@@ -49,18 +49,9 @@ requests==2.34.2              # CVE-2024-47081 / CVE-2026-25645 corregidos. Clie
 openpyxl==3.1.5            # Exportación a Excel (.xlsx) - /api/v1/tickets/exportar
 
 # === Adaptador ASGI/WSGI (a2wsgi) ===
-# `app/main.py` importa `a2wsgi` dentro de un `try/except ImportError`, pero
-# la dependencia NO se declara aquí a propósito. `ASGIMiddleware` convierte la
-# app ASGI de FastAPI en una callable WSGI (`__call__(environ, start_response)`),
-# así que con `a2wsgi` instalado y `DEBUG=false` (producción) `app.main:app`
-# deja de ser ASGI: uvicorn lo detecta como `asgi2` y el arranque aborta con
-#     TypeError: ASGIMiddleware.__call__() missing 1 required positional
-#     argument: 'start_response'
-# y `gunicorn -c gunicorn.conf.py app.main:app` no levanta el servicio.
-# Verificado levantando un uvicorn real: sin `a2wsgi` `/health` responde 200;
-# con `a2wsgi` la aplicación no arranca.
+# `app/main.py` ya no importa `a2wsgi`; se deja SIN declarar a propósito.
+# `ASGIMiddleware` convierte la app ASGI de FastAPI en una callable WSGI
+# (`__call__(environ, start_response)`). Si `a2wsgi` se reinstala, el
+# arranque con uvicorn/gunicorn puede fallar por esa conversión.
 # Versión existente y compatible con Python 3.12 (PyPI, publicada 2025-06-18):
 #     a2wsgi==1.10.10
-# Para poder declararla hay que corregir antes `app/main.py`: usar
-# `whitenoise.middleware.WhiteNoiseMiddleware` (ASGI nativo de WhiteNoise 6.x)
-# en lugar de envolver la app con `ASGIMiddleware`.

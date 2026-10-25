@@ -1,6 +1,6 @@
 # =============================================================================
 #  railway.toml - Bitácora GRM
-#  Configuración de despliegue para Railway (Railpack builder)
+#  Configuración de despliegue para Railway (Nixpacks builder)
 # =============================================================================
 # =============================================================================
 #  ALCANCE DE ESTE ARCHIVO (verificado contra la documentacion de Railway):
@@ -38,6 +38,9 @@ healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+# Config as Code solo afecta al servicio legacy; el panel debe fijar el mismo
+# número de réplicas para worker y beat. Beat debe tener exactamente una.
+numReplicas = 1
 
 # === Variables de entorno por defecto ===
 # (las sensibles se setean en el panel de Railway, no en este archivo)
@@ -47,6 +50,7 @@ PYTHONDONTWRITEBYTECODE = "1"
 APP_VERSION = "0.1.0"
 DEBUG = "false"
 USE_SQLITE = "false"
+AUTO_INIT_DB = "false"
 
 # === Los tres servicios de Bitácora GRM en Railway ===
 # 1) web    -> este mismo servicio (FastAPI + gunicorn)

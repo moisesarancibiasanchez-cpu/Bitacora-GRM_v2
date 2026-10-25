@@ -967,6 +967,10 @@
 /tmp_*.py
 /tmp_*.sh
 /tmp_*.ps1
+/tmp_*.txt
+# Directorios de trabajo temporal de los agentes (mismo prefijo, con
+# subdirectorios dentro).
+/tmp_*/
 # Scratch de los agentes que trabajan sobre el repo en paralelo.
 /_ws_scratch/
 
