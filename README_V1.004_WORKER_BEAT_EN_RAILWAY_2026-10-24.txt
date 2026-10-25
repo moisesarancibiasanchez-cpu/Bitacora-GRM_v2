@@ -94,7 +94,7 @@ corrigió una fuga de credenciales detectada durante el despliegue.
   Problema:
       En producción el log de arranque del web imprimía la URL completa de
       PostgreSQL, CON LA CONTRASEÑA:
-        "Inicializando BD: postgresql://postgres:ZoMm...@postgres.railway.internal
+        "Inicializando BD: postgresql://postgres:****@postgres.railway.internal
          :5432/railway"
       Cualquiera con acceso a los logs del despliegue podía leer la
       credencial de la base de datos de producción.

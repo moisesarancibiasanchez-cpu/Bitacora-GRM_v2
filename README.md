@@ -35,14 +35,14 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 
 ```
 ┌──────────────┐   1. drag end      ┌────────────────────┐
-│  SortableJS  │ ─────────────────▶ │  fetch PATCH /api  │
+│  SortableJS  │ ─────────────────> │  fetch PATCH /api  │
 │  (frontend)  │                    │  /v1/tickets/{id}/ │
 └──────────────┘                    │  estado            │
         ▲                           └────────┬───────────┘
         │ 3. outerHTML swap                  │ 2. valida
         │                                    ▼
 ┌──────────────┐                    ┌────────────────────┐
-│  HTMX        │ ◀── fragment ──── │  FastAPI service   │
+│  HTMX        │ <── fragment ──── │  FastAPI service   │
 │  (respuesta) │                    │  TicketService     │
 └──────────────┘                    └────────┬───────────┘
                                             │ ok
@@ -207,16 +207,9 @@ celery -A app.core.celery_app.celery_app worker --loglevel=info
 celery -A app.core.celery_app.celery_app beat --loglevel=info
 ```
 
-## 8. Usuarios de ejemplo (modo demo)
+## 8. Acceso y registro inicial
 
-| Username | Password   | Rol               |
-|----------|------------|-------------------|
-| admin    | admin123   | Administrador     |
-| lider    | lider123   | Agente Senior     |
-| agente1  | agente123  | Agente            |
-| usuario1 | user123    | Solicitante       |
-
-> Pasa el header `X-User-Id: <id>` para simular la sesión en modo demo.
+Las credenciales de acceso se distribuyen por canal privado. El registro inicial define la cuenta administradora; este repositorio no publica usuarios ni contraseñas de demostración.
 
 ## 9. Roadmap
 

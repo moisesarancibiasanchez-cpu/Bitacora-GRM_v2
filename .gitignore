@@ -961,6 +961,15 @@
 /smoke_test.py
 /smoke_test_results.json
 
+# Scripts auxiliares de una sola ejecución con prefijo ``tmp_`` (mismo
+# propósito que los ``_*.py`` de arriba, pero nombrados así para no
+# colisionar con los verificadores versionados de ``tools/verificacion/``).
+/tmp_*.py
+/tmp_*.sh
+/tmp_*.ps1
+# Scratch de los agentes que trabajan sobre el repo en paralelo.
+/_ws_scratch/
+
 # Scripts de barrido auxiliares que se generan dentro de ``tools/``. El patrón
 # ``/tools/_*.py`` no alcanza a ``tools/verificacion/_probe_config.py`` porque
 # ``*`` no cruza directorios.
