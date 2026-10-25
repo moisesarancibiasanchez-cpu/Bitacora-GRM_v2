@@ -6,8 +6,8 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 gunicorn==23.0.0              # Servidor WSGI para producción (Railway)
-python-multipart==0.0.12
-jinja2==3.1.4
+python-multipart==0.0.32      # CVE-2024-53981 / CVE-2026-24486 corregidos
+jinja2==3.1.6                 # CVE-2024-56326 / CVE-2024-56201 corregidos
 
 # === Archivos estáticos en producción ===
 whitenoise==6.7.0             # Sirve /static con compresión y caché
@@ -16,23 +16,51 @@ whitenoise==6.7.0             # Sirve /static con compresión y caché
 SQLAlchemy==2.0.36
 psycopg2-binary==2.9.10       # PostgreSQL (producción)
 # Para SQLite en modo demo no requiere driver extra
-alembic==1.13.3               # Migraciones (opcional, se activa con `alembic`)
+# `alembic` se elimina de esta lista: el repositorio NO tiene entorno de
+# Alembic (no existen `alembic.ini`, `env.py` ni la carpeta `versions/`), por
+# lo que la CLI no puede hacer nada. El esquema lo aplican las migraciones
+# idempotentes escritas a mano en `app/db/migrations.py`, que se ejecutan en
+# cada arranque. Si se adopta Alembic hay que declarar la dependencia Y añadir
+# `alembic.ini` + `env.py` (hoy faltarían ambos).
 
 # === Async / Background tasks ===
 celery==5.4.0
 redis==5.2.0
 
 # === Seguridad ===
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-python-jose[cryptography]==3.3.0
+bcrypt==4.0.1                 # `app/core/security.py` hashea con `bcrypt` directamente
+python-jose[cryptography]==3.5.0   # CVE-2024-33664 / CVE-2024-33663 corregidos
+# `passlib` se elimina de esta lista: ningún módulo del repositorio lo
+# importa (el hashing usa `bcrypt` directamente, ver `app/core/security.py`).
+# Además `passlib 1.7.4` es incompatible con `bcrypt>=4` (lee
+# `bcrypt.__about__`, que ya no existe, y su `detect_wrap_bug` se rompe con
+# contraseñas de más de 72 bytes), así que mantenerlo declarado sólo arrastra
+# ese conflicto. Si alguna vez hace falta, hay que fijar una versión de
+# `passlib` compatible con `bcrypt>=4` (o usar `bcrypt` a secas).
 
 # === Configuración ===
 pydantic==2.9.2
 pydantic-settings==2.6.1
-python-dotenv==1.0.1
+python-dotenv==1.2.4          # CVE-2026-28684 corregido
 
 # === Utilidades ===
-httpx==0.27.2
-requests==2.32.3            # Cliente HTTP usado por email_service para Resend API (HTTPS puerto 443)
+httpx==0.27.2                 # Lo usan los scripts de verificación de `tools/` y el TestClient de la suite
+requests==2.34.2              # CVE-2024-47081 / CVE-2026-25645 corregidos. Cliente HTTP de email_service para Resend API (HTTPS puerto 443)
 openpyxl==3.1.5            # Exportación a Excel (.xlsx) - /api/v1/tickets/exportar
+
+# === Adaptador ASGI/WSGI (a2wsgi) ===
+# `app/main.py` importa `a2wsgi` dentro de un `try/except ImportError`, pero
+# la dependencia NO se declara aquí a propósito. `ASGIMiddleware` convierte la
+# app ASGI de FastAPI en una callable WSGI (`__call__(environ, start_response)`),
+# así que con `a2wsgi` instalado y `DEBUG=false` (producción) `app.main:app`
+# deja de ser ASGI: uvicorn lo detecta como `asgi2` y el arranque aborta con
+#     TypeError: ASGIMiddleware.__call__() missing 1 required positional
+#     argument: 'start_response'
+# y `gunicorn -c gunicorn.conf.py app.main:app` no levanta el servicio.
+# Verificado levantando un uvicorn real: sin `a2wsgi` `/health` responde 200;
+# con `a2wsgi` la aplicación no arranca.
+# Versión existente y compatible con Python 3.12 (PyPI, publicada 2025-06-18):
+#     a2wsgi==1.10.10
+# Para poder declararla hay que corregir antes `app/main.py`: usar
+# `whitenoise.middleware.WhiteNoiseMiddleware` (ASGI nativo de WhiteNoise 6.x)
+# en lugar de envolver la app con `ASGIMiddleware`.
