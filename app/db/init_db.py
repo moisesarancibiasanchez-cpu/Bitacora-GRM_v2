@@ -502,6 +502,11 @@ def seed_tableros(db: Session):
             propietario_id=admin.id,
             visibilidad="espacio",
             color_fondo="#1e293b",
+            # `slug_publico` es un identificador RESERVADO: la ruta
+            # /p/{slug} solo sirve tableros con visibilidad='publico'. Se
+            # guarda aqui para que el tablero tenga ya un handle si el
+            # administrador lo hace publico. La tarjeta de /tableros solo
+            # muestra el enlace cuando el tablero es realmente publico.
             slug_publico="incidencias-prod",
         ),
         Tablero(
