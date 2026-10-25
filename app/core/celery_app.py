@@ -25,6 +25,8 @@ def make_celery() -> Celery:
             "app.tasks.backup_tasks",
             # === FEATURE — Reporte diario de entregas ===
             "app.tasks.entregas",
+            # === Latido de salud (verifica que el beat sigue planificando) ===
+            "app.tasks.salud_tasks",
         ],
     )
 
@@ -92,6 +94,16 @@ def make_celery() -> Celery:
                 hour=int(getattr(settings, "REPORTE_ENTREGAS_HOUR", 18)),
                 minute=int(getattr(settings, "REPORTE_ENTREGAS_MINUTE", 0)),
             ),
+        },
+        # Cada minuto: latido de salud del propio beat.
+        # Escribe en Redis la hora actual. El endpoint de solo lectura
+        # `/salud-celery` la lee y la compara con la hora del servidor: si
+        # la clave no existe o esta vencida, el beat NO esta planificando.
+        # Es lo que permite verificar el beat sin depender de la API de
+        # Railway (cuyo token de proyecto puede estar revocado).
+        "latido-salud": {
+            "task": "app.tasks.salud_tasks.registrar_latido",
+            "schedule": crontab(minute="*"),
         },
     }
 

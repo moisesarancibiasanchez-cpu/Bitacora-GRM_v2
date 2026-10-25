@@ -2538,6 +2538,104 @@ def info():
     }
 
 
+# === Salud de Celery (worker y beat) ===
+@app.get("/salud-celery")
+def salud_celery(request: Request):
+    """Estado real del worker y del beat de Celery. Solo lectura.
+
+    NO es un endpoint público: exige sesión de Administrador (401 sin
+    sesión, 403 con un rol que no sea administrador).
+
+    Tres señales, todas de solo lectura:
+
+      - ``worker``: ``celery.control.ping()`` pregunta al broker quién
+        contesta. Los workers que responden son la prueba directa de que
+        hay uno consumiendo la cola.
+      - ``beat``: el beat planifica cada minuto una tarea que escribe un
+        latido en Redis (``app/tasks/salud_tasks.py``) y el worker la
+        ejecuta. Si la clave no existe o está vencida, esa cadena
+        beat -> worker no está funcionando.
+      - ``colas``: profundidad de la cola del broker. Si crece sin
+        consumirse, el worker está caído; si está a cero con un worker
+        respondiendo, el flujo está bien.
+
+    Existe porque verificar el worker y el beat exigía la API de Railway
+    (token de proyecto), que puede estar revocada: sin esta señal, "el
+    worker está arriba" era una suposición.
+    """
+    import time
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    from app.models.usuario import RolUsuario
+
+    usuario = _get_usuario_actual(request)
+    if usuario is None:
+        raise HTTPException(status_code=401, detail="Se requiere sesion activa")
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(
+            status_code=403, detail="Acceso restringido a Administradores"
+        )
+
+    from app.core.celery_app import celery_app
+    from app.tasks.salud_tasks import leer_latido
+
+    ahora = datetime.now(timezone.utc)
+
+    # --- worker: quien responde al ping ---
+    worker = {"responde": False, "workers": [], "detalle": ""}
+    inicio = time.monotonic()
+    try:
+        respuestas = celery_app.control.ping(timeout=2.0) or {}
+        worker["responde"] = bool(respuestas)
+        worker["workers"] = sorted(str(k) for k in respuestas.keys())
+        worker["detalle"] = (
+            "OK" if respuestas else "ningun worker respondio al ping"
+        )
+    except Exception as exc:  # noqa: BLE001
+        worker["detalle"] = f"error al preguntar al broker: {exc}"
+    worker["consulta_segundos"] = round(time.monotonic() - inicio, 2)
+
+    # --- beat: el ultimo latido escrito en Redis ---
+    beat = leer_latido()
+
+    # --- broker: profundidad de la cola ---
+    colas = {}
+    try:
+        cola = celery_app.conf.task_default_queue or "celery"
+        with celery_app.connection() as conexion:
+            canal = conexion.default_channel
+            cliente = getattr(canal, "client", None)
+            if cliente is not None and hasattr(cliente, "llen"):
+                colas[cola] = int(cliente.llen(cola))
+            elif hasattr(canal, "_size"):
+                colas[cola] = int(canal._size(cola))
+            else:
+                colas[cola] = None
+                colas["detalle"] = "el transporte del broker no expone la profundidad"
+    except Exception as exc:  # noqa: BLE001
+        colas["error"] = str(exc)
+
+    # --- tareas que el beat deberia estar planificando ---
+    programadas = []
+    for nombre, cfg in (celery_app.conf.beat_schedule or {}).items():
+        programadas.append({
+            "nombre": nombre,
+            "tarea": cfg.get("task"),
+            "programacion": str(cfg.get("schedule", "")),
+        })
+
+    return {
+        "ok": bool(worker["responde"] and beat.get("ok")),
+        "worker": worker,
+        "beat": beat,
+        "colas": colas,
+        "tareas_programadas": programadas,
+        "generado": ahora.isoformat(),
+    }
+
+
 # === Estáticos: `StaticFiles` de FastAPI (nativo ASGI) ===
 # NOTA (retirado 2026-10-24): este bloque envolvía la aplicación con
 # ``a2wsgi.ASGIMiddleware`` para integrar WhiteNoise. Era un forego latente:
