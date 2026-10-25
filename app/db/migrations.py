@@ -219,6 +219,27 @@ def _column_exists(eng: Engine, table: str, column: str) -> bool:
     return column in _get_existing_columns(eng, table)
 
 
+def _asegurar_modelos_importados() -> None:
+    """Importa el paquete de modelos para que ``Base.metadata`` los conozca.
+
+    Sin esto, ``apply_migrations()`` ejecutado FUERA de la aplicación web
+    (como script, o desde ``start.sh``) trabaja con un ``Base.metadata``
+    VACÍO: ``create_all`` no crea ninguna tabla y todas las migraciones
+    ``ALTER TABLE`` fallan con "no such table: ...". Dentro de la aplicación
+    web el fallo no se ve porque el lifespan ya importó los modelos.
+
+    Importar ``app.models`` (que a su vez importa todos los módulos) es la
+    forma canónica de poblar el metadata.
+    """
+    try:
+        import app.models  # noqa: F401
+    except Exception as exc:  # pragma: no cover
+        logger.error(
+            "[migrations] No se pudieron importar los modelos: %s. "
+            "Las migraciones pueden fallar por tablas inexistentes.", exc,
+        )
+
+
 def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
     """
     Aplica migraciones pendientes para alinear el esquema con los modelos.
@@ -227,11 +248,15 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
     - Segura: usa `engine.begin()` para transaccionar; si algo falla, hace rollback.
     - Retorna un dict con estadísticas {applied, skipped, indexes, errors}.
     """
+    _asegurar_modelos_importados()
     eng = eng or _get_default_engine()
     is_pg = eng.dialect.name == "postgresql"
     is_sqlite = eng.dialect.name == "sqlite"
+    # ``schema_errors`` cuenta SOLO los fallos que dejan el esquema sin
+    # alinear (creación de tablas y columnas). ``errors`` es el total e
+    # incluye también las migraciones de datos, que no impiden servir.
     stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0,
-             "tables_created": 0, "data_migrated": 0}
+             "schema_errors": 0, "tables_created": 0, "data_migrated": 0}
 
     # 1) Asegurar que todas las tablas existen (no-op si ya están).
     #    Necesario porque algunas columnas tienen FKs a tablas nuevas (tableros,
@@ -243,6 +268,7 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
     except Exception as e:
         logger.warning("[migrations] No se pudo verificar el esquema base: %s", e)
         stats["errors"] += 1
+        stats["schema_errors"] += 1
 
     # 2) Añadir columnas faltantes
     with eng.begin() as conn:
@@ -272,6 +298,7 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
                         table, column, e,
                     )
                     stats["errors"] += 1
+                    stats["schema_errors"] += 1
 
         # 3) Crear índices faltantes (IF NOT EXISTS funciona en ambos motores)
         for name, sql in INDEXES:
@@ -297,9 +324,10 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
         stats["errors"] += 1
 
     logger.info(
-        "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d data_migrated=%d",
+        "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d "
+        "schema_errors=%d data_migrated=%d",
         stats["applied"], stats["skipped"], stats["indexes"], stats["errors"],
-        stats["data_migrated"],
+        stats["schema_errors"], stats["data_migrated"],
     )
     return stats
 
@@ -656,26 +684,34 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
                     len(ids_existentes), ids_existentes,
                 )
             if not existe_prod:
+                # `es_entrega` es NOT NULL y su default (False) es de
+                # SQLAlchemy (lado Python), NO un default del servidor: un
+                # INSERT raw que lo omita falla con
+                # "NOT NULL constraint failed: estados.es_entrega" y el
+                # estado 'Producción OK' NO se creaba en una base nueva.
+                # Se inserta en FALSE; la migración 4.9 lo marca como
+                # estado de entrega (su nombre normalizado está en la
+                # lista de-recognized).
                 if is_pg:
                     res = conn.execute(text(
                         "INSERT INTO estados (nombre, descripcion, color, orden, "
                         "es_inicial, es_final, categoria, sla_horas, archivado, "
-                        "limite_wip, created_at, updated_at) "
+                        "limite_wip, es_entrega, created_at, updated_at) "
                         "SELECT 'Producción OK', "
                         "       'Corrección desplegada y verificada en ambiente productivo', "
                         "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
                         "       FALSE, TRUE, 'produccion_ok', NULL, FALSE, NULL, "
-                        "       :ts, :ts"
+                        "       FALSE, :ts, :ts"
                     ), {"ts": ts_now})
                 else:
                     res = conn.execute(text(
                         "INSERT INTO estados (nombre, descripcion, color, orden, "
                         "es_inicial, es_final, categoria, sla_horas, archivado, "
-                        "limite_wip, created_at, updated_at) "
+                        "limite_wip, es_entrega, created_at, updated_at) "
                         "SELECT 'Producción OK', "
                         "       'Corrección desplegada y verificada en ambiente productivo', "
                         "       '#0d9488', COALESCE((SELECT MAX(orden)+1 FROM estados), 7), "
-                        "       0, 1, 'produccion_ok', NULL, 0, NULL, :ts, :ts"
+                        "       0, 1, 'produccion_ok', NULL, 0, NULL, 0, :ts, :ts"
                     ), {"ts": ts_now})
                 n = res.rowcount if hasattr(res, "rowcount") else 0
                 if n:
@@ -912,6 +948,69 @@ def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
         else:
             out.append(f"{table}: OK ({len(existing)} columnas)")
     return out
+
+
+def verificar_esquema(eng: Optional[Engine] = None) -> int:
+    """Aplica las migraciones y comprueba que el esquema queda alineado.
+
+    Devuelve 0 si el esquema sirve y 1 si no. Lo usa ``start.sh`` para
+    abortar el arranque en vez de servir con un esquema viejo.
+
+    Criterio de fallo (fail-closed con EVIDENCIA POSITIVA)
+    ---------------------------------------------------------
+    1. **Deriva de esquema**: queda alguna columna de ``COLUMNS_TO_ADD``
+       que las migraciones no pudieron añadir. Es la señal directa de
+       "el esquema que el código necesita no está".
+    2. **Errores de esquema**: falló ``create_all`` o un ``ADD COLUMN``.
+
+    No son motivo de fallo:
+    * Errores de las migraciones **de datos** (normalización de valores,
+      renombrados, ``es_entrega``). El esquema queda alineado y la
+      aplicación sirve igual: abortar el arranque por ello dejaría los
+      tres servicios caídos sin evitar ningún 500.
+    * Una excepción inesperada **dentro de esta propia comprobación**.
+      El guardián no puede ser él mismo el que tumbe el servicio: si la
+      base no es alcanzable, la aplicación ya fallará por su cuenta y
+      Railway la reiniciará. Aquí solo se deja constancia en el log.
+
+    OJO: ``report_schema_drift()`` devuelve UNA LÍNEA POR TABLA, y esa
+    línea dice "OK (N columnas)" cuando no hay deriva. Por eso NO se puede
+    usar la lista completa como condición de fallo: hay que filtrar las
+    líneas que contienen "faltan".
+    """
+    try:
+        stats = apply_migrations(eng)
+        lineas = report_schema_drift(eng)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "[migrations] la comprobacion de esquema no pudo ejecutarse: %s. "
+            "Se continua el arranque: el guard no debe ser el que tumbe el "
+            "servicio.", exc,
+        )
+        return 0
+
+    faltan = [l for l in lineas if "faltan" in l]
+    errores = int(stats.get("errors", 0) or 0)
+    errores_esquema = int(stats.get("schema_errors", 0) or 0)
+    logger.info(
+        "[migrations] aplicar: aplicadas=%s omitidas=%s errores=%s "
+        "errores_esquema=%s",
+        stats.get("applied", 0), stats.get("skipped", 0), errores,
+        errores_esquema,
+    )
+    if faltan:
+        logger.error("[migrations] DERIVA DE ESQUEMA: %s", "; ".join(faltan))
+    if errores_esquema:
+        logger.error(
+            "[migrations] %s error(es) de esquema al aplicar las migraciones",
+            errores_esquema,
+        )
+    if errores and not errores_esquema:
+        logger.warning(
+            "[migrations] %s error(es) en las migraciones de DATAS. El esquema "
+            "queda alineado, se continua el arranque.", errores,
+        )
+    return 1 if (faltan or errores_esquema) else 0
 
 
 if __name__ == "__main__":

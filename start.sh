@@ -140,7 +140,7 @@ _asegurar_secret_key() {
         if [[ -z "$ruta" || ! -f "$ruta" ]]; then
             continue
         fi
-        clave="$(head -n 1 "$ruta" 2>/dev/null | tr -d '\r\n')"
+        clave="$(head -n 1 "$ruta" 2>/dev/null | tr -d '\r\n' || true)"
         if [[ -n "$clave" && ${#clave} -ge 32 ]] && ! _secret_key_insegura "$clave"; then
             chmod 600 "$ruta" 2>/dev/null || true
             SECRET_KEY="$clave"
@@ -170,7 +170,7 @@ _asegurar_secret_key() {
         fi
         # Carrera con otro servicio: se adopta la clave que quedó.
         if [[ -f "$ruta" ]]; then
-            existente="$(head -n 1 "$ruta" 2>/dev/null | tr -d '\r\n')"
+            existente="$(head -n 1 "$ruta" 2>/dev/null | tr -d '\r\n' || true)"
             if [[ -n "$existente" && ${#existente} -ge 32 ]]; then
                 SECRET_KEY="$existente"
                 export SECRET_KEY
@@ -309,10 +309,14 @@ fi
 # opcional y va aparte: lo activan AUTO_INIT_DB=true o SEED_DATA=true. Por
 # defecto está DESACTIVADO, igual que `Settings.AUTO_INIT_DB`.
 echo "[start.sh] Verificando/Aplicando migraciones..."
-if ! python -m app.db.migrations; then
-    echo "[start.sh] ERROR: las migraciones fallaron. Revisa el log del despliegue." >&2
-    echo "[start.sh] El proceso continúa para no dejar el servicio sin respuesta," >&2
-    echo "[start.sh] pero el esquema puede estar desactualizado." >&2
+# `python -m app.db.migrations` siempre termina con código 0 aunque
+# `apply_migrations()` registre errores internos. Por eso se invoca
+# `verificar_esquema()`, que devuelve 1 si hubo errores de migración o si
+# queda deriva de esquema: ningún rol continúa con el esquema viejo.
+if ! python -c "import sys; from app.db.migrations import verificar_esquema; sys.exit(verificar_esquema())"; then
+    echo "[start.sh] ERROR: las migraciones fallaron o el esquema quedó desactualizado." >&2
+    echo "[start.sh] No se inicia el proceso para no servir con un esquema incorrecto." >&2
+    exit 1
 fi
 
 if [[ "${AUTO_INIT_DB:-false}" == "true" || "${SEED_DATA:-false}" == "true" ]]; then
