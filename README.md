@@ -65,7 +65,7 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 ### Pasos detallados
 
 1. El usuario arrastra una tarjeta con **SortableJS**.
-2. Al soltarla, `kanban.js` envía un `PATCH /api/v1/tickets/{id}/estado` con `{estado_id, orden}`.
+2. Al soltarla, `kanban.js` envía un `PATCH /api/v1/tickets/{ticket_id}/estado` con `{estado_id, orden}`.
 3. **FastAPI** valida la transición contra la tabla `transiciones_estado` (reglas ITSM).
 4. Si la transición es válida:
    - UPDATE del ticket.
@@ -80,7 +80,7 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 .
 ├── app/
 │   ├── api/v1/                # Endpoints REST
-│   │   ├── tickets.py         # PATCH /tickets/{id}/estado (CORE)
+│   │   ├── tickets.py         # PATCH /tickets/{ticket_id}/estado (CORE)
 │   │   ├── estados.py         # CRUD de estados y transiciones
 │   │   ├── catalogos.py       # Mantenedores de catálogos
 │   │   ├── kanban.py          # Render HTML del tablero
@@ -157,7 +157,7 @@ catalogo_tipos ─< catalogo_items
 | Método | Ruta                                        | Descripción                                        |
 |--------|---------------------------------------------|----------------------------------------------------|
 | GET    | `/kanban`                                   | Render del tablero (HTML)                          |
-| PATCH  | `/api/v1/tickets/{id}/estado`               | **Cambio de estado desde Kanban (CORE)**          |
+| PATCH  | `/api/v1/tickets/{ticket_id}/estado`         | **Cambio de estado desde Kanban (CORE)**          |
 | POST   | `/api/v1/tickets`                           | Crear incidencia                                   |
 | GET    | `/api/v1/tickets`                           | Listar tickets                                     |
 | GET    | `/api/v1/estados`                           | Listar estados del flujo                           |

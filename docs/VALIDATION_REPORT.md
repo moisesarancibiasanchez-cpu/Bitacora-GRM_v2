@@ -201,7 +201,7 @@ function installDrillDownListeners() {
 -  `GET /api/v1/dev/inbox/status` → 200
 -  `GET /api/v1/dev/inbox/stats` → 200
 
-### 5.12 HTMX Crítico: PATCH /tickets/{id}/estado
+### 5.12 HTMX Crítico: PATCH /tickets/{ticket_id}/estado
 
 ```bash
 curl -X PATCH "https://.../api/v1/tickets/1/estado" \
@@ -273,7 +273,7 @@ Script Python que:
 
 ### 7.3 Transición de Estados
 
--  `PATCH /api/v1/tickets/{id}/estado` valida transiciones vía `CambioEstadoRequest` (Pydantic)
+-  `PATCH /api/v1/tickets/{ticket_id}/estado` valida transiciones vía `CambioEstadoRequest` (Pydantic)
 -  `GET /api/v1/tickets/{id}/transicion-info/{destino}` retorna metadata para confirmar transición
 -  Respuesta incluye tarjeta HTML actualizada para swap de HTMX
 -  Errores 400 para `TransicionInvalidaError`

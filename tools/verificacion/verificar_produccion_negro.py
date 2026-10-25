@@ -140,8 +140,8 @@ def main() -> int:
     rutas = sorted(p for p, ops in esquema.get("paths", {}).items() if "get" in ops)
     check("/openapi.json responde 200", st == 200, f"status={st}")
     check(
-        "el esquema expone 123 rutas GET (124 - el endpoint retirado)",
-        len(rutas) == 123,
+        "el esquema expone 124 rutas GET (123 + /salud-celery)",
+        len(rutas) == 124,
         f"rutas={len(rutas)}",
     )
     check(
@@ -179,6 +179,48 @@ def main() -> int:
         codigos.get("/") in (302, 303, 307),
         f"status={codigos.get('/')}",
     )
+
+    print("\n== 8) Salud de Celery (opcional: requiere credenciales) ==")
+    usuario = os.environ.get("BITACORA_ADMIN_USER")
+    clave = os.environ.get("BITACORA_ADMIN_PASSWORD")
+    if not usuario or not clave:
+        print("  SALTADO: faltan BITACORA_ADMIN_USER / BITACORA_ADMIN_PASSWORD")
+        print("  (define las variables para comprobar worker y beat)")
+    else:
+        st, _hd, _b = get("/salud-celery")
+        check("/salud-celery exige sesion (401 sin cookie)", st == 401, f"status={st}")
+        import json as _json
+        import urllib.request as _u
+
+        cuerpo = _json.dumps({"username": usuario, "password": clave}).encode("utf-8")
+        req = _u.Request(
+            BASE + "/api/v1/auth/login",
+            data=cuerpo,
+            headers={"Content-Type": "application/json", "User-Agent": UA},
+        )
+        try:
+            with _u.urlopen(req, timeout=45) as resp:
+                cookie = resp.headers.get("Set-Cookie", "")
+            token = ""
+            if "access_token=" in cookie:
+                token = cookie.split("access_token=")[1].split(";")[0]
+            check("el login del administrador devuelve cookie de sesion", bool(token))
+            st, _hd, body = get("/salud-celery", {"Cookie": f"access_token={token}"})
+            check("/salud-celery responde 200 con sesion de administrador",
+                  st == 200, f"status={st} body={body[:200]!r}")
+            if st == 200:
+                salud = _json.loads(body.decode("utf-8", "replace"))
+                print(f"    worker: {salud.get('worker')}")
+                print(f"    beat:   {salud.get('beat')}")
+                print(f"    colas:  {salud.get('colas')}")
+                check("hay un worker que responde al ping",
+                      bool((salud.get("worker") or {}).get("responde")),
+                      str((salud.get("worker") or {}).get("detalle")))
+                check("el beat wrote un latido reciente",
+                      bool((salud.get("beat") or {}).get("ok")),
+                      str((salud.get("beat") or {}).get("detalle")))
+        except Exception as exc:  # noqa: BLE001
+            check("el login del administrador funciona", False, repr(exc))
 
     print("\n" + "=" * 78)
     if fallos:

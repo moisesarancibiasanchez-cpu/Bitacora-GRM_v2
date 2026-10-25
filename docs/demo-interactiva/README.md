@@ -59,7 +59,7 @@ La versión más reciente está desplegada en:
 Esta demo es una **simulación visual**. En la app real:
 
 - Los datos se persisten en PostgreSQL, no en memoria.
-- El drag & drop dispara una llamada `PATCH /api/v1/tickets/{id}/estado`
+- El drag & drop dispara una llamada `PATCH /api/v1/tickets/{ticket_id}/estado`
   validada en el backend (matriz de transiciones + roles).
 - Las notificaciones usan Celery + Redis (no `setTimeout`).
 - Los adjuntos se suben a `/uploads/` (no inline en `<iframe>`).
