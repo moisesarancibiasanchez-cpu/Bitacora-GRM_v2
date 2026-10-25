@@ -621,12 +621,44 @@
   // ============================================================================
   // Editor Markdown ligero con tabs Escribir/Vista previa
   // ============================================================================
+  /**
+   * Filtra el esquema de la URL de un enlace Markdown.
+   * Devuelve '' si el esquema no es de una lista blanca: un href con
+   * `javascript:` (u otro esquema ejecutable) ejecuta codigo al hacer clic.
+   *
+   * OJO: el parser de URL del navegador elimina TAB, LF y CR del interior
+   * de la URL, de modo que "java<TAB>script:alert(1)" se ejecuta igual
+   * que "javascript:alert(1)". Por eso los caracteres de control se
+   * eliminan ANTES de validar el esquema, y la lista blanca es de
+   * esquemas enteros (http, https, mailto) en lugar de una lista negra.
+   */
+  function _urlMarkdownSegura(url) {
+    let s = String(url == null ? '' : url).trim();
+    if (!s) return '';
+    s = s.replace(/[\u0000-\u0020\u007f]+/g, '');
+    if (!s) return '';
+    const m = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(s);
+    if (m) {
+      const permitidos = ['http:', 'https:', 'mailto:'];
+      if (permitidos.indexOf(m[1].toLowerCase() + ':') === -1) return '';
+    }
+    return s;
+  }
+
   function renderMarkdown(md) {
     if (!md || !md.trim()) return '<p class="text-slate-400 italic">Sin contenido</p>';
+    // Se escapa TODO el contenido ANTES de aplicar el Markdown, y se escapan
+    // tambien las comillas: sin ellas un enlace como
+    //   [x](u"onmouseover="alert(1))
+    // rompia el atributo href y colaba un manejador de evento en el DOM.
+    // Esto es XSS ALMACENADO: la descripcion la escribe un usuario y la
+    // renderiza en el modal cualquier otro que abra el ticket.
     let s = String(md)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     // Código en línea
     s = s.replace(/`([^`\n]+)`/g, '<code class="px-1 py-0.5 rounded bg-slate-100 text-pink-600 font-mono text-[12px]">$1</code>');
     // Negrita
@@ -639,8 +671,13 @@
     s = s.replace(/^###\s+(.+)$/gm, '<h3 class="text-sm font-semibold mt-2 mb-1">$1</h3>');
     s = s.replace(/^##\s+(.+)$/gm, '<h2 class="text-base font-semibold mt-2 mb-1">$1</h2>');
     s = s.replace(/^#\s+(.+)$/gm, '<h1 class="text-lg font-bold mt-2 mb-1">$1</h1>');
-    // Links
-    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" class="text-indigo-600 underline">$1</a>');
+    // Links. El href va con el esquema validado: un enlace con
+    // javascript: se degrada a texto plano en vez de ejecutarse al hacer clic.
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, texto, url) {
+      const href = _urlMarkdownSegura(url);
+      if (!href) return texto;
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" class="text-indigo-600 underline">' + texto + '</a>';
+    });
     // Listas no ordenadas
     s = s.replace(/(^|\n)((?:- [^\n]+\n?)+)/g, function (m, pre, block) {
       const items = block.trim().split('\n').map(function (l) { return l.replace(/^- /, ''); }).map(function (t) { return '<li>' + t + '</li>'; }).join('');
