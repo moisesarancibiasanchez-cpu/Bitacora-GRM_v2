@@ -189,7 +189,7 @@ def purge_postgres(dry_run: bool) -> dict:
     try:
         # Conteos antes
         counts_before = {}
-        all_tables = TABLES_TO_PURGE + TABLES_TO_KEEP
+        all_tables = TABLES_TO_PURGE + TABLES_TO_KEEP_OPTIONAL
         for t in all_tables:
             cur.execute(f'SELECT COUNT(*) FROM "{t}"')
             counts_before[t] = cur.fetchone()[0]

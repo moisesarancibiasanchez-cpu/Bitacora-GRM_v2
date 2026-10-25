@@ -27,7 +27,7 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from app.core.celery_app import celery_app
@@ -290,11 +290,12 @@ def generar_reporte_diario(self, fecha_objetivo: Optional[str] = None) -> dict:
             fecha = datetime.utcnow().date()
 
         # === 3) Cargar entregas del día ===
-        #     La comparación fecha_entrega::date = :fecha funciona en PG
-        #     y SQLite (ambos soportan CAST AS DATE).
+        #     `func.date()` es portable: funciona en PostgreSQL y en SQLite
+        #     (el casts `::date` de PostgreSQL es sintaxis incompatible con
+        #     SQLite y provocaba error en el modo SQLite).
         entregas = (
             db.query(ReporteEntregaDiaria)
-            .filter(text("fecha_entrega::date = :f").bindparams(f=fecha))
+            .filter(func.date(ReporteEntregaDiaria.fecha_entrega) == fecha)
             .order_by(ReporteEntregaDiaria.fecha_entrega.asc())
             .all()
         )
