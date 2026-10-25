@@ -56,7 +56,10 @@ Commits del lote:    26cf486  fix(migraciones): poblar el metadata, fail-closed
                       (este commit) docs(release): README V1.006 con el addendum
                               de la verificacion en produccion
 Tipo de publicacion: fast-forward (sin --force)
-Push:                90a2879..<nuevo>  main -> main
+Push:                90a2879..686b459  main -> main
+                      (686b459 es el commit de este documento; el commit de
+                      actualizacion del addendum va inmediatamente despues y
+                      no cambia ningun fichero de codigo)
 Fecha:               2026-10-25
 
 Aplicacion:          https://bitacora-grmv2-production.up.railway.app
