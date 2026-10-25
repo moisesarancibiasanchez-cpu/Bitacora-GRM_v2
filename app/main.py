@@ -2587,11 +2587,24 @@ def salud_celery(request: Request):
     worker = {"responde": False, "workers": [], "detalle": ""}
     inicio = time.monotonic()
     try:
-        respuestas = celery_app.control.ping(timeout=2.0) or {}
-        worker["responde"] = bool(respuestas)
-        worker["workers"] = sorted(str(k) for k in respuestas.keys())
+        # `Control.ping()` devuelve una LISTA de diccionarios
+        # [{'<hostname>': {'ok': 'pong'}}, ...] (Celery 5). Se aceptan
+        # tambien un dict plano por si la version difiere.
+        respuestas = celery_app.control.ping(timeout=2.0) or []
+        nombres = []
+        if isinstance(respuestas, dict):
+            nombres = [str(clave) for clave in respuestas.keys()]
+        else:
+            for respuesta in respuestas:
+                if isinstance(respuesta, dict):
+                    for clave in respuesta.keys():
+                        nombres.append(str(clave))
+                else:
+                    nombres.append(str(respuesta))
+        worker["responde"] = bool(nombres)
+        worker["workers"] = sorted(nombres)
         worker["detalle"] = (
-            "OK" if respuestas else "ningun worker respondio al ping"
+            "OK" if nombres else "ningun worker respondio al ping"
         )
     except Exception as exc:  # noqa: BLE001
         worker["detalle"] = f"error al preguntar al broker: {exc}"

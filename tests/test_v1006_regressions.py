@@ -545,6 +545,71 @@ def test_el_beat_planifica_el_latido_de_salud():
     assert agenda["latido-salud"]["task"] == "app.tasks.salud_tasks.registrar_latido"
 
 
+def test_salud_celery_interpreta_el_ping_devuelto_por_celery(local_client, db_session, monkeypatch):
+    """`Control.ping()` devuelve una LISTA de dicts y el endpoint la entiende.
+
+    Con Celery 5, `ping()` responde `[{'celery@worker1': {'ok': 'pong'}}]`.
+    Si se trata como un dict plano, `responde` queda True pero `workers`
+    vacio y el detalle dice "error al preguntar al broker": el endpoint
+    informaba de un fallo que no existia y no listaba los workers.
+    """
+    from app.core.celery_app import celery_app
+    from app.models.usuario import RolUsuario
+
+    _crear_usuario(db_session, "v1006_admin_ping", RolUsuario.ADMINISTRADOR)
+
+    class ControlFalso:
+        def ping(self, timeout=None):
+            return [{"celery@worker1": {"ok": "pong"}},
+                    {"celery@worker2": {"ok": "pong"}}]
+
+    monkeypatch.setattr(celery_app, "control", ControlFalso())
+
+    login = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "v1006_admin_ping", "password": "Clave-local-de-regresion-2026"},
+    )
+    assert login.status_code == 200, login.text
+
+    respuesta = local_client.get("/salud-celery")
+    assert respuesta.status_code == 200, respuesta.text
+    worker = respuesta.json()["worker"]
+
+    assert worker["responde"] is True
+    assert worker["workers"] == ["celery@worker1", "celery@worker2"]
+    assert worker["detalle"] == "OK"
+
+
+def test_salud_celery_informa_cuando_no_responde_ningun_worker(
+    local_client, db_session, monkeypatch
+):
+    """Si no contesta nadie, el endpoint lo dice sin error."""
+    from app.core.celery_app import celery_app
+    from app.models.usuario import RolUsuario
+
+    _crear_usuario(db_session, "v1006_admin_sinworker", RolUsuario.ADMINISTRADOR)
+
+    class ControlVacio:
+        def ping(self, timeout=None):
+            return []
+
+    monkeypatch.setattr(celery_app, "control", ControlVacio())
+
+    login = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "v1006_admin_sinworker", "password": "Clave-local-de-regresion-2026"},
+    )
+    assert login.status_code == 200, login.text
+
+    respuesta = local_client.get("/salud-celery")
+    assert respuesta.status_code == 200, respuesta.text
+    worker = respuesta.json()["worker"]
+
+    assert worker["responde"] is False
+    assert worker["workers"] == []
+    assert "ningun worker" in worker["detalle"]
+
+
 # ---------------------------------------------------------------------------
 # 6. XSS almacenado en el renderizador Markdown (guard estatico sobre el JS)
 # ---------------------------------------------------------------------------
