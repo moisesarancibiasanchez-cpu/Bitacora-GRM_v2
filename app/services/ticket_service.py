@@ -8,7 +8,7 @@ Reglas de validación (cumplen con ITIL/ITSM):
 4. Si la transición requiere comentario, este debe ser provisto.
 5. Todo cambio se registra en historial_estados y auditoria (obligatorio).
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import unicodedata
 from typing import Optional, Tuple, List, Any, Dict
@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.models.estado import Estado, TransicionEstado
 from app.models.ticket import Ticket, HistorialEstado, Prioridad
 from app.models.usuario import Usuario, RolUsuario
+from app.core.timezone import now_utc
 from app.services.auditoria_service import registrar_auditoria
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,25 @@ class TicketService:
 
     def __init__(self, db: Session):
         self.db = db
+
+    @staticmethod
+    def _recalcular_sla_por_vencimiento(ticket: Ticket) -> None:
+        """Recalcula el indicador SLA después de editar el vencimiento."""
+        if ticket.estado and ticket.estado.es_final:
+            if _norm(ticket.estado.nombre) == "produccion ok":
+                ticket.sla_cumplido = 1
+            elif ticket.fecha_vencimiento_sla:
+                referencia = ticket.fecha_completado or now_utc()
+                ticket.sla_cumplido = (
+                    0
+                    if referencia > ticket.fecha_vencimiento_sla
+                    else 1
+                )
+            return
+        if ticket.fecha_vencimiento_sla:
+            ticket.sla_cumplido = (
+                0 if ticket.fecha_vencimiento_sla < now_utc() else -1
+            )
 
     # ----------------------------------------------------------------------
     #  Regla #1: el destino del cambio debe estar permitido por la tabla de
@@ -235,6 +255,7 @@ class TicketService:
         # 4. Aplicar cambio
         estado_origen = ticket.estado
         mismo_estado = ticket.estado_id == estado_destino.id
+        ahora = now_utc()
         valor_anterior = {"estado_id": estado_origen.id, "estado": estado_origen.nombre}
         if not mismo_estado:
             ticket.estado_id = estado_destino.id
@@ -284,7 +305,7 @@ class TicketService:
             if nombre_destino_norm == "produccion ok":
                 side_effect_applied = False
                 if ticket.fecha_completado is None:
-                    ticket.fecha_completado = datetime.utcnow()
+                    ticket.fecha_completado = ahora
                     side_effect_applied = True
                 if not ticket.fecha_cumplida:
                     ticket.fecha_cumplida = True
@@ -299,6 +320,12 @@ class TicketService:
                         "sla_cumplido=1)",
                         ticket.id,
                     )
+
+            # Todo estado final cierra formalmente el ticket.  Registrar la
+            # fecha aquí evita que métricas y deadlines lo sigan Modellingando
+            # como trabajo en curso (antes sólo "Producción OK" la registraba).
+            if estado_destino.es_final and ticket.fecha_completado is None:
+                ticket.fecha_completado = ahora
         if orden is not None:
             # Asegurar que datos_catalogo sea un dict (puede ser None o string antiguo)
             datos_actuales = ticket.datos_catalogo
@@ -309,14 +336,26 @@ class TicketService:
                 "orden_columna": orden,
             }
 
-        # 5. Recalcular SLA si el estado destino tiene un SLA definido
-        if estado_destino.sla_horas:
-            ticket.fecha_vencimiento_sla = datetime.utcnow() + timedelta(
+        # 5. Recalcular SLA sólo al cambiar realmente de estado.  Reordenar
+        #    una tarjeta dentro de la misma columna no puede reiniciar su SLA.
+        if not mismo_estado and estado_destino.sla_horas is not None:
+            ticket.fecha_vencimiento_sla = ahora + timedelta(
                 hours=estado_destino.sla_horas
             )
             ticket.sla_cumplido = -1  # pendiente
-        if estado_destino.es_final:
-            ticket.sla_cumplido = 1 if ticket.sla_cumplido == -1 else ticket.sla_cumplido
+
+        if not mismo_estado and estado_destino.es_final:
+            if nombre_destino_norm == "produccion ok":
+                # Regla histórica: Producción OK fuerza cumplimiento.
+                ticket.sla_cumplido = 1
+            elif ticket.fecha_vencimiento_sla:
+                referencia = ticket.fecha_completado or ahora
+                ticket.sla_cumplido = (
+                    0 if referencia > ticket.fecha_vencimiento_sla else 1
+                )
+            elif ticket.sla_cumplido == -1:
+                # Sin vencimiento configurado no hay SLA que pueda incumplirse.
+                ticket.sla_cumplido = 1
 
         # 6. Insertar historial (obligatorio). Se omite en no-op (mismo estado)
         #    para no ensuciar la traza cuando el usuario reordena dentro de
@@ -330,7 +369,7 @@ class TicketService:
                 usuario_id=usuario.id,
                 comentario=comentario,
                 origen=ip_origen or "web",
-                fecha=datetime.utcnow(),
+                fecha=ahora,
             )
             self.db.add(historial)
 
@@ -450,27 +489,56 @@ class TicketService:
         usuario: Usuario,
         ip_origen: Optional[str] = None,
     ) -> Ticket:
-        """Crea un nuevo ticket, asignándole el estado inicial definido."""
-        # Determinar estado inicial
-        estado_inicial = (
-            self.db.query(Estado).filter(Estado.es_inicial == True).first()
+        """Crea un nuevo ticket en el estado solicitado o en el inicial."""
+        titulo = str(datos.get("titulo") or "").strip()
+        if not titulo:
+            raise ValueError("El título del ticket no puede estar vacío.")
+
+        # Si el payload especifica estado, respetarlo; si no, usar el inicial.
+        #
+        # `TicketCreate.estado_id` estaba declarado en el esquema pero el
+        # servicio lo IGNORABA siempre: el campo era una promesa que el
+        # backend no cumplia. Ahora se cumple, con un guard de rol: solo
+        # administrador y agente_senior pueden abrir un ticket directamente
+        # en un estado concreto. Para el resto (solicitante, agente,
+        # observador) se usa el estado inicial, que es lo que evita que
+        # alguien se salte el flujo del ITSM creando tickets ya "cerrados".
+        estado_solicitado_id = datos.get("estado_id")
+        roles_que_asignan_estado = (RolUsuario.ADMINISTRADOR, RolUsuario.AGENTE_SENIOR)
+        puede_asignar_estado = (
+            usuario.rol in roles_que_asignan_estado
+            if usuario is not None
+            else False
         )
-        if not estado_inicial:
-            raise TransicionInvalidaError(
-                "No hay un estado inicial configurado en el sistema.",
-                codigo="SIN_ESTADO_INICIAL",
+        if estado_solicitado_id is not None and puede_asignar_estado:
+            estado_asignado = (
+                self.db.query(Estado).filter(Estado.id == estado_solicitado_id).first()
             )
+            if not estado_asignado:
+                raise TransicionInvalidaError(
+                    f"Estado {estado_solicitado_id} no existe.",
+                    codigo="ESTADO_NO_ENCONTRADO",
+                )
+        else:
+            estado_asignado = (
+                self.db.query(Estado).filter(Estado.es_inicial == True).first()
+            )
+            if not estado_asignado:
+                raise TransicionInvalidaError(
+                    "No hay un estado inicial configurado en el sistema.",
+                    codigo="SIN_ESTADO_INICIAL",
+                )
 
         # Generar código único
         codigo = self._generar_codigo_ticket()
 
         ticket = Ticket(
             codigo=codigo,
-            titulo=datos["titulo"],
-            descripcion=datos["descripcion"],
+            titulo=titulo,
+            descripcion=datos.get("descripcion") or "",
             tipo=datos.get("tipo", "incidencia"),
             prioridad=datos.get("prioridad", "media"),
-            estado_id=estado_inicial.id,
+            estado_id=estado_asignado.id,
             creador_id=usuario.id,
             asignado_id=datos.get("asignado_id"),
             catalogo_tipo_id=datos.get("catalogo_tipo_id"),
@@ -487,9 +555,9 @@ class TicketService:
             # === QA Tester responsable de las pruebas (LOV cerrado) ===
             qa_tester=datos.get("qa_tester"),
         )
-        if estado_inicial.sla_horas:
-            ticket.fecha_vencimiento_sla = datetime.utcnow() + timedelta(
-                hours=estado_inicial.sla_horas
+        if estado_asignado.sla_horas is not None:
+            ticket.fecha_vencimiento_sla = now_utc() + timedelta(
+                hours=estado_asignado.sla_horas
             )
         self.db.add(ticket)
         self.db.flush()
@@ -498,11 +566,11 @@ class TicketService:
         self.db.add(HistorialEstado(
             ticket_id=ticket.id,
             estado_origen_id=None,
-            estado_destino_id=estado_inicial.id,
+            estado_destino_id=estado_asignado.id,
             usuario_id=usuario.id,
             comentario="Ticket creado",
             origen=ip_origen or "web",
-            fecha=datetime.utcnow(),
+            fecha=now_utc(),
         ))
 
         # Auditoría obligatoria
@@ -513,7 +581,7 @@ class TicketService:
             accion="TICKET_CREADO",
             valor_nuevo={
                 "titulo": ticket.titulo,
-                "estado_inicial": estado_inicial.nombre,
+                "estado_asignado": estado_asignado.nombre,
                 "prioridad": (
                     ticket.prioridad.value
                     if hasattr(ticket.prioridad, "value")
@@ -628,7 +696,7 @@ class TicketService:
 
         valor_anterior = {"archivado": False}
         ticket.archivado = True
-        ticket.updated_at = datetime.utcnow()
+        ticket.updated_at = now_utc()
 
         # Auditoría obligatoria
         registrar_auditoria(
@@ -695,7 +763,7 @@ class TicketService:
 
         valor_anterior = {"archivado": True}
         ticket.archivado = False
-        ticket.updated_at = datetime.utcnow()
+        ticket.updated_at = now_utc()
 
         # Auditoría obligatoria
         registrar_auditoria(
@@ -747,6 +815,7 @@ class TicketService:
         ticket_id: int,
         cambios: Dict[str, Any],
         usuario: Usuario,
+        commit: bool = True,
     ) -> Tuple[Optional[Ticket], Dict[str, Any], Dict[str, Any], Optional[str]]:
         """Actualiza múltiples campos del ticket en una sola transacción.
 
@@ -762,6 +831,9 @@ class TicketService:
             en :pyattr:`CAMPOS_EDITABLES`. Los campos cuyo valor no haya
             cambiado se omiten del log de auditoría.
         usuario : Usuario
+        commit : bool
+            Si es False, deja la transacción abierta para que el endpoint
+            registre la auditoría y confirme campos + auditoría juntos.
 
         Returns
         -------
@@ -822,7 +894,7 @@ class TicketService:
                                 # Para fecha_inicio usamos 00:00 (inicio del día)
                                 nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
                             if nuevo_dt.tzinfo is not None:
-                                nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                                nuevo_dt = nuevo_dt.astimezone(timezone.utc).replace(tzinfo=None)
                             # Coherencia: no permitir inicio > vencimiento actual
                             if (ticket.fecha_vencimiento_sla and
                                     nuevo_dt.date() > ticket.fecha_vencimiento_sla.date()):
@@ -854,7 +926,7 @@ class TicketService:
                                 nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
                                 nuevo_dt = nuevo_dt.replace(hour=23, minute=59)
                             if nuevo_dt.tzinfo is not None:
-                                nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                                nuevo_dt = nuevo_dt.astimezone(timezone.utc).replace(tzinfo=None)
                             # Coherencia: no permitir vencimiento < inicio actual
                             if (ticket.fecha_inicio and
                                     nuevo_dt.date() < ticket.fecha_inicio.date()):
@@ -912,19 +984,28 @@ class TicketService:
                     # resultado_pruebas mientras el módulo ya había sido
                     # "limpiado" en operaciones anteriores, dejando el
                     # pivot inconsistente).
-                    if campo in self.LOV_NULLABLE:
-                        _valor_vacio = valor is None or (
-                            isinstance(valor, str) and valor.strip() == ""
-                        )
-                        _actual_vacio = str(anterior_raw or "").strip() == ""
-                        if _valor_vacio and not _actual_vacio:
-                            # Frontend envió vacío para un campo que ya
-                            # tenía valor: preservar (no borrar).
+                    if campo == "titulo":
+                        nuevo_legible = str(valor or "").strip()
+                        if not nuevo_legible:
+                            errores.append("El título del ticket no puede estar vacío.")
                             continue
-                    nuevo_legible = valor
-                    if str(anterior_raw or "") == str(nuevo_legible or ""):
-                        continue  # sin cambio
-                    setattr(ticket, campo, valor)
+                        if str(anterior_raw or "").strip() == nuevo_legible:
+                            continue  # sin cambio
+                        setattr(ticket, campo, nuevo_legible)
+                    else:
+                        if campo in self.LOV_NULLABLE:
+                            _valor_vacio = valor is None or (
+                                isinstance(valor, str) and valor.strip() == ""
+                            )
+                            _actual_vacio = str(anterior_raw or "").strip() == ""
+                            if _valor_vacio and not _actual_vacio:
+                                # Frontend envió vacío para un campo que ya
+                                # tenía valor: preservar (no borrar).
+                                continue
+                        nuevo_legible = valor
+                        if str(anterior_raw or "") == str(nuevo_legible or ""):
+                            continue  # sin cambio
+                        setattr(ticket, campo, valor)
             except Exception as exc:
                 errores.append(f"Error al actualizar '{campo}': {exc}")
                 continue
@@ -941,9 +1022,10 @@ class TicketService:
             # Nada que cambiar (todos los campos ya tenían el valor enviado)
             return ticket, {}, {}, None
 
-        ticket.updated_at = datetime.utcnow()
+        ticket.updated_at = now_utc()
         try:
-            self.db.commit()
+            if commit:
+                self.db.commit()
             self.db.refresh(ticket)
         except Exception as exc:
             self.db.rollback()
@@ -1003,7 +1085,7 @@ class TicketService:
                             nuevo_dt = datetime.strptime(v, "%Y-%m-%d")
                         # Convertir a naive UTC si tiene tzinfo
                         if nuevo_dt.tzinfo is not None:
-                            nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                            nuevo_dt = nuevo_dt.astimezone(timezone.utc).replace(tzinfo=None)
                         # Coherencia: no permitir inicio > vencimiento actual
                         if (ticket.fecha_vencimiento_sla and
                                 nuevo_dt.date() > ticket.fecha_vencimiento_sla.date()):
@@ -1031,7 +1113,7 @@ class TicketService:
                             nuevo_dt = nuevo_dt.replace(hour=23, minute=59)
                         # Convertir a naive UTC si tiene tzinfo
                         if nuevo_dt.tzinfo is not None:
-                            nuevo_dt = nuevo_dt.astimezone(tz=None).replace(tzinfo=None)
+                            nuevo_dt = nuevo_dt.astimezone(timezone.utc).replace(tzinfo=None)
                         # Coherencia: no permitir vencimiento < inicio actual
                         if (ticket.fecha_inicio and
                                 nuevo_dt.date() < ticket.fecha_inicio.date()):
@@ -1057,26 +1139,30 @@ class TicketService:
                 # Campos simples (titulo, descripcion, modulo, vista,
                 # hu_o_caso_prueba, nota_observacion, resultado_pruebas,
                 # ambiente, item).
-                #
-                # DEFENSA CRÍTICA contra pérdida de datos: replicar la
-                # misma salvaguarda que ``actualizar_campos`` para los
-                # campos LOV nullable. Si llega un valor vacío/None para
-                # un campo que ya tiene un valor no vacío, preservar el
-                # valor actual en vez de borrarlo (regresión detectada
-                # 2026-09-17 en el flujo de auto-save).
-                if campo in self.LOV_NULLABLE:
-                    _valor_vacio = valor is None or (
-                        isinstance(valor, str) and valor.strip() == ""
-                    )
-                    _actual_vacio = str(anterior_raw or "").strip() == ""
-                    if _valor_vacio and not _actual_vacio:
-                        return ticket, valor_anterior, valor_anterior, None
-                setattr(ticket, campo, valor)
-                nuevo_legible = valor
+                if campo == "titulo":
+                    nuevo_legible = str(valor or "").strip()
+                    if not nuevo_legible:
+                        return ticket, None, None, "El título del ticket no puede estar vacío."
+                    setattr(ticket, campo, nuevo_legible)
+                else:
+                    # DEFENSA CRÍTICA contra pérdida de datos: replicar la
+                    # misma salvaguarda que ``actualizar_campos`` para los
+                    # campos LOV nullable. Si llega un valor vacío/None para
+                    # un campo que ya tiene un valor no vacío, preservar el
+                    # valor actual en vez de borrarlo.
+                    if campo in self.LOV_NULLABLE:
+                        _valor_vacio = valor is None or (
+                            isinstance(valor, str) and valor.strip() == ""
+                        )
+                        _actual_vacio = str(anterior_raw or "").strip() == ""
+                        if _valor_vacio and not _actual_vacio:
+                            return ticket, valor_anterior, valor_anterior, None
+                    setattr(ticket, campo, valor)
+                    nuevo_legible = valor
         except Exception as exc:
             return ticket, None, None, f"Error al actualizar: {exc}"
 
-        ticket.updated_at = datetime.utcnow()
+        ticket.updated_at = now_utc()
         self.db.flush()
         self.db.refresh(ticket)
         valor_nuevo = {campo: nuevo_legible} if nuevo_legible is not None else {campo: None}
