@@ -15,13 +15,10 @@ from fastapi.templating import Jinja2Templates
 from app.api.v1.router import api_router
 from app.core.config import settings
 
-# Importante: importar whitenoise SOLO si está disponible. Si falta el
-# paquete (modo dev minimalista) caemos al StaticFiles de FastAPI.
-try:
-    from whitenoise import WhiteNoise
-    HAS_WHITENOISE = True
-except ImportError:  # pragma: no cover
-    HAS_WHITENOISE = False
+# Nota: `whitenoise` ya NO se usa en este módulo. Antes se intentaba
+# integrar con `a2wsgi.ASGIMiddleware`, que rompía el arranque ASGI de
+# uvicorn; `/static` lo sirve `StaticFiles` (ASGI nativo). Ver el bloque
+# "Estáticos" al final de este fichero.
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,8 +81,9 @@ app = FastAPI(
     description="Sistema híbrido ITSM + Kanban para gestión de incidencias",
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.EXPOSE_API_DOCS else None,
+    redoc_url="/redoc" if settings.EXPOSE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.EXPOSE_API_DOCS else None,
 )
 
 # === Middlewares ===
@@ -128,10 +126,19 @@ async def add_security_and_cache_headers(request: Request, call_next):
       ``X-Content-Type-Options: nosniff`` para evitar MIME-sniffing.
 
     - Todas las respuestas: ``X-Frame-Options: DENY`` (anti-clickjacking),
-      ``Referrer-Policy: strict-origin-when-cross-origin`` y
-      ``X-Content-Type-Options: nosniff``. Se usan ``setdefault`` para
-      respetar cualquier cabecera ya fijada por un endpoint o middleware
-      posterior (p.ej. WhiteNoise).
+      ``Referrer-Policy: strict-origin-when-cross-origin``,
+      ``X-Content-Type-Options: nosniff`` y ``Permissions-Policy``.
+
+    - Sobre HTTPS: ``Strict-Transport-Security`` (HSTS). Sin esta cabecera el
+      navegador no tiene un ancla de HTTPS y una redireccion a ``http://``
+      degrada la sesion en claro.
+
+    - ``Content-Security-Policy`` (configurable con ``SECURITY_CSP``): acota
+      los origenes desde los que la pagina puede cargar scripts, estilos,
+      fuentes e imagenes.
+
+    Se usan ``setdefault`` para respetar cualquier cabecera ya fijada por un
+    endpoint o middleware posterior (p.ej. WhiteNoise).
     """
     response = await call_next(request)
     path = request.url.path
@@ -140,9 +147,27 @@ async def add_security_and_cache_headers(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), camera=(), microphone=()"
+    )
 
-    # Caché de 5 minutos + íes anti-sniffing explícito para archivos estáticos
-    if path.startswith("/static") or path.startswith("/onboarding"):
+    # HSTS: solo tiene sentido sobre HTTPS (en HTTP el navegador lo ignora).
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+
+    # CSP: cadena vacía en `SECURITY_CSP` desactiva la cabecera.
+    if settings.SECURITY_CSP:
+        response.headers.setdefault("Content-Security-Policy", settings.SECURITY_CSP)
+
+    # Caché de 5 minutos + anti-sniffing explícito para archivos estáticos.
+    # La comparación es exacta o por subruta: `startswith("/static")` también
+    # capturaba rutas como "/staticfoo" que no son estáticos.
+    es_estatico = path == "/static" or path.startswith("/static/")
+    es_onboarding = path == "/onboarding" or path.startswith("/onboarding/")
+    if es_estatico or es_onboarding:
         response.headers["Cache-Control"] = "public, max-age=300"
 
     return response
@@ -194,11 +219,18 @@ templates.env.globals["dev_inbox_enabled"] = _dev_inbox_enabled
 from app.core.resultado_pruebas import (  # noqa: E402
     info_resultado as _resultado_info,
     info_resultado_ticket as _resultado_info_ticket,
+    lov_formulario_js as _lov_formulario_js,
     render_badge_resultado as _badge_resultado,
 )
 templates.env.globals["resultado_info"] = _resultado_info
 templates.env.globals["resultado_info_ticket"] = _resultado_info_ticket
 templates.env.globals["badge_resultado"] = _badge_resultado
+
+# Valores del LOV de "Resultado de Pruebas" en el orden de presentación de
+# los formularios. Se inyectan como global para que los `<select>` de alta
+# y de edición de ticket iteren la lista del catálogo en vez de redeclarar
+# los valores a mano (regla: el catálogo es el único que define el LOV).
+templates.env.globals["resultados_lov_formulario"] = _lov_formulario_js()
 
 
 # === Routers API ===
@@ -2308,7 +2340,7 @@ async def dashboard_page(request: Request):
     # La paleta y los acrónimos de "Resultado de Pruebas" se inyectan desde
     # el catálogo Python para que la sección "Cuenta de Resultado" use
     # EXACTAMENTE los mismos colores que el badge de las tarjetas del Kanban.
-    from app.core.resultado_pruebas import acronimos_js, fallback_js, paleta_js
+    from app.core.resultado_pruebas import acronimos_js, fallback_js, lov_js, paleta_js
 
     return templates.TemplateResponse(
         request,
@@ -2318,6 +2350,10 @@ async def dashboard_page(request: Request):
             "cuenta_resultado_colores": paleta_js(),
             "cuenta_resultado_acronimos": acronimos_js(),
             "cuenta_resultado_fallback": fallback_js(),
+            # Columnas del pivote, en el orden que define el catálogo. Es la
+            # misma lista que devuelve el endpoint /api/v1/metricas/
+            # cuenta-resultado, para que el JS no redeclare el LOV.
+            "cuenta_resultado_lov": lov_js(),
         },
     )
 
@@ -2484,39 +2520,41 @@ def dev_inbox_alias_root_slash():
 
 @app.get("/info")
 def info():
-    """Información del entorno (útil para debugging)."""
+    """Información del entorno (útil para debugging).
+
+    Es un endpoint PÚBLICO: por eso NO se expone la topología interna de la
+    base de datos (host, puerto y nombre de la base de datos de Railway).
+    Solo se indica el motor y si está configurado.
+    """
+    url_bd = settings.get_database_url()
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "debug": settings.DEBUG,
         "port": int(os.getenv("PORT", "8000")),
-        "database_url": (settings.get_database_url().split("@")[-1]
-                         if "@" in settings.get_database_url()
-                         else "sqlite"),
+        "database": "sqlite" if url_bd.startswith("sqlite") else "postgresql",
         "redis_configured": bool(settings.REDIS_URL),
         "celery_broker_configured": bool(settings.CELERY_BROKER_URL),
     }
 
 
-# === Compresión estática en producción ===
-# WhiteNoise 6.x expone una clase WSGI (no ASGI middleware). Para integrarla
-# con FastAPI/ASGI necesitaríamos un adaptador (a2wsgi). Por simplicidad
-# y robustez usamos `StaticFiles` de FastAPI (que es nativo ASGI) y
-# dejamos WhiteNoise instalado solo como referencia para el entorno WSGI
-# (gunicorn lo podría usar si se importa vía `wsgi.py`).
+# === Estáticos: `StaticFiles` de FastAPI (nativo ASGI) ===
+# NOTA (retirado 2026-10-24): este bloque envolvía la aplicación con
+# ``a2wsgi.ASGIMiddleware`` para integrar WhiteNoise. Era un forego latente:
+# ``ASGIMiddleware`` convierte la app ASGI de FastAPI en una *callable WSGI*
+# (``__call__(environ, start_response)``), de modo que, si ``a2wsgi`` llega a
+# estar instalada en el entorno, ``app.main:app`` deja de ser ASGI y el
+# arranque aborta con::
 #
-# Activar WhiteNoise solo si el adaptador ASGI está disponible
-# (a2wsgi) Y no estamos en debug. De lo contrario, StaticFiles hace
-# el trabajo perfectamente.
-if HAS_WHITENOISE and not settings.DEBUG:
-    try:
-        from a2wsgi import ASGIMiddleware  # type: ignore
-        app = ASGIMiddleware(app)
-        logger.info("a2wsgi+WhiteNoise ASGIMiddleware activado")
-    except ImportError:
-        # Sin a2wsgi no podemos integrar WhiteNoise con ASGI; StaticFiles
-        # sigue siendo válido.
-        logger.info(
-            "WhiteNoise instalado pero a2wsgi no disponible; "
-            "sirviendo /static con StaticFiles de FastAPI"
-        )
+#     TypeError: ASGIMiddleware.__call__() missing 1 required positional
+#     argument: 'start_response'
+#
+# es decir, el servicio web NO levantaría. Como ``a2wsgi`` no se declaraba en
+# ``requirements.txt``, el bloque nunca se ejecutaba en producción: era
+# código muerto con una trampa dentro.
+#
+# ``/static`` lo sirve ``StaticFiles``, que es ASGI nativo y no necesita
+# adaptador. Si en el futuro se quiere WhiteNoise (compresión brotli/gzip),
+# la vía correcta es ``whitenoise.middleware.WhiteNoiseMiddleware`` (ASGI
+# nativo de WhiteNoise 6.x), NO envolver la app con un adaptador WSGI.
+# Ver ``app/templates/base.html`` para los recursos que se sirven por ahí.

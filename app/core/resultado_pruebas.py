@@ -78,6 +78,32 @@ SIN_RESULTADO = "(en blanco)"
 #: Todas las claves conocidas por el catálogo (LOV + pseudo-columna).
 RESULTADOS_CONOCIDOS: tuple = RESULTADOS_LOV + (SIN_RESULTADO,)
 
+#: Orden de presentación del LOV en los **formularios** (selectores de alta y
+#: edición de ticket). Es el MISMO conjunto de valores que
+#: :data:`RESULTADOS_LOV` —que es el orden de agrupación del pivote del
+#: dashboard— reordenado para lectura natural en un selector.
+#:
+#: Vive aquí, y no en las plantillas, para que ninguna vista redeclare la
+#: lista de valores del LOV (regla: el catálogo es el único que la define).
+RESULTADOS_LOV_FORMULARIO: tuple = (
+    "OK",
+    "N/A",
+    "OK CON OBS.",
+    "POSTERGADA",
+    "DESESTIMADA",
+    "NOK",
+)
+
+#: Invariante del catálogo: los dos órdenes deben describir exactamente el
+#: mismo conjunto de valores. Si alguien añade un valor al LOV y olvida
+#: actualizar uno de los órdenes, el arranque falla en lugar de dejar un
+#: selector con un valor que el backend rechaza.
+if set(RESULTADOS_LOV_FORMULARIO) != set(RESULTADOS_LOV):  # pragma: no cover
+    raise RuntimeError(
+        "RESULTADOS_LOV_FORMULARIO y RESULTADOS_LOV deben describir el mismo "
+        f"conjunto. Formulario={RESULTADOS_LOV_FORMULARIO} LOV={RESULTADOS_LOV}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Acrónimos
@@ -299,6 +325,21 @@ def fallback_js() -> Dict[str, str]:
     fallback), manteniendo la regla "una sola fuente de verdad".
     """
     return dict(COLOR_FALLBACK)
+
+
+def lov_js() -> list:
+    """Columnas del pivote "Cuenta de Resultado", en su orden de agrupación.
+
+    Es exactamente lo que devuelve el endpoint ``/api/v1/metricas/
+    cuenta-resultado`` en su campo ``columnas``. Se inyecta en el dashboard
+    para que su JavaScript no redeclare la lista de valores del LOV.
+    """
+    return list(RESULTADOS_CONOCIDOS)
+
+
+def lov_formulario_js() -> list:
+    """Valores del LOV en el orden de presentación de los formularios."""
+    return list(RESULTADOS_LOV_FORMULARIO)
 
 
 # ---------------------------------------------------------------------------

@@ -430,8 +430,14 @@ class TicketService:
                 ticket.id, estado_origen.id, estado_destino.id, usuario
             )
         except Exception:
-            # Butler no debe romper el flujo principal
-            pass
+            # Butler no debe romper el flujo principal, pero el fallo queda
+            # registrado: sin traza, una regla que nunca se ejecutaba era
+            # indistinguible de una regla que sí se ejecutó.
+            logger.exception(
+                "[ticket_service] Las reglas Butler fallaron al cambiar el "
+                "estado del ticket %s — la transición se guardó igual.",
+                ticket.id,
+            )
 
         return ticket, task_id
 
@@ -525,7 +531,11 @@ class TicketService:
             from app.services.butler_executor import on_ticket_creado
             on_ticket_creado(ticket.id, usuario)
         except Exception:
-            pass
+            logger.exception(
+                "[ticket_service] Las reglas Butler fallaron al crear el "
+                "ticket %s — el ticket se creó igual.",
+                ticket.id,
+            )
 
         # === FEATURE 4 — Auto-asignar las 10 etapas del proyecto al ticket ===
         # Idempotente: si el catálogo está vacío o ya existen asignaciones,

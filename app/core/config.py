@@ -40,6 +40,31 @@ def _redis_url_con_db(url: str, db: int) -> str:
     )
 
 
+def enmascarar_url_db(url: str) -> str:
+    """Oculta la contraseña de una URL de base de datos. Para logs.
+
+    Conserva esquema, usuario, host, puerto y base de datos; sustituye la
+    contraseña por ``***``. Si la URL no tiene credenciales se devuelve tal
+    cual (no se inventa nada).
+
+    Uso: cualquier punto del código que imprima una URL de BD debe pasar por
+    aquí. Imprimirla en crudo dejaba la contraseña de PostgreSQL de
+    producción a la vista de cualquiera con acceso a los logs del despliegue.
+    """
+    if not url:
+        return url
+    esquema, sep, resto = url.partition("://")
+    if not sep or "@" not in resto:
+        return url
+    credenciales, _, servidor = resto.partition("@")
+    if ":" in credenciales:
+        usuario = credenciales.split(":", 1)[0]
+        credenciales = f"{usuario}:***"
+    else:
+        credenciales = "***"
+    return f"{esquema}://{credenciales}@{servidor}"
+
+
 class Settings(BaseSettings):
     """Configuración de la aplicación cargada desde .env o variables de entorno."""
     model_config = SettingsConfigDict(
@@ -58,6 +83,32 @@ class Settings(BaseSettings):
     # Nunca reintroducir una clave fija en el repo: con ella, cualquier JWT
     # de cualquier instalación quedaba firmado con una clave pública.
     SECRET_KEY: str = ""
+
+    # === Seguridad HTTP ===
+    # Publica la documentación interactiva de la API (/docs, /redoc) y el
+    # esquema OpenAPI (/openapi.json). Son 124 rutas GET que describen la
+    # API completa: en producción conviene desactivarlo y dejarlo en `false`
+    # en el panel. Por defecto sigue activo para no romper las herramientas
+    # de verificación, que derivan sus rutas del OpenAPI real.
+    EXPOSE_API_DOCS: bool = True
+
+    # Cabecera `Content-Security-Policy`. Cadena vacía = no se envía la
+    # cabecera. El valor por defecto permite únicamente los recursos que la
+    # aplicación usa de verdad (Tailwind por CDN, Google Fonts, los scripts
+    # inline de las plantillas y htmx) y bloquea cualquier otro origen, que
+    # es lo que frena la inyección de scripts externos.
+    SECURITY_CSP: str = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://fonts.googleapis.com; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "img-src 'self' data: blob: https:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "object-src 'none'"
+    )
 
     # === Base de datos ===
     # Si se define DATABASE_URL, se usa directamente. Si no, se construye.
@@ -255,17 +306,7 @@ class Settings(BaseSettings):
         arranque de producción, dejando la contraseña de PostgreSQL a la
         vista de cualquiera con acceso a los logs del despliegue.
         """
-        url = self.get_database_url()
-        esquema, sep, resto = url.partition("://")
-        if not sep or "@" not in resto:
-            return url
-        credenciales, _, servidor = resto.partition("@")
-        if ":" in credenciales:
-            usuario = credenciales.split(":", 1)[0]
-            credenciales = f"{usuario}:***"
-        else:
-            credenciales = "***"
-        return f"{esquema}://{credenciales}@{servidor}"
+        return enmascarar_url_db(self.get_database_url())
 
     # ------------------------------------------------------------------
     # Validación de configuración (informativa, no bloqueante)
@@ -584,6 +625,24 @@ _CORS_ORIGINS_EXPLICITO = "CORS_ORIGINS" in os.environ
 settings = get_settings()
 
 
+# Claves que NO se vuelcan al entorno. Son secretos puros que ningún módulo
+# de la aplicación lee con ``os.getenv`` (la app los toma siempre de
+# ``Settings``); exportarlos los dejaba expuestos en ``/proc/<pid>/environ``
+# de cada proceso hijo (Celery worker, beat y scripts), donde cualquier
+# lector de procesos podía verlos.
+#
+# No se incluyen aquí las variables que son *URL con contraseña dentro*
+# (``DATABASE_URL``, ``REDIS_URL``, ``CELERY_BROKER_URL``): en producción las
+# inyecta la propia plataforma (o sea, ya están en el entorno antes de este
+# export) y en desarrollo las leen módulos legacy con ``os.getenv``; quitar
+# el export no reduciría la exposición real y sí rompería esos caminos.
+_CLAVES_SECRETAS_NO_EXPORTABLES = frozenset({
+    "SECRET_KEY",
+    "POSTGRES_PASSWORD",
+    "SMTP_PASSWORD",
+})
+
+
 def _exportar_a_environ(obj: Settings) -> None:
     """Exporta los valores resueltos de ``Settings`` al ``os.environ``.
 
@@ -625,6 +684,8 @@ def _exportar_a_environ(obj: Settings) -> None:
         clave = nombre.upper()
         if clave in os.environ:
             continue
+        if clave in _CLAVES_SECRETAS_NO_EXPORTABLES:
+            continue
         if isinstance(valor, bool):
             os.environ[clave] = "true" if valor else "false"
         elif isinstance(valor, (list, tuple)):
@@ -644,6 +705,8 @@ def _exportar_a_environ(obj: Settings) -> None:
     if env_file:
         for clave, valor in _leer_env_file(env_file).items():
             if not valor.strip():
+                continue
+            if clave.upper() in _CLAVES_SECRETAS_NO_EXPORTABLES:
                 continue
             os.environ.setdefault(clave, valor)
 

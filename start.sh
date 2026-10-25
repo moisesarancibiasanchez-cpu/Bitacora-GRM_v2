@@ -6,7 +6,11 @@
 #    $PROC_TYPE / $APP_ROLE > $RAILWAY_SERVICE_ROLE > $RAILWAY_SERVICE_NAME
 #  (Railway NO inyecta RAILWAY_SERVICE_ROLE; ver el bloque de deteccion).
 # =============================================================================
-set -e
+# `set -euo pipefail`: con `-u` una variable mal escrita aborta el arranque
+# en lugar de expandirse a vacío en silencio; con `pipefail` el fallo de
+# cualquier etapa de una tubería se propaga. Toda variable de entorno que
+# pueda no existir se lee con `${VAR:-}`.
+set -euo pipefail
 
 # 0) SECRET_KEY
 # -----------------------------------------------------------------------------
@@ -269,7 +273,7 @@ ROLE="$ROL_DETECTADO"
 echo "[start.sh] Iniciando Bitácora GRM (rol=$ROLE)"
 
 # 2) Esperar a la base de datos si la URL es Postgres
-if [[ -n "${DATABASE_URL}" && "${DATABASE_URL}" != sqlite* ]]; then
+if [[ -n "${DATABASE_URL:-}" && "${DATABASE_URL:-}" != sqlite* ]]; then
     echo "[start.sh] Esperando a la base de datos PostgreSQL..."
     python -c "
 import os, time, socket, urllib.parse
@@ -289,16 +293,32 @@ else:
 " || true
 fi
 
-# 3) Inicializar base de datos (modo demo/dev)
-# AUTO_INIT_DB=true activa el seed completo (usuarios, tickets demo, etc.)
-# En producción real no es necesario: el lifespan de FastAPI ya aplica
-# migraciones idempotentes en cada arranque.
-if [[ "${AUTO_INIT_DB:-true}" == "true" ]]; then
-    echo "[start.sh] Verificando/Aplicando migraciones..."
-    python -m app.db.migrations || echo "[start.sh] Aviso: migraciones fallaron, continuando..."
-    if [[ "${SEED_DATA:-false}" == "true" ]]; then
-        echo "[start.sh] Inicializando base de datos (datos semilla)..."
-        python -m app.db.init_db || echo "[start.sh] Aviso: init_db falló, continuando..."
+# 3) Esquema de base de datos
+# -----------------------------------------------------------------------------
+# Las MIGRACIONES son idempotentes y se aplican SIEMPRE, en todos los roles
+# (web, worker y beat). Los procesos Celery no ejecutan el lifespan de
+# FastAPI, así que son ellos quienes necesitan el esquema al día; y el
+# servicio web no debe depender de que el worker haya subido antes.
+#
+# Antes estas migraciones colgaban del interruptor `AUTO_INIT_DB`, que además
+# venía con default `true` en contra de `app/core/config.py` (default False).
+# Separar ambos conceptos evita que un cambio de semántica en el seed
+# dejara el esquema sin migrar en el worker o en el beat.
+#
+# El SEED de datos (catálogos y, si se habilita, datos de demostración) es
+# opcional y va aparte: lo activan AUTO_INIT_DB=true o SEED_DATA=true. Por
+# defecto está DESACTIVADO, igual que `Settings.AUTO_INIT_DB`.
+echo "[start.sh] Verificando/Aplicando migraciones..."
+if ! python -m app.db.migrations; then
+    echo "[start.sh] ERROR: las migraciones fallaron. Revisa el log del despliegue." >&2
+    echo "[start.sh] El proceso continúa para no dejar el servicio sin respuesta," >&2
+    echo "[start.sh] pero el esquema puede estar desactualizado." >&2
+fi
+
+if [[ "${AUTO_INIT_DB:-false}" == "true" || "${SEED_DATA:-false}" == "true" ]]; then
+    echo "[start.sh] Inicializando base de datos (datos semilla)..."
+    if ! python -m app.db.init_db; then
+        echo "[start.sh] ERROR: init_db falló. Revisa el log del despliegue." >&2
     fi
 fi
 

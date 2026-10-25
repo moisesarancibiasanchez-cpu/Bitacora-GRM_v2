@@ -923,8 +923,11 @@ if __name__ == "__main__":
     target_engine = None
     if db_url:
         from sqlalchemy import create_engine
+        from app.core.config import enmascarar_url_db
         target_engine = create_engine(db_url)
-        print(f"Usando engine override: {db_url}")
+        # La URL se enmascara: imprimirla en crudo exponía la contraseña de
+        # la base de datos en los logs del despliegue.
+        print(f"Usando engine override: {enmascarar_url_db(db_url)}")
     print("== Diagnóstico de esquema ==")
     for line in report_schema_drift(target_engine):
         print(f"  · {line}")
