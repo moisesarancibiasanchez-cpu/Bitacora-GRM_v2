@@ -193,12 +193,12 @@
               <select id="resultado_pruebas" name="resultado_pruebas"
                       class="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
                 <option value="">— Sin resultado —</option>
-                {# Los valores del LOV vienen del catálogo (app/core/resultado_pruebas.py)
-                   inyectado como global del entorno Jinja: esta plantilla no
-                   redeclara la lista. #}
-                {% for valor in resultados_lov_formulario %}
-                <option value="{{ valor }}">{{ valor }}</option>
-                {% endfor %}
+                <option value="OK">OK</option>
+                <option value="N/A">N/A</option>
+                <option value="OK CON OBS.">OK CON OBS.</option>
+                <option value="POSTERGADA">POSTERGADA</option>
+                <option value="DESESTIMADA">DESESTIMADA</option>
+                <option value="NOK">NOK</option>
               </select>
             </div>
           </div>

@@ -2,10 +2,9 @@
 Tareas asíncronas de Celery: notificaciones de cambio de estado y SLA.
 """
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.core.celery_app import celery_app
-from app.core.timezone import now_utc
 from app.db.session import SessionLocal
 
 
@@ -43,7 +42,7 @@ def notificar_cambio_estado(self, ticket_id: int, estado_origen: str, estado_des
             "estado_origen": estado_origen,
             "estado_destino": estado_destino,
             "destinatarios": destinatarios,
-            "fecha": now_utc().isoformat(),
+            "fecha": datetime.utcnow().isoformat(),
         }
     except Exception as exc:
         logger.exception("Error notificando cambio de estado")
@@ -65,7 +64,7 @@ def notificar_sla_proximo_vencer() -> dict:
             "ok": True,
             "proximos_vencer": len(proximos),
             "vencidos": len(vencidos),
-            "fecha": now_utc().isoformat(),
+            "fecha": datetime.utcnow().isoformat(),
         }
     finally:
         db.close()
@@ -74,4 +73,4 @@ def notificar_sla_proximo_vencer() -> dict:
 @celery_app.task(name="app.tasks.notification_tasks.limpiar_notificaciones_antiguas")
 def limpiar_notificaciones_antiguas(dias: int = 90) -> dict:
     """Limpieza diaria de notificaciones antiguas (placeholder)."""
-    return {"ok": True, "dias": dias, "fecha": now_utc().isoformat()}
+    return {"ok": True, "dias": dias, "fecha": datetime.utcnow().isoformat()}

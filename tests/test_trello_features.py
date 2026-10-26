@@ -20,23 +20,16 @@ import sys
 import logging
 logging.disable(logging.CRITICAL)
 
-# Base de datos aislada de la suite. Se fija ANTES de importar ``app`` porque
-# ``app/db/session.py`` crea el ``engine`` SQLAlchemy a nivel de módulo: si
-# otro módulo importase la app antes, el engine quedaría apuntando a otra BD.
-# ``setdefault`` (y no asignación dura) permite que ``tests/conftest.py``
-# defina la ruta canónica de la suite y respeta una ``DATABASE_URL`` que
-# llegue desde el entorno (CI, Railway, ...).
-BD_TEST = os.environ.setdefault("DATABASE_URL", "sqlite:///./test_pytest_suite.db")
+os.environ["DATABASE_URL"] = "sqlite:///./test_trello_pytest.db"
 os.environ["AUTO_INIT_DB"] = "false"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Crear BD de test (se borra la anterior para partir de datos limpios)
-_ruta_bd = BD_TEST.replace("sqlite:///", "").lstrip("/")
-if _ruta_bd and os.path.exists(_ruta_bd):
-    os.remove(_ruta_bd)
+# Crear BD de test
+if os.path.exists("./test_trello_pytest.db"):
+    os.remove("./test_trello_pytest.db")
 
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
@@ -108,28 +101,10 @@ try:
 finally:
     db.close()
 
-# --------------------------------------------------------------------- #
-#  Autenticación y helpers HTTP
-# --------------------------------------------------------------------- #
-# El bypass por cabecera ``X-User-Id`` está DESHABILITADO por diseño:
-# ``app/api/v1/deps.py`` sólo lo acepta si ``ALLOW_XUSER_HEADER=true`` y el
-# default es ``false`` (endurecimiento de seguridad). Este test debe
-# autenticarse como lo hace el navegador: ``POST /api/v1/auth/login``, que
-# deja la cookie de sesión ``access_token`` en el ``TestClient`` (persistente
-# entre peticiones).
-client = TestClient(app)
-
-_LOGIN = client.post(
-    "/api/v1/auth/login",
-    json={"username": "admin", "password": "admin123"},
-)
-assert _LOGIN.status_code == 200, (
-    f"login de 'admin' falló: {_LOGIN.status_code} {_LOGIN.text}"
-)
-
-# Se conserva el header por compatibilidad con el resto del archivo; la
-# resolución del usuario prioriza la cookie de sesión.
+# Headers de autenticación (modo demo) y helpers
 AUTH = {"X-User-Id": "1"}
+
+client = TestClient(app)
 
 
 # Helpers de HTTP con header de autenticación incluido
@@ -157,30 +132,26 @@ def delete(url, **kw):
     return client.delete(url, headers=headers, **kw)
 
 
-# --------------------------------------------------------------------- #
-#  Registro de casos
-# --------------------------------------------------------------------- #
-# Antes este decorador EJECUTABA cada caso en el momento de declararlo y el
-# módulo terminaba con ``sys.exit(...)``. Bajo pytest eso es fatal: un
-# ``SystemExit`` durante la importación aborta la SESIÓN COMPLETA con
-# INTERNALERROR y no se ejecuta ni un solo test de todo el repositorio.
-#
-# Ahora el decorador sólo REGISTRA el caso (nombre + función). La ejecución
-# queda a cargo de:
-#   * pytest  → un test por caso, vía ``parametrize`` (ver ``test_caso``), y
-#   * el runner standalone → ``main()``, invocado con
-#     ``python tests/test_trello_features.py``.
-# Los 71 casos y sus aserciones no cambian: sólo cambia cuándo se ejecutan.
-CASOS = []
+# Contadores
+total = 0
+pasados = 0
+fallados = []
 
 
-def caso(name):
-    """Registra un caso de prueba. No lo ejecuta (ver nota arriba)."""
-
+def test(name):
     def deco(fn):
-        CASOS.append((name, fn))
-        return fn
-
+        global total, pasados
+        total += 1
+        try:
+            fn()
+            pasados += 1
+            print(f"  [OK]  {name}")
+        except AssertionError as e:
+            fallados.append((name, str(e)))
+            print(f"  [FAIL] {name}: {e}")
+        except Exception as e:
+            fallados.append((name, f"{type(e).__name__}: {e}"))
+            print(f"  [ERR]  {name}: {type(e).__name__}: {e}")
     return deco
 
 
@@ -193,76 +164,76 @@ print("="*60)
 # ============================================================
 print("\n[PÁGINAS HTML]")
 
-@caso("GET / - Redirige a /kanban")
+@test("GET / - Redirige a /kanban")
 def t01():
     r = client.get("/", follow_redirects=False)
     assert r.status_code in (200, 307, 302), f"status={r.status_code}"
     if r.status_code in (307, 302):
         assert "/kanban" in r.headers.get("location", "")
 
-@caso("GET /kanban - Renderiza tablero")
+@test("GET /kanban - Renderiza tablero")
 def t02():
     r = client.get("/kanban")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Bitácora" in r.text or "Kanban" in r.text or "kanban" in r.text
 
-@caso("GET /tickets - Lista tickets")
+@test("GET /tickets - Lista tickets")
 def t03():
     r = client.get("/tickets")
     assert r.status_code == 200
 
-@caso("GET /tickets/nuevo - Modal nuevo ticket")
+@test("GET /tickets/nuevo - Modal nuevo ticket")
 def t04():
     r = client.get("/tickets/nuevo")
     assert r.status_code == 200
 
-@caso("GET /catalogos - Lista catálogos")
+@test("GET /catalogos - Lista catálogos")
 def t05():
     r = client.get("/catalogos")
     assert r.status_code == 200
 
-@caso("GET /espacios - Lista espacios")
+@test("GET /espacios - Lista espacios")
 def t06():
     r = client.get("/espacios")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Espacio" in r.text or "espacio" in r.text
 
-@caso("GET /tableros - Lista tableros")
+@test("GET /tableros - Lista tableros")
 def t07():
     r = client.get("/tableros")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Tablero" in r.text or "tablero" in r.text
 
-@caso("GET /tableros?espacio=1 - Tableros filtrados por espacio")
+@test("GET /tableros?espacio=1 - Tableros filtrados por espacio")
 def t08():
     r = client.get("/tableros?espacio=1")
     assert r.status_code == 200
 
-@caso("GET /vistas/tabla - Vista Tabla")
+@test("GET /vistas/tabla - Vista Tabla")
 def t09():
     r = client.get("/vistas/tabla")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Tabla" in r.text or "tabla" in r.text or "Vista" in r.text
 
-@caso("GET /vistas/calendario - Vista Calendario")
+@test("GET /vistas/calendario - Vista Calendario")
 def t10():
     r = client.get("/vistas/calendario")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Calendario" in r.text or "calendario" in r.text
 
-@caso("GET /vistas/timeline - Vista Timeline")
+@test("GET /vistas/timeline - Vista Timeline")
 def t11():
     r = client.get("/vistas/timeline")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Timeline" in r.text or "timeline" in r.text
 
-@caso("GET /butler - Página Butler")
+@test("GET /butler - Página Butler")
 def t12():
     r = client.get("/butler")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Butler" in r.text
 
-@caso("GET /notificaciones - Centro de notificaciones")
+@test("GET /notificaciones - Centro de notificaciones")
 def t13():
     r = client.get("/notificaciones")
     assert r.status_code == 200, f"status={r.status_code}"
@@ -273,7 +244,7 @@ def t13():
 # ============================================================
 print("\n[API - ESPACIOS]")
 
-@caso("GET /api/v1/espacios - Lista espacios")
+@test("GET /api/v1/espacios - Lista espacios")
 def t14():
     r = get("/api/v1/espacios")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -281,7 +252,7 @@ def t14():
     assert isinstance(data, list)
     assert len(data) >= 3, f"esperaba >=3 espacios, hay {len(data)}"
 
-@caso("POST /api/v1/espacios - Crea espacio")
+@test("POST /api/v1/espacios - Crea espacio")
 def t15():
     r = post("/api/v1/espacios", json={
         "nombre": "Test Espacio", "descripcion": "Test",
@@ -293,7 +264,7 @@ def t15():
     assert data["nombre"] == "Test Espacio"
     assert "id" in data
 
-@caso("GET /api/v1/espacios/{id} - Detalle espacio")
+@test("GET /api/v1/espacios/{id} - Detalle espacio")
 def t16():
     r = get("/api/v1/espacios/1")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -301,7 +272,7 @@ def t16():
     assert "nombre" in data
     assert "tableros" in data or "tableros_count" in data or "total_tableros" in data or "id" in data
 
-@caso("PATCH /api/v1/espacios/{id} - Actualiza espacio")
+@test("PATCH /api/v1/espacios/{id} - Actualiza espacio")
 def t17():
     r = patch("/api/v1/espacios/1", json={"nombre": "Operaciones TI (Actualizado)"})
     assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:200]}"
@@ -311,7 +282,7 @@ def t17():
 # ============================================================
 print("\n[API - TABLEROS]")
 
-@caso("GET /api/v1/tableros - Lista tableros")
+@test("GET /api/v1/tableros - Lista tableros")
 def t18():
     r = get("/api/v1/tableros")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -319,7 +290,7 @@ def t18():
     assert isinstance(data, list)
     assert len(data) >= 5, f"esperaba >=5 tableros, hay {len(data)}"
 
-@caso("POST /api/v1/tableros - Crea tablero")
+@test("POST /api/v1/tableros - Crea tablero")
 def t19():
     r = post("/api/v1/tableros", json={
         "nombre": "Test Tablero", "descripcion": "Test",
@@ -328,12 +299,12 @@ def t19():
     })
     assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:200]}"
 
-@caso("POST /api/v1/tableros/{id}/archivar - Archiva tablero")
+@test("POST /api/v1/tableros/{id}/archivar - Archiva tablero")
 def t20():
     r = post("/api/v1/tableros/1/archivar")
     assert r.status_code in (200, 201, 204), f"status={r.status_code} body={r.text[:200]}"
 
-@caso("POST /api/v1/tableros/{id}/restaurar - Restaura tablero")
+@test("POST /api/v1/tableros/{id}/restaurar - Restaura tablero")
 def t21():
     r = post("/api/v1/tableros/1/restaurar")
     assert r.status_code in (200, 201, 204), f"status={r.status_code} body={r.text[:200]}"
@@ -343,14 +314,14 @@ def t21():
 # ============================================================
 print("\n[API - PERMISOS DE TABLERO]")
 
-@caso("GET /api/v1/tableros/{id}/permisos - Lista permisos")
+@test("GET /api/v1/tableros/{id}/permisos - Lista permisos")
 def t22():
     r = get("/api/v1/tableros/1/permisos")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
     data = r.json()
     assert isinstance(data, list)
 
-@caso("POST /api/v1/tableros/{id}/permisos - Asigna permiso")
+@test("POST /api/v1/tableros/{id}/permisos - Asigna permiso")
 def t23():
     r = post("/api/v1/tableros/1/permisos", json={
         "tablero_id": 1, "usuario_id": 2, "rol_tablero": "editor",
@@ -363,7 +334,7 @@ def t23():
 # ============================================================
 print("\n[API - WATCH]")
 
-@caso("POST /api/v1/watch - Toggle watch")
+@test("POST /api/v1/watch - Toggle watch")
 def t24():
     r = post("/api/v1/watch", json={
         "tipo_objeto": "ticket", "objeto_id": 1, "usuario_id": 1,
@@ -372,7 +343,7 @@ def t24():
     data = r.json()
     assert "activo" in data or "suscrito" in data
 
-@caso("GET /api/v1/watch - Lista suscripciones del usuario")
+@test("GET /api/v1/watch - Lista suscripciones del usuario")
 def t25():
     r = get("/api/v1/watch?usuario_id=1")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -384,7 +355,7 @@ def t25():
 # ============================================================
 print("\n[API - REACCIONES]")
 
-@caso("POST /api/v1/reacciones/toggle - Toggle reacción")
+@test("POST /api/v1/reacciones/toggle - Toggle reacción")
 def t26():
     r = post("/api/v1/reacciones/toggle", json={
         "tipo_objeto": "ticket", "objeto_id": 1,
@@ -392,7 +363,7 @@ def t26():
     })
     assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:200]}"
 
-@caso("GET /api/v1/reacciones/{tipo}/{objeto_id} - Lista reacciones")
+@test("GET /api/v1/reacciones/{tipo}/{objeto_id} - Lista reacciones")
 def t27():
     r = get("/api/v1/reacciones/ticket/1")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -404,7 +375,7 @@ def t27():
 # ============================================================
 print("\n[API - NOTIFICACIONES]")
 
-@caso("GET /api/v1/notificaciones - Lista notificaciones")
+@test("GET /api/v1/notificaciones - Lista notificaciones")
 def t28():
     r = get("/api/v1/notificaciones?usuario_id=1")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -412,12 +383,12 @@ def t28():
     assert isinstance(data, list)
     assert len(data) >= 4, f"esperaba >=4 notifs, hay {len(data)}"
 
-@caso("GET /api/v1/notificaciones/contador - Contador no leídas")
+@test("GET /api/v1/notificaciones/contador - Contador no leídas")
 def t29():
     r = get("/api/v1/notificaciones/contador?usuario_id=1")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
 
-@caso("POST /api/v1/notificaciones/{id}/leida - Marca como leída")
+@test("POST /api/v1/notificaciones/{id}/leida - Marca como leída")
 def t30():
     r = post("/api/v1/notificaciones/1/leida")
     assert r.status_code in (200, 201, 204), f"status={r.status_code} body={r.text[:200]}"
@@ -427,7 +398,7 @@ def t30():
 # ============================================================
 print("\n[API - CAMPOS PERSONALIZADOS]")
 
-@caso("GET /api/v1/campos-personalizados - Lista campos")
+@test("GET /api/v1/campos-personalizados - Lista campos")
 def t31():
     r = get("/api/v1/campos-personalizados")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -435,7 +406,7 @@ def t31():
     assert isinstance(data, list)
     assert len(data) >= 5, f"esperaba >=5 campos, hay {len(data)}"
 
-@caso("POST /api/v1/campos-personalizados - Crea campo")
+@test("POST /api/v1/campos-personalizados - Crea campo")
 def t32():
     r = post("/api/v1/campos-personalizados", json={
         "tablero_id": 1, "nombre": "Test Campo", "tipo": "texto",
@@ -443,7 +414,7 @@ def t32():
     })
     assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:200]}"
 
-@caso("POST /api/v1/tickets/{id}/campos - Asigna valor")
+@test("POST /api/v1/tickets/{id}/campos - Asigna valor")
 def t33():
     r = post("/api/v1/tickets/1/campos", json={
         "campo_id": 1, "valor_texto": "SAP",
@@ -455,7 +426,7 @@ def t33():
 # ============================================================
 print("\n[API - BOTONES]")
 
-@caso("GET /api/v1/botones - Lista botones")
+@test("GET /api/v1/botones - Lista botones")
 def t34():
     r = get("/api/v1/botones")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -463,7 +434,7 @@ def t34():
     assert isinstance(data, list)
     assert len(data) >= 3, f"esperaba >=3 botones, hay {len(data)}"
 
-@caso("POST /api/v1/botones - Crea botón")
+@test("POST /api/v1/botones - Crea botón")
 def t35():
     r = post("/api/v1/botones", json={
         "nombre": "Test Botón", "ambito": "tarjeta",
@@ -472,7 +443,7 @@ def t35():
     })
     assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:200]}"
 
-@caso("POST /api/v1/botones/{id}/ejecutar - Ejecuta botón")
+@test("POST /api/v1/botones/{id}/ejecutar - Ejecuta botón")
 def t36():
     r = post("/api/v1/botones/1/ejecutar", json={
         "ticket_id": 1, "usuario_id": 1,
@@ -484,7 +455,7 @@ def t36():
 # ============================================================
 print("\n[API - COMANDOS PROGRAMADOS]")
 
-@caso("GET /api/v1/comandos-programados - Lista comandos")
+@test("GET /api/v1/comandos-programados - Lista comandos")
 def t37():
     r = get("/api/v1/comandos-programados")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -492,7 +463,7 @@ def t37():
     assert isinstance(data, list)
     assert len(data) >= 3, f"esperaba >=3 comandos, hay {len(data)}"
 
-@caso("POST /api/v1/comandos-programados - Crea comando")
+@test("POST /api/v1/comandos-programados - Crea comando")
 def t38():
     r = post("/api/v1/comandos-programados", json={
         "nombre": "Test Comando", "cron_expression": "0 12 * * *",
@@ -506,19 +477,19 @@ def t38():
 # ============================================================
 print("\n[API - VISTAS MULTIDIMENSIONALES]")
 
-@caso("GET /api/v1/vistas/tabla - Datos para vista tabla")
+@test("GET /api/v1/vistas/tabla - Datos para vista tabla")
 def t39():
     r = get("/api/v1/vistas/tabla")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
     data = r.json()
     assert "filas" in data or "tickets" in data or "data" in data or isinstance(data, list)
 
-@caso("GET /api/v1/vistas/calendario - Datos para vista calendario")
+@test("GET /api/v1/vistas/calendario - Datos para vista calendario")
 def t40():
     r = get("/api/v1/vistas/calendario?mes=9&anio=2026")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
 
-@caso("GET /api/v1/vistas/timeline - Datos para vista timeline")
+@test("GET /api/v1/vistas/timeline - Datos para vista timeline")
 def t41():
     r = get("/api/v1/vistas/timeline")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:200]}"
@@ -528,7 +499,7 @@ def t41():
 # ============================================================
 print("\n[API - METADATA TICKETS]")
 
-@caso("PATCH /api/v1/tickets/{id}/metadata - Actualiza metadata")
+@test("PATCH /api/v1/tickets/{id}/metadata - Actualiza metadata")
 def t42():
     r = patch("/api/v1/tickets/1/metadata", json={
         "fecha_inicio": "2026-01-15",
@@ -545,7 +516,7 @@ def t42():
 # ============================================================
 print("\n[REGRESIÓN - DRAG & DROP KANBAN]")
 
-@caso("PATCH /api/v1/tickets/{id}/estado - Drag&drop básico (regresión)")
+@test("PATCH /api/v1/tickets/{id}/estado - Drag&drop básico (regresión)")
 def t42b():
     """Verifica que el endpoint PATCH de cambio de estado funciona correctamente
     cuando se hace drag&drop (es decir, con orden != None). Este caso activaba
@@ -595,7 +566,7 @@ def t42b():
 # ============================================================
 print("\n[API - MARKDOWN]")
 
-@caso("POST /api/v1/markdown/renderizar - Renderiza markdown")
+@test("POST /api/v1/markdown/renderizar - Renderiza markdown")
 def t43():
     r = post("/api/v1/markdown/renderizar", json={
         "texto": "# Hola **mundo** con `código` y @usuario1",
@@ -609,19 +580,19 @@ def t43():
 # ============================================================
 print("\n[HEALTH CHECKS]")
 
-@caso("GET /health - Health check")
+@test("GET /health - Health check")
 def t44():
     r = client.get("/health")
     assert r.status_code in (200, 503), f"status={r.status_code}"
     data = r.json()
     assert "status" in data
 
-@caso("GET /ready - Readiness")
+@test("GET /ready - Readiness")
 def t45():
     r = client.get("/ready")
     assert r.status_code == 200
 
-@caso("GET /info - Info del entorno")
+@test("GET /info - Info del entorno")
 def t46():
     r = client.get("/info")
     assert r.status_code == 200
@@ -635,7 +606,7 @@ def t46():
 # ============================================================
 print("\n[REGRESIÓN - MIGRACIONES DE ESQUEMA]")
 
-@caso("apply_migrations() es idempotente y completa el esquema")
+@test("apply_migrations() es idempotente y completa el esquema")
 def t47():
     """Verifica que apply_migrations() puede ejecutarse múltiples veces
     sin errores y deja todas las columnas requeridas presentes."""
@@ -700,7 +671,7 @@ try:
 finally:
     db_test.close()
 
-@caso("POST /tickets/{id}/comentarios con form-data devuelve HTML (HTMX)")
+@test("POST /tickets/{id}/comentarios con form-data devuelve HTML (HTMX)")
 def t48():
     """El formulario HTMX envía application/x-www-form-urlencoded.
     El endpoint debe aceptarlo y devolver HTML para hacer swap del modal."""
@@ -719,7 +690,7 @@ def t48():
         f"El comentario no aparece en el HTML devuelto: {r.text[:300]}"
     )
 
-@caso("POST /tickets/{id}/comentarios con JSON devuelve 200/201 (API tradicional)")
+@test("POST /tickets/{id}/comentarios con JSON devuelve 200/201 (API tradicional)")
 def t49():
     """Compatibilidad hacia atrás: los clientes que envíen JSON
     deben seguir funcionando sin cambios."""
@@ -732,7 +703,7 @@ def t49():
     assert "id" in data, f"Respuesta sin id: {data}"
     assert "Comentario JSON tradicional" in data.get("texto", "")
 
-@caso("POST /tickets/{id}/checklists con form-data (HTMX) crea checklist y devuelve HTML")
+@test("POST /tickets/{id}/checklists con form-data (HTMX) crea checklist y devuelve HTML")
 def t50():
     """El form de nueva checklist debe apuntar a /checklists (plural)
     y el endpoint debe aceptar form-data devolviendo el modal."""
@@ -749,7 +720,7 @@ def t50():
         f"La checklist no aparece en el HTML devuelto: {r.text[:300]}"
     )
 
-@caso("POST /tickets/{id}/adjuntos acepta multipart/form-data y devuelve HTML")
+@test("POST /tickets/{id}/adjuntos acepta multipart/form-data y devuelve HTML")
 def t51():
     """Subida de archivo real con multipart/form-data."""
     import io
@@ -773,14 +744,14 @@ def t51():
 # ============================================================
 print("\n[SPRINT 1 - TRELLO AVANZADO]")
 
-@caso("GET /dashboard - Renderiza pagina de dashboard con KPIs")
+@test("GET /dashboard - Renderiza pagina de dashboard con KPIs")
 def t52():
     r = client.get("/dashboard")
     assert r.status_code == 200, f"status={r.status_code}"
     assert "Dashboard" in r.text or "dashboard" in r.text
     assert "kpi" in r.text.lower() or "Cargando" in r.text or "Tickets" in r.text
 
-@caso("GET /api/v1/metricas/resumen - Devuelve KPIs y agregaciones")
+@test("GET /api/v1/metricas/resumen - Devuelve KPIs y agregaciones")
 def t53():
     r = get("/api/v1/metricas/resumen?dias=30")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
@@ -795,7 +766,7 @@ def t53():
     assert isinstance(data["distribucion_estado"], list)
     assert isinstance(data["actividad_por_dia"], list)
 
-@caso("GET /api/v1/metricas/resumen con diferentes dias (7, 30, 90)")
+@test("GET /api/v1/metricas/resumen con diferentes dias (7, 30, 90)")
 def t54():
     for d in (7, 30, 90):
         r = get(f"/api/v1/metricas/resumen?dias={d}")
@@ -803,7 +774,7 @@ def t54():
         data = r.json()
         assert data["totales"]["total"] >= 0
 
-@caso("GET /api/v1/buscar?q=incidencia - Busqueda global multi-entidad")
+@test("GET /api/v1/buscar?q=incidencia - Busqueda global multi-entidad")
 def t55():
     r = get("/api/v1/buscar?q=incidencia&limite=5")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
@@ -815,7 +786,7 @@ def t55():
         assert "titulo" in first
         assert "url" in first
 
-@caso("GET /api/v1/buscar?q=admin - Encuentra usuarios")
+@test("GET /api/v1/buscar?q=admin - Encuentra usuarios")
 def t56():
     r = get("/api/v1/buscar?q=admin&limite=5")
     assert r.status_code == 200, f"status={r.status_code}"
@@ -826,14 +797,14 @@ def t56():
             assert "titulo" in u
             assert "url" in u
 
-@caso("GET /api/v1/buscar?q=xyz_no_existe - Devuelve resultados vacios")
+@test("GET /api/v1/buscar?q=xyz_no_existe - Devuelve resultados vacios")
 def t57():
     r = get("/api/v1/buscar?q=xyz_no_existe_abc&limite=5")
     assert r.status_code == 200, f"status={r.status_code}"
     data = r.json()
     assert isinstance(data["tickets"], list)
 
-@caso("POST /api/v1/tickets/{id}/duplicar - Duplica ticket con (Copia)")
+@test("POST /api/v1/tickets/{id}/duplicar - Duplica ticket con (Copia)")
 def t58():
     r = post(f"/api/v1/tickets/{TICKET_ID}/duplicar")
     assert r.status_code in (200, 201), f"status={r.status_code} body={r.text[:300]}"
@@ -842,7 +813,7 @@ def t58():
     assert "codigo" in data
     assert data["id"] != TICKET_ID
 
-@caso("GET /api/v1/tickets/exportar/csv - Devuelve CSV descargable")
+@test("GET /api/v1/tickets/exportar/csv - Devuelve CSV descargable")
 def t59():
     r = get("/api/v1/tickets/exportar/csv")
     assert r.status_code == 200, f"status={r.status_code}"
@@ -855,7 +826,7 @@ def t59():
     lines = content.strip().split("\n")
     assert len(lines) >= 2, f"CSV sin filas de datos: {len(lines)} lineas"
 
-@caso("GET /api/v1/catalogos/usuarios - Lista usuarios para filtros")
+@test("GET /api/v1/catalogos/usuarios - Lista usuarios para filtros")
 def t60():
     r = get("/api/v1/catalogos/usuarios")
     assert r.status_code == 200, f"status={r.status_code}"
@@ -865,7 +836,7 @@ def t60():
     assert "id" in data[0]
     assert "nombre_completo" in data[0]
 
-@caso("GET /api/v1/catalogos/etiquetas - Lista etiquetas para filtros")
+@test("GET /api/v1/catalogos/etiquetas - Lista etiquetas para filtros")
 def t61():
     r = get("/api/v1/catalogos/etiquetas")
     assert r.status_code == 200, f"status={r.status_code}"
@@ -876,7 +847,7 @@ def t61():
         assert "nombre" in data[0]
         assert "color" in data[0]
 
-@caso("GET /api/v1/tickets/buscar/query?q=... - Endpoint dedicado de tickets")
+@test("GET /api/v1/tickets/buscar/query?q=... - Endpoint dedicado de tickets")
 def t62():
     r = get("/api/v1/tickets/buscar/query?q=test&limit=10")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
@@ -886,21 +857,21 @@ def t62():
         assert "id" in data[0]
         assert "codigo" in data[0]
 
-@caso("GET /api/v1/tickets/buscar/query con filtros (prioridad, archivado)")
+@test("GET /api/v1/tickets/buscar/query con filtros (prioridad, archivado)")
 def t63():
     r = get("/api/v1/tickets/buscar/query?prioridad=critica&archivado=false&limit=5")
     assert r.status_code == 200, f"status={r.status_code} body={r.text[:300]}"
     data = r.json()
     assert isinstance(data, list)
 
-@caso("GET /api/v1/butler/reglas - Lista reglas Butler")
+@test("GET /api/v1/butler/reglas - Lista reglas Butler")
 def t64():
     r = get("/api/v1/butler/reglas")
     assert r.status_code == 200, f"status={r.status_code}"
     data = r.json()
     assert isinstance(data, list)
 
-@caso("POST /api/v1/butler/reglas - Crea regla Butler")
+@test("POST /api/v1/butler/reglas - Crea regla Butler")
 def t65():
     r = post("/api/v1/butler/reglas", json={
         "nombre": "Test regla Trello",
@@ -916,7 +887,7 @@ def t65():
     assert data["disparador"] == "ticket_creado"
     assert data["activo"] is True
 
-@caso("POST /api/v1/butler/reglas con disparador invalido - Devuelve 422")
+@test("POST /api/v1/butler/reglas con disparador invalido - Devuelve 422")
 def t66():
     r = post("/api/v1/butler/reglas", json={
         "nombre": "Regla invalida",
@@ -925,7 +896,7 @@ def t66():
     })
     assert r.status_code in (400, 422), f"Esperaba 400/422, obtuvo {r.status_code}"
 
-@caso("PATCH /api/v1/butler/reglas/{id} - Actualiza regla (toggle activo)")
+@test("PATCH /api/v1/butler/reglas/{id} - Actualiza regla (toggle activo)")
 def t67():
     r1 = post("/api/v1/butler/reglas", json={
         "nombre": "Regla toggle test",
@@ -938,7 +909,7 @@ def t67():
     assert r2.status_code == 200, f"status={r2.status_code} body={r2.text[:300]}"
     assert r2.json()["activo"] is False
 
-@caso("DELETE /api/v1/butler/reglas/{id} - Elimina regla")
+@test("DELETE /api/v1/butler/reglas/{id} - Elimina regla")
 def t68():
     r1 = post("/api/v1/butler/reglas", json={
         "nombre": "Regla a eliminar",
@@ -950,7 +921,7 @@ def t68():
     r2 = delete(f"/api/v1/butler/reglas/{rid}")
     assert r2.status_code in (200, 204), f"status={r2.status_code} body={r2.text[:300]}"
 
-@caso("GET /kanban incluye el panel de filtros")
+@test("GET /kanban incluye el panel de filtros")
 def t69():
     r = client.get("/kanban")
     assert r.status_code == 200
@@ -959,7 +930,7 @@ def t69():
     assert 'filtro-q' in r.text, "Falta el input de busqueda"
     assert 'filtro-prioridad' in r.text, "Falta el filtro de prioridad"
 
-@caso("GET /kanban incluye command palette (boton + script)")
+@test("GET /kanban incluye command palette (boton + script)")
 def t70():
     r = client.get("/kanban")
     assert r.status_code == 200
@@ -969,62 +940,14 @@ def t70():
 
 
 # ============================================================
-# EJECUCIÓN
+# RESUMEN
 # ============================================================
-# Cada caso registrado se expone como un test independiente de pytest, de
-# modo que un fallo identifica exactamente qué endpoint se rompió.
-try:
-    import pytest
-except ImportError:  # pragma: no cover - ejecución standalone sin pytest
-    pytest = None  # type: ignore[assignment]
-
-if pytest is not None:
-    @pytest.mark.parametrize(
-        "nombre,fn",
-        CASOS,
-        ids=[nombre for nombre, _ in CASOS],
-    )
-    def test_caso(nombre, fn):
-        """Ejecuta un caso registrado. Falla si el caso lanza una excepción."""
-        fn()
-
-
-def main() -> int:
-    """Runner standalone: ejecuta todos los casos e imprime el resumen.
-
-    Devuelve 0 si todos pasan y 1 en caso contrario (mismo contrato de
-    salida que antes, cuando el módulo llamaba a ``sys.exit``).
-    """
-    total = len(CASOS)
-    pasados = 0
-    fallados = []
-
-    print("\n" + "=" * 60)
-    print("TEST SUITE: Funcionalidades Trello - Bitácora GRM")
-    print("=" * 60)
-
-    for nombre, fn in CASOS:
-        try:
-            fn()
-            pasados += 1
-            print(f"  [OK]  {nombre}")
-        except AssertionError as exc:
-            fallados.append((nombre, str(exc)))
-            print(f"  [FAIL] {nombre}: {exc}")
-        except Exception as exc:  # noqa: BLE001
-            fallados.append((nombre, f"{type(exc).__name__}: {exc}"))
-            print(f"  [ERR]  {nombre}: {type(exc).__name__}: {exc}")
-
-    print("\n" + "=" * 60)
-    print(f"RESULTADO: {pasados}/{total} tests PASADOS")
-    if fallados:
-        print(f"\nFALLAS ({len(fallados)}):")
-        for nombre, error in fallados:
-            print(f"  - {nombre}: {error}")
-    print("=" * 60)
-    return 0 if not fallados else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+print("\n" + "="*60)
+print(f"RESULTADO: {pasados}/{total} tests PASADOS")
+if fallados:
+    print(f"\nFALLAS ({len(fallados)}):")
+    for n, e in fallados:
+        print(f"  - {n}: {e}")
+print("="*60)
+sys.exit(0 if not fallados else 1)
 

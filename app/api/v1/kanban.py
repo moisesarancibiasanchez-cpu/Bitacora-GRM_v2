@@ -50,9 +50,9 @@ def tablero_kanban(
             )
 
         return templates.TemplateResponse(
-            request=request,
-            name="kanban/index.html",
-            context={
+            "kanban/index.html",
+            {
+                "request": request,
                 "usuario": usuario,
                 "estados": estados,
                 "tickets_por_estado": tickets_por_estado,

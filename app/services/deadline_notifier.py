@@ -29,14 +29,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
 from sqlalchemy import and_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.timezone import now_utc
 from app.db.session import SessionLocal
 from app.models.auditoria import Auditoria
 from app.models.ticket import Ticket
@@ -104,80 +103,11 @@ def _destinatarios_de_ticket(db: Session, ticket: Ticket) -> List[Usuario]:
     ).all()
 
 
-def _destinatarios_por_ticket(
-    db: Session, tickets: List[Ticket]
-) -> Dict[int, List[Usuario]]:
-    """Mapa ``ticket_id -> destinatarios`` resuelto con UNA sola consulta
-    de usuarios para todo el lote.
-
-    Antes se llamaba a ``_destinatarios_de_ticket`` una vez por ticket
-    (una consulta de usuarios POR ticket, más otra por sus miembros):
-    con decenas de tickets vencidos eso eran decenas de SELECT en cada
-    ejecución del trigger.
-    """
-    ids_por_ticket: Dict[int, Set[int]] = {}
-    for t in tickets:
-        ids: Set[int] = set()
-        if t.creador_id:
-            ids.add(t.creador_id)
-        if t.asignado_id:
-            ids.add(t.asignado_id)
-        for m in (t.miembros or []):
-            if m.is_active:
-                ids.add(m.id)
-        if ids:
-            ids_por_ticket[t.id] = ids
-    if not ids_por_ticket:
-        return {}
-    todos: Set[int] = set()
-    for ids in ids_por_ticket.values():
-        todos |= ids
-    usuarios = db.query(Usuario).filter(
-        Usuario.id.in_(todos),
-        Usuario.is_active == True,  # noqa: E712
-    ).all()
-    por_id = {u.id: u for u in usuarios}
-    return {
-        tid: [por_id[uid] for uid in ids if uid in por_id]
-        for tid, ids in ids_por_ticket.items()
-    }
-
-
-def _ids_ya_notificados(
-    db: Session, ticket_ids: List[int], trigger: str
-) -> Set[int]:
-    """Ids de los tickets que YA tienen auditoría de este trigger en las
-    últimas 24h. Se resuelve en UNA consulta para todo el lote (antes
-    era una consulta por ticket).
-    """
-    if not ticket_ids:
-        return set()
-    hace_24h = now_utc() - timedelta(hours=24)
-    filas = db.query(Auditoria.ticket_id).filter(
-        Auditoria.ticket_id.in_(ticket_ids),
-        Auditoria.accion == f"deadline_trigger:{trigger}",
-        Auditoria.created_at >= hace_24h,
-    ).all()
-    return {fila[0] for fila in filas}
-
-
-def _ya_notificado_hoy(
-    db: Session,
-    ticket_id: int,
-    trigger: str,
-    ya_notificados: Optional[Set[int]] = None,
-) -> bool:
+def _ya_notificado_hoy(db: Session, ticket_id: int, trigger: str) -> bool:
     """Idempotencia: si YA hay una auditoría con este trigger en las
     últimas 24h para este ticket, NO lo notificamos de nuevo. Evita
-    ráfagas si Celery Beat corre el job múltiples veces al día.
-
-    ``ya_notificados`` es el conjunto precalculado por
-    ``_ids_ya_notificados`` para todo el lote; si se entrega, la
-    comprobación no hace ninguna consulta por ticket.
-    """
-    if ya_notificados is not None:
-        return ticket_id in ya_notificados
-    hace_24h = now_utc() - timedelta(hours=24)
+    ráfagas si Celery Beat corre el job múltiples veces al día."""
+    hace_24h = datetime.utcnow() - timedelta(hours=24)
     existe = db.query(Auditoria).filter(
         Auditoria.ticket_id == ticket_id,
         Auditoria.accion == f"deadline_trigger:{trigger}",
@@ -299,7 +229,7 @@ def _auditar(db: Session, ticket: Ticket, trigger: str, n_notifs: int, n_emails:
             "trigger": trigger,
             "notificaciones_creadas": n_notifs,
             "emails_enviados": n_emails,
-            "ts": now_utc().isoformat(),
+            "ts": datetime.utcnow().isoformat(),
         },
         comentario=f"Trigger {trigger} ejecutado automáticamente.",
         ip_origen="system:deadline_notifier",
@@ -313,11 +243,10 @@ def _auditar(db: Session, ticket: Ticket, trigger: str, n_notifs: int, n_emails:
 def trigger_deadline_today(db: Session) -> ResultadoTrigger:
     """Trigger 1: tickets que vencen HOY (fecha_vencimiento_sla en [00:00, 23:59:59])."""
     res = ResultadoTrigger(trigger=TRIGGER_DEADLINE_TODAY)
-    hoy_inicio = now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
+    hoy_inicio = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_fin = hoy_inicio + timedelta(days=1)
     tickets = (
         db.query(Ticket)
-        .options(selectinload(Ticket.miembros))
         .filter(
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_vencimiento_sla >= hoy_inicio,
@@ -327,14 +256,10 @@ def trigger_deadline_today(db: Session) -> ResultadoTrigger:
         )
         .all()
     )
-    ya_notificados = _ids_ya_notificados(
-        db, [t.id for t in tickets], TRIGGER_DEADLINE_TODAY
-    )
-    destinatarios_por_ticket = _destinatarios_por_ticket(db, tickets)
     for t in tickets:
-        if _ya_notificado_hoy(db, t.id, TRIGGER_DEADLINE_TODAY, ya_notificados):
+        if _ya_notificado_hoy(db, t.id, TRIGGER_DEADLINE_TODAY):
             continue
-        destinatarios = destinatarios_por_ticket.get(t.id) or []
+        destinatarios = _destinatarios_de_ticket(db, t)
         if not destinatarios:
             continue
         n_notifs = 0
@@ -359,10 +284,9 @@ def trigger_deadline_today(db: Session) -> ResultadoTrigger:
 def trigger_deadline_missed(db: Session) -> ResultadoTrigger:
     """Trigger 2: tickets vencidos (fecha_vencimiento_sla < hoy)."""
     res = ResultadoTrigger(trigger=TRIGGER_DEADLINE_MISSED)
-    ahora = now_utc()
+    ahora = datetime.utcnow()
     tickets = (
         db.query(Ticket)
-        .options(selectinload(Ticket.miembros))
         .filter(
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_vencimiento_sla < ahora,
@@ -370,14 +294,10 @@ def trigger_deadline_missed(db: Session) -> ResultadoTrigger:
         )
         .all()
     )
-    ya_notificados = _ids_ya_notificados(
-        db, [t.id for t in tickets], TRIGGER_DEADLINE_MISSED
-    )
-    destinatarios_por_ticket = _destinatarios_por_ticket(db, tickets)
     for t in tickets:
-        if _ya_notificado_hoy(db, t.id, TRIGGER_DEADLINE_MISSED, ya_notificados):
+        if _ya_notificado_hoy(db, t.id, TRIGGER_DEADLINE_MISSED):
             continue
-        destinatarios = destinatarios_por_ticket.get(t.id) or []
+        destinatarios = _destinatarios_de_ticket(db, t)
         if not destinatarios:
             continue
         n_notifs = 0
@@ -400,11 +320,10 @@ def trigger_deadline_missed(db: Session) -> ResultadoTrigger:
 def trigger_deadline_approaching(db: Session, ventana_horas: int = 4) -> ResultadoTrigger:
     """Trigger 3: tickets que vencen en las próximas N horas."""
     res = ResultadoTrigger(trigger=TRIGGER_DEADLINE_APPROACHING)
-    ahora = now_utc()
+    ahora = datetime.utcnow()
     limite = ahora + timedelta(hours=ventana_horas)
     tickets = (
         db.query(Ticket)
-        .options(selectinload(Ticket.miembros))
         .filter(
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_vencimiento_sla >= ahora,
@@ -413,14 +332,10 @@ def trigger_deadline_approaching(db: Session, ventana_horas: int = 4) -> Resulta
         )
         .all()
     )
-    ya_notificados = _ids_ya_notificados(
-        db, [t.id for t in tickets], TRIGGER_DEADLINE_APPROACHING
-    )
-    destinatarios_por_ticket = _destinatarios_por_ticket(db, tickets)
     for t in tickets:
-        if _ya_notificado_hoy(db, t.id, TRIGGER_DEADLINE_APPROACHING, ya_notificados):
+        if _ya_notificado_hoy(db, t.id, TRIGGER_DEADLINE_APPROACHING):
             continue
-        destinatarios = destinatarios_por_ticket.get(t.id) or []
+        destinatarios = _destinatarios_de_ticket(db, t)
         if not destinatarios:
             continue
         n_notifs = 0
@@ -448,10 +363,9 @@ def trigger_task_overdue(db: Session) -> ResultadoTrigger:
     formalmente) — útil para recordar tickets 'olvidados'.
     """
     res = ResultadoTrigger(trigger=TRIGGER_TASK_OVERDUE)
-    ahora = now_utc()
+    ahora = datetime.utcnow()
     tickets = (
         db.query(Ticket)
-        .options(selectinload(Ticket.miembros))
         .filter(
             Ticket.archivado == False,  # noqa: E712
             Ticket.fecha_vencimiento_sla < ahora,
@@ -460,14 +374,10 @@ def trigger_task_overdue(db: Session) -> ResultadoTrigger:
         )
         .all()
     )
-    ya_notificados = _ids_ya_notificados(
-        db, [t.id for t in tickets], TRIGGER_TASK_OVERDUE
-    )
-    destinatarios_por_ticket = _destinatarios_por_ticket(db, tickets)
     for t in tickets:
-        if _ya_notificado_hoy(db, t.id, TRIGGER_TASK_OVERDUE, ya_notificados):
+        if _ya_notificado_hoy(db, t.id, TRIGGER_TASK_OVERDUE):
             continue
-        destinatarios = destinatarios_por_ticket.get(t.id) or []
+        destinatarios = _destinatarios_de_ticket(db, t)
         if not destinatarios:
             continue
         n_notifs = 0

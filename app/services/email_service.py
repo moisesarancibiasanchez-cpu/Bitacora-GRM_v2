@@ -50,35 +50,6 @@ try:
 except ImportError:  # pragma: no cover
     _HAS_DEV_INBOX = False
 
-# SSOT de configuracion: `app.core.config.Settings` es la unica fuente de
-# verdad para SMTP_HOST/PORT/USER/PASSWORD/USE_TLS/USE_SSL. Antes este
-# modulo leia `os.getenv` directamente, lo que rompia la semantica de
-# `SMTP_USE_SSL` (ver `app/core/config.py::_exportar_a_environ`).
-try:
-    from app.core.config import settings as _settings
-except ImportError:  # pragma: no cover - solo en usos aislados del modulo
-    _settings = None
-
-
-def _cfg(nombre: str, default=None):
-    """Lee una opcion de SMTP desde el SSOT (`Settings`) con fallback a entorno.
-
-    `app.core.config._exportar_a_environ` vuelca los defaults de `Settings`
-    en `os.environ`, por lo que leer `os.getenv` sin mas nunca distingue
-    "variable no definida" de "variable definida con el valor por defecto"
-    (caso de `SMTP_USE_SSL`, cuyo default es `False`). Esta funcion consulta
-    primero `Settings` y usa `os.environ` solo para claves que no forman
-    parte del modelo.
-    """
-    if _settings is not None:
-        valor = getattr(_settings, nombre, None)
-        if valor is not None:
-            return valor
-    valor_env = os.getenv(nombre)
-    if valor_env is None or valor_env == "":
-        return default
-    return valor_env
-
 
 logger = logging.getLogger(__name__)
 
@@ -373,18 +344,23 @@ def _send_via_smtp(
     html_body: Optional[str],
 ) -> EmailResult:
     """Envía por SMTP (smtplib). Levanta excepción si falla."""
-    host = _cfg("SMTP_HOST", "") or "localhost"
-    port = int(_cfg("SMTP_PORT", 587) or 587)
-    user = _cfg("SMTP_USER", "")
-    password = _cfg("SMTP_PASSWORD", "")
+    host = os.getenv("SMTP_HOST", "localhost")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user = os.getenv("SMTP_USER", "")
+    password = os.getenv("SMTP_PASSWORD", "")
 
-    # Resolucion del modo TLS (SSOT: `app.core.config.Settings`):
-    #   - SMTP_USE_SSL=true  -> SMTPS (TLS implicito, tipico puerto 465).
-    #   - puerto 465         -> SMTPS implicito por definicion del protocolo.
-    #   - cualquier otro     -> SMTP plano + STARTTLS si SMTP_USE_TLS=true.
-    # SMTPS tiene prioridad sobre STARTTLS: son mutuamente excluyentes.
-    use_ssl = bool(_cfg("SMTP_USE_SSL", False)) or port == 465
-    use_tls = bool(_cfg("SMTP_USE_TLS", True)) and not use_ssl
+    # Resolución del modo TLS:
+    #   - SMTP_USE_SSL=true  → SMTPS (TLS implícito, típico puerto 465 / Resend).
+    #   - Si NO se define SMTP_USE_SSL, se autodetecta por puerto:
+    #       * puerto 465  → SMTPS (implícito)
+    #       * cualquier otro → SMTP plano + STARTTLS si SMTP_USE_TLS=true
+    #   - SMTP_USE_TLS=true → STARTTLS sobre SMTP plano (típico puerto 587).
+    use_ssl_env = os.getenv("SMTP_USE_SSL")
+    if use_ssl_env is not None and use_ssl_env != "":
+        use_ssl = use_ssl_env.lower() == "true"
+    else:
+        use_ssl = (port == 465)
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
     msg = EmailMessage()
     msg["From"] = sender
@@ -480,10 +456,10 @@ def get_transport_info() -> dict:
         "resend_api_configured": has_api,
         "resend_api_url": _RESEND_API_URL if has_api else None,
         "smtp_configured": has_smtp,
-        "smtp_host": _cfg("SMTP_HOST", "") or None,
-        "smtp_port": int(_cfg("SMTP_PORT", 587) or 587),
-        "smtp_use_ssl": bool(_cfg("SMTP_USE_SSL", False)),
-        "smtp_use_tls": bool(_cfg("SMTP_USE_TLS", True)),
+        "smtp_host": os.getenv("SMTP_HOST") or None,
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_use_ssl": (os.getenv("SMTP_USE_SSL", "").lower() == "true") if os.getenv("SMTP_USE_SSL") else None,
+        "smtp_use_tls": os.getenv("SMTP_USE_TLS", "true").lower() == "true",
         "sender": sender or None,
         "active_transport": (
             "resend-api" if has_api and sender

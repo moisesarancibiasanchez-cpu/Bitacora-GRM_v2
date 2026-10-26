@@ -94,31 +94,23 @@ class EtapaService:
             return existentes
 
         # Crear una fila por etapa, sin planificar (fechas NULL).
-        #
-        # SAVEPOINT: si el INSERT choca (carrera de doble click), se
-        # deshace SOLO la asignación de etapas. Con un `db.rollback()` a
-        # secas se descartaba TODA la transacción pendiente de quien
-        # llama (el ticket, el historial y la auditoría se perdían en
-        # silencio mientras la API respondía con éxito). `begin_nested()`
-        # abre un punto de guardado que se puede deshacer sin tocar la
-        # transacción exterior.
         nuevas: List[TicketEtapa] = []
+        for e in etapas:
+            te = TicketEtapa(
+                ticket_id=ticket.id,
+                etapa_id=e.id,
+                orden=e.orden,
+                fecha_inicio=None,
+                fecha_fin=None,
+                completado=0,
+                notas=None,
+            )
+            self.db.add(te)
+            nuevas.append(te)
         try:
-            with self.db.begin_nested():
-                for e in etapas:
-                    te = TicketEtapa(
-                        ticket_id=ticket.id,
-                        etapa_id=e.id,
-                        orden=e.orden,
-                        fecha_inicio=None,
-                        fecha_fin=None,
-                        completado=0,
-                        notas=None,
-                    )
-                    self.db.add(te)
-                    nuevas.append(te)
-                self.db.flush()  # para que tengan ID sin commit
+            self.db.flush()  # para que tengan ID sin commit
         except IntegrityError as e:
+            self.db.rollback()
             # Si por una carrera ya se crearon (caso extremo de doble click),
             # las recargamos y devolvemos.
             logger.warning(

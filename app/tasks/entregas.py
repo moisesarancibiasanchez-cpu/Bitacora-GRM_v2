@@ -24,14 +24,13 @@ compartidas entre el request HTTP y el worker.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.celery_app import celery_app
-from app.core.timezone import now_utc
 from app.db.session import SessionLocal
 
 
@@ -152,7 +151,7 @@ def registrar_entrega_diaria(self, ticket_id: int, historial_estado_id: int) -> 
                 estado_destino_nombre=estado_destino.nombre or "",
                 asignado_email=asignado_email,
                 asignado_nombre=asignado_nombre,
-                fecha_entrega=historial.fecha or now_utc(),
+                fecha_entrega=historial.fecha or datetime.utcnow(),
                 reporte_enviado_en=None,
             )
             db.add(nueva)
@@ -286,17 +285,16 @@ def generar_reporte_diario(self, fecha_objetivo: Optional[str] = None) -> dict:
             try:
                 fecha = date.fromisoformat(fecha_objetivo)
             except ValueError:
-                fecha = now_utc().date()
+                fecha = datetime.utcnow().date()
         else:
-            fecha = now_utc().date()
+            fecha = datetime.utcnow().date()
 
         # === 3) Cargar entregas del día ===
-        #     `func.date()` es portable: funciona en PostgreSQL y en SQLite
-        #     (el casts `::date` de PostgreSQL es sintaxis incompatible con
-        #     SQLite y provocaba error en el modo SQLite).
+        #     La comparación fecha_entrega::date = :fecha funciona en PG
+        #     y SQLite (ambos soportan CAST AS DATE).
         entregas = (
             db.query(ReporteEntregaDiaria)
-            .filter(func.date(ReporteEntregaDiaria.fecha_entrega) == fecha)
+            .filter(text("fecha_entrega::date = :f").bindparams(f=fecha))
             .order_by(ReporteEntregaDiaria.fecha_entrega.asc())
             .all()
         )
@@ -426,7 +424,7 @@ def generar_reporte_diario(self, fecha_objetivo: Optional[str] = None) -> dict:
         # === 9) Marcar las entregas del día con reporte_enviado_en ===
         #     Solo si al menos UN envío fue exitoso. Si todo falló,
         #     dejamos NULL para reintentar mañana.
-        ahora = now_utc()
+        ahora = datetime.utcnow()
         if enviados > 0:
             for e in entregas:
                 e.reporte_enviado_en = ahora
@@ -455,15 +453,9 @@ def generar_reporte_diario(self, fecha_objetivo: Optional[str] = None) -> dict:
                 ),
                 commit=True,
             )
-            # `registrar_auditoria(commit=True)` sólo hace FLUSH: el INSERT
-            # queda en la transacción y se pierde al cerrar la sesión (la
-            # tarea la cierra en el `finally`). El commit explícito es lo
-            # que garantiza que la traza del reporte diario exista.
-            db.commit()
         except Exception as exc:
-            logger.warning(
-                "[entregas:reporte] auditoría opcional no registrada: %s", exc,
-                exc_info=True,
+            logger.debug(
+                "[entregas:reporte] auditoría opcional: %s", exc,
             )
 
         logger.info(
@@ -491,7 +483,7 @@ def generar_reporte_diario(self, fecha_objetivo: Optional[str] = None) -> dict:
             return {
                 "ok": False,
                 "fecha_objetivo": (
-                    fecha_objetivo or now_utc().date().isoformat()
+                    fecha_objetivo or datetime.utcnow().date().isoformat()
                 ),
                 "cantidad": 0,
                 "destinatarios": 0,

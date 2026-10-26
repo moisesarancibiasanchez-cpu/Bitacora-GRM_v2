@@ -66,11 +66,8 @@
   </div>
 </div>
 
-<!-- Modal: nuevo/editar usuario.
-     El contenedor `id="modal-root"` lo aporta `base.html` (es el ÚNICO del
-     DOM). Antes esta vista declaraba otro con el mismo id: con ids
-     repetidos, `document.getElementById('modal-root')` devuelve el nodo
-     equivocado y el modal se monta en un contenedor que no es el global. -->
+<!-- Modal: nuevo/editar usuario -->
+<div id="modal-root" class="contents"></div>
 
 <script>
   (function () {

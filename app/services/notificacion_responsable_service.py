@@ -115,18 +115,11 @@ def notificar_responsable_columna(
     )
     db.add(notif)
     try:
-        # SAVEPOINT: si la notificación falla, se deshace SOLO la
-        # notificación. Con un `db.rollback()` a secas se descartaba TODA
-        # la transacción pendiente de quien llama: si esta función se
-        # invoca antes de un commit, el cambio de estado, el historial y
-        # la auditoría se perdían en silencio mientras la API respondía
-        # con éxito. `begin_nested()` abre un punto de guardado que se
-        # puede deshacer sin tocar la transacción exterior.
-        with db.begin_nested():
-            db.flush()
+        db.flush()
         notif_created = True
     except Exception as exc:
         logger.exception("[notif-resp] No se pudo crear Notificacion: %s", exc)
+        db.rollback()
         notif_created = False
 
     # 2) Enviar email (no rompe el flujo si falla)

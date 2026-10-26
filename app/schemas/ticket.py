@@ -6,8 +6,6 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
-from app.core.resultado_pruebas import RESULTADOS_LOV
-
 
 # LOV de módulos del sistema (sincronizado con app.models.ticket.MODULOS_LOV)
 MODULOS_PERMITIDOS = {
@@ -40,11 +38,17 @@ ITEM_PERMITIDOS = {
     "",  # vacío permitido (no asignado)
 }
 
-# LOV de resultado de pruebas: se deriva del catálogo
-# ``app/core/resultado_pruebas.py`` (SSOT), que es el único sitio donde se
-# define la lista de valores. Antes esta tupla estaba duplicada aquí y
-# podía desviarse del catálogo sin que nada lo detectara.
-RESULTADO_PRUEBAS_PERMITIDOS = frozenset(RESULTADOS_LOV) | {""}  # vacío permitido
+# LOV de resultado de pruebas (sincronizado con app.models.ticket.RESULTADO_PRUEBAS_LOV).
+# Actualizado: "POSTERGADA A GARANTÍA" → "POSTERGADA"; se agrega "DESESTIMADA".
+RESULTADO_PRUEBAS_PERMITIDOS = {
+    "OK",
+    "N/A",
+    "OK CON OBS.",
+    "POSTERGADA",
+    "DESESTIMADA",
+    "NOK",
+    "",  # vacío permitido
+}
 
 # LOV de QA Testers (sincronizado con app.models.ticket.QA_TESTERS_LOV).
 # Se valida contra el formato canónico ``"Nombre <email>"`` para

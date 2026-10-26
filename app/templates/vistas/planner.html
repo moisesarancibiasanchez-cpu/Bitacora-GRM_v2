@@ -294,12 +294,8 @@
     {% include "vistas/_planner_sections.html" %}
   </div>
 
-  {# ============ Modal genérico de detalle ============
-     El detalle del ticket se carga en el contenedor global #modal-root
-     (base.html). Este <dialog> conserva un id ÚNICO por vista para no
-     duplicar el id global: con ids repetidos, getElementById('modal-root')
-     devolvía el <div> de base.html y el Planner se quedaba sin modal. #}
-  <dialog id="planner-modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
+  {# ============ Modal genérico de detalle ============ #}
+  <dialog id="modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
 
 </div>
 {% endblock %}
@@ -311,18 +307,9 @@ document.body.addEventListener('click', ev => {
   if (!card) return;
   const id = card.dataset.ticketId;
   if (!id) return;
-  // El detalle se carga en el contenedor global #modal-root (base.html): es el
-  // único id válido y el fragmento que devuelve el endpoint ya incluye su
-  // propio overlay modal. Antes se llamaba showModal() sobre ese <div> y
-  // lanzaba TypeError, por lo que el modal del Planner no abría.
   const modal = document.getElementById('modal-root');
-  if (!modal) return;
-  modal.innerHTML = '<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/30">' +
-    '<div class="bg-white rounded-xl shadow-2xl px-6 py-4 flex items-center gap-3">' +
-      '<div class="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>' +
-      '<span class="text-sm text-slate-600">Cargando detalle...</span>' +
-    '</div>' +
-  '</div>';
+  modal.innerHTML = '<div class="p-8 text-center text-slate-500">Cargando…</div>';
+  modal.showModal();
   htmx.ajax('GET', `/api/v1/tickets/${id}/detalle-html`, { target: '#modal-root', swap: 'innerHTML' });
 });
 </script>

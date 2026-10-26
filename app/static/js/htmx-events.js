@@ -25,18 +25,11 @@
 
     const div = document.createElement('div');
     div.className = `toast border-l-4 ${colors[type] || colors.info} bg-white shadow-lg rounded-r-md px-4 py-3 text-sm flex items-start gap-2 min-w-[260px] animate-fade-in`;
-    // El icono y el mensaje se insertan como texto plano (textContent): el
-    // mensaje puede venir del backend (p.ej. evt.detail.message) y no debe
-    // poder inyectar HTML dentro del toast.
     div.innerHTML = `
-      <span class="font-bold w-4 inline-block text-center"></span>
-      <span class="flex-1"></span>
+      <span class="font-bold w-4 inline-block text-center">${icons[type] || 'i'}</span>
+      <span class="flex-1">${message}</span>
       <button class="text-slate-400 hover:text-slate-600" onclick="this.parentElement.remove()">×</button>
     `;
-    const iconSpan = div.children[0];
-    const msgSpan = div.children[1];
-    if (iconSpan) iconSpan.textContent = icons[type] || 'i';
-    if (msgSpan) msgSpan.textContent = message == null ? '' : String(message);
     container.appendChild(div);
     setTimeout(() => div.remove(), duration);
   }
@@ -151,7 +144,7 @@
         // al Kanban). Mostrar un toast informativo.
         if (window.showToast) {
           const campos = detail.campos || [];
-          const lista = campos.length ? ` (${escapeHtml(campos.join(', '))})` : '';
+          const lista = campos.length ? ` (${campos.join(', ')})` : '';
           window.showToast('Cambios guardados' + lista, 'success', 2500);
         }
       }
@@ -256,7 +249,7 @@
       if (window.showToast) {
         const archivos = detail.archivos_subidos || 0;
         const items = detail.items_creados || 0;
-        let msg = `Incidencia ${escapeHtml(detail.codigo || '')} creada correctamente`;
+        let msg = `Incidencia ${detail.codigo || ''} creada correctamente`;
         if (archivos) msg += ` · ${archivos} archivo(s)`;
         if (items) msg += ` · ${items} item(s) de checklist`;
         window.showToast(msg, 'success');
@@ -432,7 +425,7 @@
     const rows = items.map(function (p) {
       return (
         '<div class="flex items-center gap-2 p-1.5 bg-indigo-50 border border-indigo-200 rounded">' +
-          '<img src="' + escapeHtml(p.url) + '" alt="preview" class="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0" />' +
+          '<img src="' + p.url + '" alt="preview" class="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0" />' +
           '<span class="text-[11px] text-slate-700 truncate flex-1" title="' + escapeHtml(p.file.name) + '">' + escapeHtml(p.file.name) + '</span>' +
           '<span class="text-[10px] text-slate-400 flex-shrink-0">' + formatBytes(p.file.size) + '</span>' +
           '<button type="button" data-remove-paste="' + p.id + '" class="text-rose-500 hover:text-rose-700 flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded hover:bg-rose-100" title="Quitar">' +
@@ -621,44 +614,12 @@
   // ============================================================================
   // Editor Markdown ligero con tabs Escribir/Vista previa
   // ============================================================================
-  /**
-   * Filtra el esquema de la URL de un enlace Markdown.
-   * Devuelve '' si el esquema no es de una lista blanca: un href con
-   * `javascript:` (u otro esquema ejecutable) ejecuta codigo al hacer clic.
-   *
-   * OJO: el parser de URL del navegador elimina TAB, LF y CR del interior
-   * de la URL, de modo que "java<TAB>script:alert(1)" se ejecuta igual
-   * que "javascript:alert(1)". Por eso los caracteres de control se
-   * eliminan ANTES de validar el esquema, y la lista blanca es de
-   * esquemas enteros (http, https, mailto) en lugar de una lista negra.
-   */
-  function _urlMarkdownSegura(url) {
-    let s = String(url == null ? '' : url).trim();
-    if (!s) return '';
-    s = s.replace(/[\u0000-\u0020\u007f]+/g, '');
-    if (!s) return '';
-    const m = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(s);
-    if (m) {
-      const permitidos = ['http:', 'https:', 'mailto:'];
-      if (permitidos.indexOf(m[1].toLowerCase() + ':') === -1) return '';
-    }
-    return s;
-  }
-
   function renderMarkdown(md) {
     if (!md || !md.trim()) return '<p class="text-slate-400 italic">Sin contenido</p>';
-    // Se escapa TODO el contenido ANTES de aplicar el Markdown, y se escapan
-    // tambien las comillas: sin ellas un enlace como
-    //   [x](u"onmouseover="alert(1))
-    // rompia el atributo href y colaba un manejador de evento en el DOM.
-    // Esto es XSS ALMACENADO: la descripcion la escribe un usuario y la
-    // renderiza en el modal cualquier otro que abra el ticket.
     let s = String(md)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+      .replace(/>/g, '&gt;');
     // Código en línea
     s = s.replace(/`([^`\n]+)`/g, '<code class="px-1 py-0.5 rounded bg-slate-100 text-pink-600 font-mono text-[12px]">$1</code>');
     // Negrita
@@ -671,13 +632,8 @@
     s = s.replace(/^###\s+(.+)$/gm, '<h3 class="text-sm font-semibold mt-2 mb-1">$1</h3>');
     s = s.replace(/^##\s+(.+)$/gm, '<h2 class="text-base font-semibold mt-2 mb-1">$1</h2>');
     s = s.replace(/^#\s+(.+)$/gm, '<h1 class="text-lg font-bold mt-2 mb-1">$1</h1>');
-    // Links. El href va con el esquema validado: un enlace con
-    // javascript: se degrada a texto plano en vez de ejecutarse al hacer clic.
-    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, texto, url) {
-      const href = _urlMarkdownSegura(url);
-      if (!href) return texto;
-      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" class="text-indigo-600 underline">' + texto + '</a>';
-    });
+    // Links
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" class="text-indigo-600 underline">$1</a>');
     // Listas no ordenadas
     s = s.replace(/(^|\n)((?:- [^\n]+\n?)+)/g, function (m, pre, block) {
       const items = block.trim().split('\n').map(function (l) { return l.replace(/^- /, ''); }).map(function (t) { return '<li>' + t + '</li>'; }).join('');

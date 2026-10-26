@@ -12,11 +12,11 @@ import re
 import uuid
 import json
 import logging
+from datetime import datetime
 from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func, desc, asc
 
-from app.core.timezone import now_utc
 from app.models.ticket import Ticket
 from app.models.usuario import Usuario, RolUsuario
 from app.models.etiqueta import Etiqueta
@@ -205,7 +205,7 @@ class ComentarioService:
         """
         if com is None or com.updated_at is None:
             return None
-        ahora = now_utc()
+        ahora = datetime.utcnow()
         delta = (com.updated_at - ahora).total_seconds() / 60.0
         # Usar updated_at (no created_at) para que cada edición RENUEVE la ventana
         restantes = self.EDIT_WINDOW_MINUTES + delta

@@ -22,24 +22,14 @@ completa.
 from datetime import datetime
 from typing import Iterable
 
-from jinja2 import Environment
-
-# Catálogo único del LOV de "Resultado de Pruebas" (SSOT). La plantilla
-# renderiza los valores del selector desde aquí en vez de declararlos.
-from app.core.resultado_pruebas import RESULTADOS_LOV_FORMULARIO
+from jinja2 import Template
 
 
 # ---------------------------------------------------------------------------
 #  Sub-renderers (cada bloque del modal)
 # ---------------------------------------------------------------------------
 
-# Entorno Jinja con ``autoescape=True``: todo dato del ticket (título,
-# descripción, comentarios, notas, nombres de usuario...) se inserta
-# escapado en el HTML. Antes se usaba ``Template(...)`` sin autoescape,
-# por lo que un título con ``<script>`` se inyectaba crudo en el DOM.
-_ENV = Environment(autoescape=True)
-
-DETALLE_TEMPLATE = _ENV.from_string(r"""
+DETALLE_TEMPLATE = Template(r"""
 <div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop"
      data-modal="detalle-ticket" data-ticket-id="{{ ticket.id }}">
   <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden flex flex-col max-h-[92vh]">
@@ -354,13 +344,12 @@ DETALLE_TEMPLATE = _ENV.from_string(r"""
                         onchange="document.getElementById('form-detalles-{{ ticket.id }}').setAttribute('data-cambios-pendientes','true');"
                         class="w-full text-xs bg-transparent border-0 border-b border-slate-200 focus:border-indigo-400 focus:ring-0 px-0 py-0.5">
                   <option value="">— Sin resultado —</option>
-                  {# Los valores del LOV vienen del catálogo
-                     (app/core/resultado_pruebas.py). Esta plantilla se
-                     renderiza con su propio Environment, así que importa la
-                     lista del SSOT en vez de recibirla por el contexto. #}
-                  {% for valor in RESULTADOS_LOV_FORMULARIO %}
-                  <option value="{{ valor }}" {% if ticket.resultado_pruebas == valor %}selected{% endif %}>{{ valor }}</option>
-                  {% endfor %}
+                  <option value="OK" {% if ticket.resultado_pruebas == 'OK' %}selected{% endif %}>OK</option>
+                  <option value="N/A" {% if ticket.resultado_pruebas == 'N/A' %}selected{% endif %}>N/A</option>
+                  <option value="OK CON OBS." {% if ticket.resultado_pruebas == 'OK CON OBS.' %}selected{% endif %}>OK CON OBS.</option>
+                  <option value="POSTERGADA" {% if ticket.resultado_pruebas == 'POSTERGADA' %}selected{% endif %}>POSTERGADA</option>
+                  <option value="DESESTIMADA" {% if ticket.resultado_pruebas == 'DESESTIMADA' %}selected{% endif %}>DESESTIMADA</option>
+                  <option value="NOK" {% if ticket.resultado_pruebas == 'NOK' %}selected{% endif %}>NOK</option>
                 </select>
               </div>
 
@@ -701,9 +690,7 @@ DETALLE_TEMPLATE = _ENV.from_string(r"""
                   </div>
                 </div>
                 {# FEATURE — Texto con chips #ID clickeables (render-time resolution) #}
-                {# El escapado lo hace el autoescape del Environment: se quitó el
-                   filtro |e manual para no mezclar dos mecanismos de escape. #}
-                <div class="text-xs text-slate-700 whitespace-pre-wrap comentario-texto">{{ c.texto }}</div>
+                <div class="text-xs text-slate-700 whitespace-pre-wrap comentario-texto">{{ c.texto|e }}</div>
 
                 {# FEATURE — Adjuntos inline (los del propio comentario). Los del TICKET van en su pestaña. #}
                 {% if _com_adj %}
@@ -1719,7 +1706,6 @@ def render_detalle_modal(
         active_tab = "detalles"
     return DETALLE_TEMPLATE.render(
         ticket=ticket,
-        RESULTADOS_LOV_FORMULARIO=RESULTADOS_LOV_FORMULARIO,
         estados=list(estados),
         comentarios=list(comentarios),
         adjuntos=list(adjuntos),

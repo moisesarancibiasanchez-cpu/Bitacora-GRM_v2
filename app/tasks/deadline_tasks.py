@@ -38,10 +38,10 @@ Por qué dos tareas y no una sola horaria que ejecute los 4:
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Dict
 
 from app.core.celery_app import celery_app
-from app.core.timezone import now_utc
 from app.db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -94,9 +94,9 @@ def revisar_deadlines_diario(self) -> dict:
     """
     try:
         logger.info("[deadline_task:diario] Iniciando revisión de 4 triggers")
-        inicio = now_utc()
+        inicio = datetime.utcnow()
         resumen = _ejecutar_triggers_en_sesion()
-        duracion_ms = (now_utc() - inicio).total_seconds() * 1000
+        duracion_ms = (datetime.utcnow() - inicio).total_seconds() * 1000
         logger.info(
             "[deadline_task:diario] OK en %.0f ms — %s",
             duracion_ms, resumen,
@@ -132,9 +132,9 @@ def revisar_deadlines_horario(self) -> dict:
         db = SessionLocal()
         try:
             logger.info("[deadline_task:horario] Iniciando trigger 'approaching'")
-            inicio = now_utc()
+            inicio = datetime.utcnow()
             r = trigger_deadline_approaching(db, ventana_horas=4)
-            duracion_ms = (now_utc() - inicio).total_seconds() * 1000
+            duracion_ms = (datetime.utcnow() - inicio).total_seconds() * 1000
             logger.info(
                 "[deadline_task:horario] OK en %.0f ms — tickets=%d notifs=%d emails=%d",
                 duracion_ms, r.tickets_encontrados,

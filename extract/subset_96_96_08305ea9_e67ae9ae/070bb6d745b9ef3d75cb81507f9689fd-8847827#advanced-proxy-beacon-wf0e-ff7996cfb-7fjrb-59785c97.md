@@ -1,0 +1,1 @@
+![](images/page_1_img_in_chart_box_66_67_1459_1110.jpg)

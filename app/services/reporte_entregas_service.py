@@ -28,13 +28,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import Integer
 from sqlalchemy.orm import Session
-
-from app.core.timezone import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -106,16 +104,8 @@ def guardar_plantilla(
             comentario="Plantilla del reporte diario actualizada.",
             commit=True,
         )
-        # `registrar_auditoria(commit=True)` sólo hace FLUSH: el INSERT
-        # queda pendiente en la transacción y se pierde al cerrar la
-        # sesión. Sin este commit explícito la auditoría de la plantilla
-        # nunca se guarda.
-        db.commit()
     except Exception as exc:
-        logger.warning(
-            "[reporte-entregas-svc] auditoría opcional no registrada: %s", exc,
-            exc_info=True,
-        )
+        logger.debug("[reporte-entregas-svc] auditoría opcional: %s", exc)
     return pl
 
 
@@ -257,14 +247,8 @@ def eliminar_destinatario(
             comentario=f"Destinatario eliminado: {snapshot['email']}",
             commit=True,
         )
-        # Sin commit explícito el INSERT de auditoría se pierde al cerrar
-        # la sesión (`registrar_auditoria` sólo hace flush).
-        db.commit()
     except Exception as exc:
-        logger.warning(
-            "[reporte-entregas-svc] auditoría opcional no registrada: %s", exc,
-            exc_info=True,
-        )
+        logger.debug("[reporte-entregas-svc] auditoría opcional: %s", exc)
     return snapshot
 
 
@@ -286,14 +270,8 @@ def _audit_destinatario(db, action, dest, actor_id, nota=""):
             comentario=nota or f"{action}: {dest.email}",
             commit=True,
         )
-        # `registrar_auditoria(commit=True)` sólo hace FLUSH: sin este
-        # commit el registro se pierde al cerrar la sesión.
-        db.commit()
     except Exception as exc:
-        logger.warning(
-            "[reporte-entregas-svc] auditoría opcional no registrada: %s", exc,
-            exc_info=True,
-        )
+        logger.debug("[reporte-entregas-svc] auditoría opcional: %s", exc)
 
 
 # ===========================================================================
@@ -346,14 +324,8 @@ def marcar_estado_es_entrega(
             ),
             commit=True,
         )
-        # `registrar_auditoria(commit=True)` sólo hace FLUSH: sin este
-        # commit el registro se pierde al cerrar la sesión.
-        db.commit()
     except Exception as exc:
-        logger.warning(
-            "[reporte-entregas-svc] auditoría opcional no registrada: %s", exc,
-            exc_info=True,
-        )
+        logger.debug("[reporte-entregas-svc] auditoría opcional: %s", exc)
     return estado
 
 
@@ -439,7 +411,7 @@ def previsualizar_reporte(
     Útil para la UI admin "ver cómo quedaría".
     """
     try:
-        fecha = date.fromisoformat(fecha_iso) if fecha_iso else now_utc().date()
+        fecha = date.fromisoformat(fecha_iso) if fecha_iso else datetime.utcnow().date()
     except ValueError:
         raise ValueError(f"fecha inválida: {fecha_iso}")
 
@@ -522,23 +494,17 @@ def regenerar_reporte(
                 ),
                 commit=True,
             )
-            # `registrar_auditoria(commit=True)` sólo hace FLUSH: sin este
-            # commit el registro se pierde al cerrar la sesión.
-            db.commit()
         except Exception as exc:
-            logger.warning(
-                "[reporte-entregas-svc] auditoría opcional no registrada: %s",
-                exc, exc_info=True,
-            )
+            logger.debug("[reporte-entregas-svc] auditoría opcional: %s", exc)
         return {
             "ok": True,
             "task_id": r.id,
-            "fecha": fecha_iso or now_utc().date().isoformat(),
+            "fecha": fecha_iso or datetime.utcnow().date().isoformat(),
         }
     except Exception as exc:
         logger.exception("[reporte-entregas-svc] No se pudo encolar: %s", exc)
         return {
             "ok": False,
             "error": str(exc),
-            "fecha": fecha_iso or now_utc().date().isoformat(),
+            "fecha": fecha_iso or datetime.utcnow().date().isoformat(),
         }

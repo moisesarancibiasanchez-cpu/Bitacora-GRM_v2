@@ -31,6 +31,7 @@ Diferencias clave con ``TicketDependencia``:
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 from sqlalchemy import (
     CheckConstraint,
     Column,
@@ -44,7 +45,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-from app.core.timezone import now_utc
 from app.db.base import Base
 
 
@@ -125,7 +125,7 @@ class TicketReferencia(Base):
     created_at = Column(
         DateTime,
         nullable=False,
-        default=now_utc,
+        default=datetime.utcnow,
         index=True,
     )
 

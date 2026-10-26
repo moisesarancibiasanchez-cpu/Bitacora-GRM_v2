@@ -16,7 +16,7 @@
 | 1.1.3 | Eliminar tableros | ⚠️ Soft delete vía archivado | Solo archivado (mejor práctica) |
 | 1.1.4 | Listas/Columnas (estados) por tablero | ✅ Implementado | Cada `Estado` tiene `tablero_id` |
 | 1.1.5 | Crear/editar/eliminar listas | ⚠️ Solo vía catálogo | Estados se gestionan en catálogo, no inline |
-| 1.1.6 | Arrastrar y soltar tarjetas entre columnas | ✅ Implementado | SortableJS + `PATCH /tickets/{ticket_id}/estado` |
+| 1.1.6 | Arrastrar y soltar tarjetas entre columnas | ✅ Implementado | SortableJS + `PATCH /tickets/{id}/estado` |
 | 1.1.7 | Reordenar tarjetas dentro de columna | ✅ Implementado | SortableJS + `orden` field |
 | 1.1.8 | Crear tarjetas (tickets) | ✅ Implementado | `POST /tickets/crear` |
 | 1.1.9 | Editar tarjetas (título, descripción) | ✅ Implementado | Modal detalle + `PATCH /tickets/{id}` |

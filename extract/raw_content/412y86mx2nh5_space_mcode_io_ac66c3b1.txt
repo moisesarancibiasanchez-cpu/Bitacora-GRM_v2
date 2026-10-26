@@ -1,0 +1,412 @@
+# Source URL: https://412y86mx2nh5.space.mcode.io/health
+# Content Length: 6248 characters
+# Extracted at: 2026-09-11 05:45:34
+#============================================================
+
+
+
+
+Bitácora GRM · Plataforma ITSM + Kanban (Trello Completo)
+
+
+
+71/71 tests · 100% pass rate
+
+✓ Bug drag&drop corregido
+
+✓ Archivar / Restaurar tarjetas
+
+✓ Migraciones automáticas al arranque
+
+
+Bitácora 📋 GRM
+==============
+
+Plataforma híbrida ITSM + Kanban con **funcionalidades completas de Trello** y mucho más.
+
+✨ Workspaces
+👁 Watch
+😀 Reacciones
+🔔 Notificaciones
+⚡ Butler
+📊 Vistas
+📝 Markdown
+🎨 Custom Fields
+
+[Ver funcionalidades](#features)
+[Stack técnico](#tech)
+
+
+
+
+71
+Tests passing
+
+23+
+Endpoints API
+
+7
+Páginas HTML
+
+10+
+Modelos nuevos
+
+
+
+
+Funcionalidades completas estilo Trello
+---------------------------------------
+
+Cada feature de Trello implementada, integrada y validada con tests exhaustivos.
+
+
+🏢
+### Workspaces (Espacios)
+
+Agrupa tableros por área, proyecto o equipo con plan, miembros y permisos.
+
+* ✓ Plan: gratis / equipo / empresa
+* ✓ Miembros con roles
+* ✓ Visibilidad pública opcional
+* ✓ Color e icono personalizado
+
+/api/v1/espacios · /espacios
+
+🔐
+### Permisos de tablero
+
+Control de acceso granular con roles admin, editor y lector.
+
+* ✓ 3 niveles: admin / editor / lector
+* ✓ Notificaciones opt-in
+* ✓ Invitación con rastreo
+* ✓ Slug público para tableros públicos
+
+/api/v1/tableros/{id}/permisos
+
+👁
+### Watch (Suscripciones)
+
+Suscríbete a tickets, tableros o cualquier objeto. Sistema polimórfico.
+
+* ✓ Toggle suscripción on/off
+* ✓ Polimórfico (tipo + objeto\_id)
+* ✓ Multi-canal: in\_app, email, web
+* ✓ Auto-watch al ser asignado
+
+/api/v1/watch
+
+😀
+### Reacciones con emojis
+
+Reacciona a tickets y comentarios con emojis. Whitelist validada.
+
+* ✓ Whitelist de 50+ emojis seguros
+* ✓ Toggle on/off por usuario
+* ✓ Conteo agregado por emoji
+* ✓ XSS-safe (escape automático)
+
+/api/v1/reacciones/toggle
+
+🔔
+### Centro de notificaciones
+
+Notificaciones push de actividad con filtros por tipo y estado.
+
+* ✓ 6 tipos: mencion, asignacion, watch, sla, butler, sistema
+* ✓ Filtros: todas / no leidas / menciones / asignaciones
+* ✓ Marcar individual o masivo
+* ✓ Contador de no leídas en tiempo real
+
+/notificaciones · /api/v1/notificaciones
+
+🎨
+### Campos personalizados
+
+Extiende los tickets con campos a medida para tu equipo.
+
+* ✓ 6 tipos: texto, número, dropdown, checkbox, fecha, url
+* ✓ Por tablero, con posición drag&drop
+* ✓ Requeridos / opcionales
+* ✓ Colores personalizables
+
+/api/v1/campos-personalizados
+
+⚡
+### Butler Automation
+
+Reglas, botones y comandos programados para automatizar todo.
+
+* ✓ Reglas por evento (X dispara Y)
+* ✓ Botones de tarjeta / tablero
+* ✓ Comandos cron con timezone
+* ✓ Log de ejecuciones
+
+/butler · /api/v1/botones
+
+📊
+### Vistas multidimensionales
+
+Los mismos datos en 4 vistas: Tablero Kanban, Tabla, Calendario y Timeline.
+
+* ✓ Tablero drag&drop
+* ✓ Tabla con filtros y custom fields
+* ✓ Calendario mensual por fechas
+* ✓ Timeline estilo Gantt
+
+/vistas/{tabla,calendario,timeline}
+
+📝
+### Markdown seguro
+
+Editor Markdown con render XSS-safe y extracción de menciones.
+
+* ✓ Parser propio XSS-safe
+* ✓ @menciones automáticas
+* ✓ Bloques de código y formato
+* ✓ Links y listas
+
+/api/v1/markdown/renderizar
+
+📦
+### Archivar / Restaurar NUEVO
+
+Soft-delete profesional: archiva tarjetas sin perder historial y restáuralas cuando sea necesario.
+
+* ✓ Botón ámbar con confirmación en el modal
+* ✓ Auditoría completa (TICKET\_ARCHIVADO / DESARCHIVADO)
+* ✓ Notificación Celery al archivar
+* ✓ Vista "Archivados" en el Kanban
+
+/api/v1/tickets/{id}/archivar · /desarchivar
+
+
+
+
+
+Demo interactivo
+----------------
+
+Vista previa de la UI con datos simulados
+
+
+📋 Tablero
+📊 Tabla
+📅 Calendario
+📈 Timeline
+
+#### 📥 Por hacer (3)
+
+
+INC-042
+Actualizar firmware switches Cisco
+🔥 Urgente
+📅 15 Sep
+
+
+INC-043
+Migrar base de datos a PostgreSQL 16
+⚠ Alta
+
+
+INC-044
+Capacitar equipo en nuevo CRM
+📚 Media
+
+
+
+
+#### 🔄 En curso (2)
+
+
+INC-040
+Configurar SSO con Azure AD
+🔥 Alta
+@maria
+
+
+INC-041
+Revisar logs del servidor de archivos
+📋 Baja
+
+
+
+
+#### ✅ Completado (2)
+
+
+INC-038
+Instalar parches críticos Windows
+✓ Cerrado
+
+
+INC-039
+Renovar certificados SSL
+✓ Cerrado
+
+
+
+
+
+
+
+| Código | Título | Estado | Prioridad | Asignado | Vencimiento | SLA |
+| --- | --- | --- | --- | --- | --- | --- |
+| INC-042 | Actualizar firmware switches Cisco | Por hacer | CRÍTICA | Carlos Ramírez | 2026-09-15 | VENCIDO |
+| INC-040 | Configurar SSO con Azure AD | En curso | ALTA | María González | 2026-09-20 | NORMAL |
+| INC-038 | Instalar parches críticos Windows | Cerrado | MEDIA | Ana López | 2026-09-08 | CUMPLIDO |
+
+
+
+### 📅 Septiembre 2026
+
+LunMarMiéJueVieSábDom
+
+1
+2
+3
+4
+5
+6
+7
+8INC-038 ✓
+9
+10
+11
+12
+13
+14
+15INC-042 🔥
+16
+17
+18
+19
+20INC-040
+21
+
+
+
+### 📈 Timeline Q3 2026
+
+INC-040 · Configurar SSO con Azure AD
+50%
+
+
+
+INC-042 · Actualizar firmware switches
+25%
+
+
+
+INC-043 · Migrar base de datos PostgreSQL 16
+0%
+
+
+
+INC-038 · Instalar parches críticos Windows
+100% ✓
+
+
+
+
+
+
+
+
+
+Stack técnico
+-------------
+
+Lo que hace posible todo esto
+
+
+### 🛠 Backend
+
+* ●**FastAPI** · Framework async con OpenAPI auto
+* ●**SQLAlchemy 2.0** · ORM con relaciones polimórficas
+* ●**Pydantic v2** · Validación + serialización
+* ●**SQLite** · BD embebida para demo, compatible con PostgreSQL
+* ●**JWT** · Auth Bearer + X-User-Id demo
+
+### 🎨 Frontend
+
+* ●**Jinja2** · Templates server-rendered
+* ●**HTMX** · Interactividad sin escribir JS
+* ●**TailwindCSS** · Utility-first CSS
+* ●**SortableJS** · Drag&drop Kanban
+* ●**Inter + JetBrains Mono** · Tipografía
+
+
+### 📦 Ejemplo: API de Workspaces
+
+# Crear un espacio de trabajo
+POST /api/v1/espacios
+{
+"nombre": "Operaciones TI",
+"plan": "empresa",
+"color": "#6366f1",
+"icono": "🏢",
+"es\_publico": false,
+"propietario\_id": 1
+}
+# Listar mis espacios
+GET /api/v1/espacios
+[
+{
+"id": 1,
+"nombre": "Operaciones TI",
+"plan": "empresa",
+"icono": "🏢",
+"tableros\_count": 3,
+"miembros\_count": 4
+},
+...
+]
+
+
+
+
+
+Tests exhaustivos
+-----------------
+
+71 casos cubriendo HTML, API REST, vistas, markdown, salud, form-data HTMX y regresión de esquema
+
+71 / 71
+Tests passing
+
+100%
+Success rate
+
+
+📄 Páginas HTML
+13/13
+
+🛰 API REST
+34/34
+
+⚡ Health
+3/3
+
+🔄 Regresión
+2/2 · form-data + esquema
+
+
+
+
+
+
+**Bitácora GRM** · Plataforma ITSM + Kanban con funcionalidades completas de Trello
+
+Implementado con FastAPI, SQLAlchemy, Pydantic, Jinja2, HTMX, TailwindCSS · 100% código abierto
+
+2026 · MiniMax Agent
+
+
+
+Created by MiniMax Agent
+
+×
+
+
+

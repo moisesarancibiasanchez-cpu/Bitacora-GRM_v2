@@ -552,11 +552,8 @@
     </form>
   </dialog>
 
-  {# ============ Modal genérico: Detalle de Ticket ============
-     El detalle del ticket se carga en el contenedor global #modal-root
-     (base.html). Este <dialog> conserva un id ÚNICO por vista para no
-     duplicar el id global. #}
-  <dialog id="gantt-modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
+  {# ============ Modal genérico: Detalle de Ticket ============ #}
+  <dialog id="modal-root" class="rounded-xl p-0 backdrop:bg-black/40 w-[640px]"></dialog>
 
 </div>
 {% endblock %}
@@ -603,8 +600,8 @@ function renderEtapasLegend() {
   });
   const items = [...seen.values()].sort((a,b) => a.orden - b.orden);
   legend.innerHTML = items.map(it => `
-    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style="background:${escapeHtml(it.color)}1a; color:#64748b; border:1px solid ${escapeHtml(it.color)}33">
-      <span class="inline-block w-2 h-2 rounded-full" style="background:${escapeHtml(it.color)}"></span>
+    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style="background:${it.color}1a; color:#64748b; border:1px solid ${it.color}33">
+      <span class="inline-block w-2 h-2 rounded-full" style="background:${it.color}"></span>
       ${it.orden}. ${escapeHtml(it.nombre)}
     </span>
   `).join('');

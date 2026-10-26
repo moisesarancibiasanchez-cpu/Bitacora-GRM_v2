@@ -1,10 +1,10 @@
 """
 Servicio de SLA: cálculo de vencimientos y estado de cumplimiento.
 """
+from datetime import datetime
 from typing import List
 from sqlalchemy.orm import Session
 
-from app.core.timezone import now_utc
 from app.models.ticket import Ticket
 
 
@@ -20,31 +20,7 @@ class SLAService:
         if not ticket:
             return {"ok": False, "error": "ticket_no_existe"}
 
-        resultado = self._aplicar_reglas_sla(ticket)
-        self.db.commit()
-        return resultado
-
-    def recalcular_tickets(self, tickets: List[Ticket]) -> int:
-        """Recalcula el SLA de varios tickets ya cargados y confirma UNA
-        sola vez.
-
-        El beat corre esto cada 5 minutos. Recalculando uno a uno
-        (``recalcular_ticket``) se hacía una consulta y un commit POR
-        ticket; ahora los tickets vienen cargados del lote y se confirma
-        una única vez al final.
-        """
-        procesados = 0
-        for ticket in tickets:
-            self._aplicar_reglas_sla(ticket)
-            procesados += 1
-        if procesados:
-            self.db.commit()
-        return procesados
-
-    def _aplicar_reglas_sla(self, ticket: Ticket) -> dict:
-        """Aplica las reglas de SLA sobre un ticket ya cargado (sin
-        consultar ni confirmar)."""
-        ahora = now_utc()
+        ahora = datetime.utcnow()
         if ticket.estado.es_final:
             # En estado final: el SLA ya está cerrado
             ticket.sla_cumplido = 1 if ticket.sla_cumplido == 1 else 0
@@ -53,6 +29,7 @@ class SLAService:
                 ticket.sla_cumplido = 0  # Vencido
             else:
                 ticket.sla_cumplido = -1  # Pendiente
+        self.db.commit()
         return {
             "ok": True,
             "ticket_id": ticket.id,
@@ -66,7 +43,7 @@ class SLAService:
     def tickets_proximos_vencer(self, horas: int = 4) -> List[Ticket]:
         """Devuelve tickets cuyo SLA vence en las próximas `horas` horas."""
         from datetime import timedelta
-        limite = now_utc() + timedelta(hours=horas)
+        limite = datetime.utcnow() + timedelta(hours=horas)
         return (
             self.db.query(Ticket)
             .filter(
@@ -79,7 +56,7 @@ class SLAService:
 
     def tickets_vencidos(self) -> List[Ticket]:
         """Tickets cuyo SLA ya venció y no están en estado final."""
-        ahora = now_utc()
+        ahora = datetime.utcnow()
         return (
             self.db.query(Ticket)
             .filter(

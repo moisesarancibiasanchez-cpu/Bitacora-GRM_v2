@@ -7,7 +7,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 import enum
 
-from app.core.resultado_pruebas import RESULTADOS_LOV
 from app.db.base import Base, TimestampMixin
 
 
@@ -67,11 +66,16 @@ ITEM_LOV = (
 )
 
 # LOV de resultado de pruebas.
-# La lista de valores vive ÚNICAMENTE en el catálogo
-# ``app/core/resultado_pruebas.py`` (SSOT). Aquí solo se reexporta para
-# mantener compatibilidad con los imports existentes
-# (``from app.models.ticket import RESULTADO_PRUEBAS_LOV``).
-RESULTADO_PRUEBAS_LOV = RESULTADOS_LOV
+# Actualizado: "POSTERGADA A GARANTÍA" -> "POSTERGADA" y se agrega
+# "DESESTIMADA" para que el solicitante pueda descartar un ticket.
+RESULTADO_PRUEBAS_LOV = (
+    "OK",
+    "N/A",
+    "OK CON OBS.",
+    "POSTERGADA",
+    "DESESTIMADA",
+    "NOK",
+)
 
 
 # LOV de QA Testers.
@@ -233,16 +237,10 @@ class Ticket(Base, TimestampMixin):
         order_by="Auditoria.created_at.desc()",
     )
     # === Relaciones de funcionalidades estilo Trello ===
-    # `etiquetas` se carga con `selectin`: las vistas que listan tickets
-    # (Kanban, tabla, panel) pintan las etiquetas de CADA tarjeta, y con
-    # el valor por defecto (`select`) eso era un N+1: una consulta extra
-    # por ticket (con 931 tickets en producción, ~931 SELECT por render).
-    # `selectin` las trae en UNA consulta adicional por lote de tickets.
     etiquetas = relationship(
         "Etiqueta",
         secondary="ticket_etiquetas",
         back_populates="tickets",
-        lazy="selectin",
     )
     # Miembros múltiples (asignación adicional sin reemplazar al principal)
     miembros = relationship(

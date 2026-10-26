@@ -17,19 +17,6 @@
   // Cache de info de transición para no consultar dos veces
   const transicionCache = new Map();
 
-  // Escapa texto plano para poder insertarlo dentro de un fragmento HTML.
-  // Se usa en los <option> de los filtros, donde el contenido viene del
-  // backend (nombre de usuario / nombre de etiqueta) y no puede inyectar HTML.
-  function _escapeHtml(s) {
-    if (s === null || s === undefined) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
   function getCurrentUserId() {
     return window.CURRENT_USER_ID || 1;
   }
@@ -773,15 +760,13 @@
 
       const selAsig = document.getElementById('filtro-asignado');
       if (selAsig) {
-        // Los nombres vienen del backend: se escapan antes de meterlos en el
-        // HTML del <option> para que no puedan inyectar marcado.
         selAsig.innerHTML = '<option value="">Todos</option>' +
-          usuarios.map(u => `<option value="${_escapeHtml(u.id)}">${_escapeHtml(u.nombre_completo || u.nombre || ('Usuario ' + u.id))}</option>`).join('');
+          usuarios.map(u => `<option value="${u.id}">${u.nombre_completo || u.nombre || ('Usuario ' + u.id)}</option>`).join('');
       }
       const selEti = document.getElementById('filtro-etiqueta');
       if (selEti) {
         selEti.innerHTML = '<option value="">Todas</option>' +
-          etiquetas.map(e => `<option value="${_escapeHtml(e.id)}">${_escapeHtml(e.nombre)}</option>`).join('');
+          etiquetas.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
       }
     } catch (e) {
       console.warn('No se pudieron cargar las opciones de filtro', e);

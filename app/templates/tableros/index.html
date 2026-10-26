@@ -106,13 +106,7 @@
             </div>
           </div>
         </a>
-        {# Enlace público: SOLO si el tablero es realmente público.
-           La ruta /p/{slug} exige `visibilidad == 'publico'` (app/main.py,
-           `tablero_publico`): un tablero con slug pero visibilidad 'espacio'
-           o 'privado' devuelve 404 siempre. Antes esta plantilla anunciaba
-           el enlace solo porque tuviera slug, de modo que las tarjetas de
-           los tableros de espacio mostraban un enlace roto (404). #}
-        {% if t.slug_publico and t.visibilidad == 'publico' %}
+        {% if t.slug_publico %}
         <div class="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
           <a href="/p/{{ t.slug_publico }}" target="_blank" class="text-[10px] text-indigo-600 hover:underline truncate">
             /p/{{ t.slug_publico }}

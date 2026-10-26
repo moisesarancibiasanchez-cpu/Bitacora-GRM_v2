@@ -248,20 +248,6 @@
            class="hidden mt-2 text-[10px] text-slate-400 italic">
           POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
         </p>
-        {# ------------------------------------------------------------
-           Paleta y acrónimos de "Resultado de Pruebas" inyectados desde
-           el catálogo Python (app/core/resultado_pruebas.py), que es la
-           ÚNICA fuente de verdad. La sección "Cuenta de Resultado" usa
-           esta misma paleta que el badge de las tarjetas del Kanban, de
-           modo que título de columna e indicador de tarjeta son
-           siempre coherentes. No duplicar colores aquí. #}
-        <script id="cuenta-resultado-paleta" type="application/json">{{ cuenta_resultado_colores | tojson }}</script>
-        <script id="cuenta-resultado-acronimos" type="application/json">{{ cuenta_resultado_acronimos | tojson }}</script>
-        <script id="cuenta-resultado-fallback" type="application/json">{{ cuenta_resultado_fallback | default({}, true) | tojson }}</script>
-        {# Columnas del pivote, en el orden que define el catálogo (SSOT).
-           Es la misma lista que devuelve /api/v1/metricas/cuenta-resultado:
-           el JS no debe redeclarar los valores del LOV. #}
-        <script id="cuenta-resultado-lov" type="application/json">{{ cuenta_resultado_lov | tojson }}</script>
       </div>
 
       <!-- ===== LISTA DE INCIDENCIAS RECIENTES (entre Cuenta de Resultado y Top agentes) =====
@@ -697,12 +683,12 @@
       // de este fetch NO debe afectar la carga del resto del dashboard.
       cargarCuentaResultado().catch(err => {
         const cont = safeId('cuenta-resultado-container');
-        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + _escapeHtml(err.message || err) + '</div>';
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + (err.message || err) + '</div>';
       });
       // Lista de Incidencias Recientes: misma política (falla aislada).
       cargarIncidenciasRecientes().catch(err => {
         const cont = safeId('incidencias-recientes-wrap');
-        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar lista de incidencias: ' + _escapeHtml(err.message || err) + '</div>';
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar lista de incidencias: ' + (err.message || err) + '</div>';
       });
     } catch (e) {
       console.error('Error cargando métricas:', e);
@@ -814,13 +800,13 @@
           '<div>'
           + '<div class="flex items-center justify-between text-xs mb-1">'
           + '<span class="flex items-center gap-1.5 text-slate-700">'
-          + '<span class="inline-block w-2 h-2 rounded-sm" style="background:' + _escapeHtml(e.color || '#94a3b8') + '"></span>'
-          + _escapeHtml(e.nombre || '')
+          + '<span class="inline-block w-2 h-2 rounded-sm" style="background:' + (e.color || '#94a3b8') + '"></span>'
+          + (e.nombre || '')
           + '</span>'
           + '<span class="font-bold text-slate-800">' + fmt(e.total) + '</span>'
           + '</div>'
           + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
-          + '<div class="h-full" style="width:' + ((e.total / total) * 100).toFixed(1) + '%; background:' + _escapeHtml(e.color || '#94a3b8') + '"></div>'
+          + '<div class="h-full" style="width:' + ((e.total / total) * 100).toFixed(1) + '%; background:' + (e.color || '#94a3b8') + '"></div>'
           + '</div>'
           + '</div>'
         ).join('');
@@ -843,7 +829,7 @@
             + '<div class="flex items-center justify-between text-xs mb-1">'
             + '<span class="flex items-center gap-1.5 text-slate-700 capitalize">'
             + '<span class="inline-block w-2 h-2 rounded-full" style="background:' + color + '"></span>'
-            + _escapeHtml(p.prioridad || '')
+            + (p.prioridad || '')
             + '</span>'
             + '<span class="font-bold text-slate-800">' + fmt(p.total)
             + ' <span class="text-slate-400 font-normal">(' + pct.toFixed(0) + '%)</span></span>'
@@ -889,9 +875,9 @@
       const cls = hrs < 0 ? 'text-red-600 font-bold' : hrs < 12 ? 'text-orange-600 font-semibold' : hrs < 48 ? 'text-amber-600' : 'text-slate-600';
       const txt = hrs < 0 ? ('-' + Math.abs(hrs).toFixed(0) + 'h') : ('+' + hrs.toFixed(0) + 'h');
       return '<tr class="hover:bg-slate-50">'
-        + '<td class="py-1.5 pr-2 font-mono text-slate-600">' + _escapeHtml(t.codigo || '') + '</td>'
-        + '<td class="py-1.5 pr-2 truncate max-w-[160px]" title="' + _escapeHtml(t.titulo || '') + '">' + _escapeHtml(t.titulo || '') + '</td>'
-        + '<td class="py-1.5 pr-2"><span class="prio-' + _escapeHtml(t.prioridad || '') + ' px-1 py-0.5 rounded text-[10px] font-semibold">' + _escapeHtml((t.prioridad || '').toUpperCase()) + '</span></td>'
+        + '<td class="py-1.5 pr-2 font-mono text-slate-600">' + (t.codigo || '') + '</td>'
+        + '<td class="py-1.5 pr-2 truncate max-w-[160px]" title="' + (t.titulo || '') + '">' + (t.titulo || '') + '</td>'
+        + '<td class="py-1.5 pr-2"><span class="prio-' + (t.prioridad || '') + ' px-1 py-0.5 rounded text-[10px] font-semibold">' + (t.prioridad || '').toUpperCase() + '</span></td>'
         + '<td class="py-1.5 text-right ' + cls + '">' + txt + '</td>'
         + '</tr>';
     }).join('');
@@ -905,19 +891,8 @@
       cont.innerHTML = '<p class="text-xs text-slate-400 text-center py-6">Sin incidencias cerradas con resultado de pruebas en el periodo</p>';
       return;
     }
-    // Columnas del pivote: se toman de la lista inyectada por el servidor
-    // desde el catálogo (app/core/resultado_pruebas.py). Antes esta función
-    // declaraba aquí su propia lista de valores del LOV, que podía
-    // desviarse del catálogo sin que nada lo detectara.
-    const RESULTADOS = CUENTA_RESULTADO_LOV.length
-      ? CUENTA_RESULTADO_LOV
-      : Object.keys(CUENTA_RESULTADO_COLORES);
-    // Paleta compartida: se lee de CUENTA_RESULTADO_COLORES (inyectada desde
-    // app/core/resultado_pruebas.py). Antes esta función declaraba su propio
-    // mapa RESULTADO_COLORS con tonos DISTINTOS a los del dashboard y del
-    // badge de las tarjetas, lo que hacía que el mismo dato se pintara de
-    // dos formas distintas. Ahora ambos caminos consumen la misma fuente.
-    const colorDe = (r) => (colorResultado(r) || {}).bg;
+    const RESULTADOS = ['OK', 'OK CON OBS.', 'NOK', 'POSTERGADA', 'DESESTIMADA', 'N/A'];
+    const RESULTADO_COLORS = { 'OK': '#10b981', 'OK CON OBS.': '#22c55e', 'NOK': '#ef4444', 'POSTERGADA': '#eab308', 'DESESTIMADA': '#a855f7', 'N/A': '#94a3b8' };
     const maxFila = Math.max.apply(null, cuenta.map(f => f.total)) || 1;
 
     // Filtrar solo columnas con datos
@@ -927,8 +902,7 @@
     html += '<thead class="text-[10px] uppercase text-slate-500 border-b border-slate-200">';
     html += '<tr><th class="text-left py-2 px-3 font-semibold">Módulo</th>';
     cols.forEach(c => {
-      html += '<th class="text-right py-2 px-2 font-semibold" title="' + _escapeHtml(c) + '">'
-            + _escapeHtml(acronimoResultado(c)) + '</th>';
+      html += '<th class="text-right py-2 px-2 font-semibold">' + c + '</th>';
     });
     html += '<th class="text-right py-2 px-3 font-semibold border-l border-slate-200">Total</th>';
     html += '<th class="text-left py-2 px-3 font-semibold w-1/3">Distribución</th>';
@@ -940,7 +914,7 @@
       const segmentos = cols.map(r => {
         const v = f[r] || 0;
         const segPct = f.total ? (v / f.total) * 100 : 0;
-        return '<div title="' + _escapeHtml(r) + ': ' + v + '" style="width:' + segPct.toFixed(1) + '%; background:' + colorDe(r) + '"></div>';
+        return '<div title="' + r + ': ' + v + '" style="width:' + segPct.toFixed(1) + '%; background:' + RESULTADO_COLORS[r] + '"></div>';
       }).join('');
       html += '<tr class="hover:bg-slate-50">';
       html += '<td class="py-2 px-3 font-medium text-slate-800">' + (f.modulo || '—') + '</td>';
@@ -990,10 +964,10 @@
       const abiertas = a.abiertas || 0;
       const cerradas = a.cerradas || 0;
       return '<div class="flex items-center gap-3 py-1.5">'
-        + '<span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold shrink-0" style="background:' + colorBg + '; color:' + colorFg + '">' + _escapeHtml(ini) + '</span>'
+        + '<span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold shrink-0" style="background:' + colorBg + '; color:' + colorFg + '">' + ini + '</span>'
         + '<div class="flex-1 min-w-0">'
         + '<div class="flex items-center justify-between text-xs">'
-        + '<span class="font-medium text-slate-800 truncate">' + _escapeHtml(a.nombre || '') + '</span>'
+        + '<span class="font-medium text-slate-800 truncate">' + (a.nombre || '') + '</span>'
         + '<span class="font-bold text-slate-800 ml-2">' + fmt(a.total) + '</span>'
         + '</div>'
         + '<div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">'
@@ -1151,7 +1125,7 @@
         +       '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
         +     '</button>'
         +   '</div>'
-        +   '<p class="text-xs text-slate-600">' + _escapeHtml(err && err.message ? err.message : err) + '</p>'
+        +   '<p class="text-xs text-slate-600">' + String(err && err.message ? err.message : err) + '</p>'
         +   '<div class="mt-4 text-right">'
         +     '<button type="button" data-close-modal="1" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">Cerrar</button>'
         +   '</div>'
@@ -1169,21 +1143,21 @@
     const rows = tickets.map(function (t) {
       const priColor = _kpiPrioridadColor(t.prioridad);
       const asignado = t.asignado
-        ? '<span class="text-slate-700">' + _escapeHtml(t.asignado) + '</span>'
+        ? '<span class="text-slate-700">' + t.asignado + '</span>'
         : '<span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">Sin asignar</span>';
       return ''
         + '<tr class="hover:bg-slate-50 transition-colors">'
-        +   '<td class="px-3 py-2 font-mono text-[11px] text-indigo-700 whitespace-nowrap">' + _escapeHtml(t.codigo || '—') + '</td>'
-        +   '<td class="px-3 py-2 text-slate-700 max-w-[280px] truncate" title="' + _escapeHtml(t.titulo || '') + '">' + _escapeHtml(t.titulo || '—') + '</td>'
+        +   '<td class="px-3 py-2 font-mono text-[11px] text-indigo-700 whitespace-nowrap">' + (t.codigo || '—') + '</td>'
+        +   '<td class="px-3 py-2 text-slate-700 max-w-[280px] truncate" title="' + (t.titulo || '') + '">' + (t.titulo || '—') + '</td>'
         +   '<td class="px-3 py-2 whitespace-nowrap">'
         +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
-        +       'style="background:' + _escapeHtml(t.estado_color || '#e2e8f0') + '20;color:' + _escapeHtml(t.estado_color || '#475569') + '">'
-        +       _escapeHtml(t.estado || '—') + '</span>'
+        +       'style="background:' + (t.estado_color || '#e2e8f0') + '20;color:' + (t.estado_color || '#475569') + '">'
+        +       (t.estado || '—') + '</span>'
         +   '</td>'
         +   '<td class="px-3 py-2 whitespace-nowrap">'
         +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
         +       'style="background:' + priColor + '20;color:' + priColor + '">'
-        +       _escapeHtml(t.prioridad || '—') + '</span>'
+        +       (t.prioridad || '—') + '</span>'
         +   '</td>'
         +   '<td class="px-3 py-2 text-[11px]">' + asignado + '</td>'
         +   '<td class="px-3 py-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">' + _kpiFmtDate(t.fecha_vencimiento_sla) + '</td>'
@@ -1202,12 +1176,12 @@
       +     '<div>'
       +       '<h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">'
       +         '<span class="inline-block w-1.5 h-5 bg-indigo-500 rounded-sm"></span>'
-      +         _escapeHtml(data.titulo || 'Detalle del KPI')
+      +         (data.titulo || 'Detalle del KPI')
       +       '</h3>'
-      +       '<p class="text-xs text-slate-500 mt-1">' + _escapeHtml(data.descripcion || '') + '</p>'
+      +       '<p class="text-xs text-slate-500 mt-1">' + (data.descripcion || '') + '</p>'
       +       '<p class="text-[11px] text-slate-400 mt-1">'
       +         'Período: <span class="font-mono">' + (data.periodo_dias || '?') + ' días</span>'
-      +         ' · Tipo: <span class="font-mono">' + _escapeHtml(data.tipo || '?') + '</span>'
+      +         ' · Tipo: <span class="font-mono">' + (data.tipo || '?') + '</span>'
       +         ' · Total: <span class="font-mono">' + (data.total || 0) + '</span> tickets'
       +       '</p>'
       +     '</div>'
@@ -1311,60 +1285,19 @@
   // ===================================================================
 
   // Color del texto de los números en CADA CELDA de datos: debe coincidir con
-  // el color del texto de la columna "Total general". Se usa el `cellText`
-  // del catálogo (mismo valor en TODAS las columnas) para garantizar
-  // contraste legible sobre los fondos tenues (`color.bg + '22'`). Los
-  // headers sí mantienen su color original porque su fondo es sólido
-  // (no el tinte `+ '22'`).
-  //
-  // La paleta y los acrónimos se LEEN del JSON inyectado por el servidor
-  // (renderizado desde app/core/resultado_pruebas.py). Ese módulo es la única
-  // fuente de verdad y también alimenta el badge de Resultado de Pruebas
-  // de las tarjetas del Kanban: por construcción, el título de la columna y
-  // el indicador de la tarjeta comparten color y acrónimo.
-  const CUENTA_RESULTADO_COLORES = (function () {
-    const el = document.getElementById('cuenta-resultado-paleta');
-    if (!el) return {};
-    try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
-  })();
-
-  // Acrónimos del LOV: "OK"→OK, "N/A"→N/A, "OK CON OBS."→OBS,
-  // "POSTERGADA"→POST, "DESESTIMADA"→NOOK, "NOK"→NOK, "(en blanco)"→S/D.
-  const CUENTA_RESULTADO_ACRONIMOS = (function () {
-    const el = document.getElementById('cuenta-resultado-acronimos');
-    if (!el) return {};
-    try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
-  })();
-
-  // Color de respaldo (el mismo COLOR_FALLBACK del catálogo Python).
-  // Se inyecta desde el servidor para que el JS no re-declare ningún hex
-  // de la paleta: ni los del catálogo ni los del fallback.
-  const CUENTA_RESULTADO_FALLBACK = (function () {
-    const el = document.getElementById('cuenta-resultado-fallback');
-    if (!el) return {};
-    try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
-  })();
-
-  // Columnas del pivote en el orden del catálogo. Se inyecta desde el
-  // servidor (app/core/resultado_pruebas.py) con la MISMA lista que
-  // devuelve el endpoint /api/v1/metricas/cuenta-resultado, de modo que el
-  // JS no re-declara los valores del LOV.
-  const CUENTA_RESULTADO_LOV = (function () {
-    const el = document.getElementById('cuenta-resultado-lov');
-    if (!el) return [];
-    try { return JSON.parse(el.textContent) || []; } catch (e) { return []; }
-  })();
-
-  // Resuelve los colores de una columna del pivote. Si el valor no está en
-  // el catálogo se usa el color de respaldo (también viene del catálogo).
-  function colorResultado(c) {
-    return CUENTA_RESULTADO_COLORES[c] || CUENTA_RESULTADO_FALLBACK;
-  }
-
-  // Devuelve el acrónimo de una columna (con fallback al propio texto).
-  function acronimoResultado(c) {
-    return CUENTA_RESULTADO_ACRONIMOS[c] || c;
-  }
+  // el color del texto de la columna "Total general". Se usa #1f2937 (slate-800)
+  // en TODAS las columnas para garantizar contraste legible sobre los fondos
+  // tenues (`color.bg + '22'`). Los headers sí mantienen su color original
+  // porque su fondo es sólido (no el tinte `+ '22'`).
+  const CUENTA_RESULTADO_COLORES = {
+    "N/A":         { bg: '#94a3b8', text: '#ffffff', cellText: '#1f2937' },
+    "NOK":         { bg: '#dc2626', text: '#ffffff', cellText: '#1f2937' },
+    "OK":          { bg: '#16a34a', text: '#ffffff', cellText: '#1f2937' },
+    "OK CON OBS.": { bg: '#eab308', text: '#1f2937', cellText: '#1f2937' },
+    "POSTERGADA":  { bg: '#ea580c', text: '#ffffff', cellText: '#1f2937' },
+    "DESESTIMADA": { bg: '#7c3aed', text: '#ffffff', cellText: '#1f2937' },
+    "(en blanco)": { bg: '#cbd5e1', text: '#475569', cellText: '#1f2937' },
+  };
 
   // Última respuesta cacheada para export CSV.
   let _cuentaResultadoCache = null;
@@ -1420,19 +1353,13 @@
     }
 
     // === Encabezado ===
-    // El título de cada columna es el ACRÓNIMO del valor del LOV
-    // (OBS, POST, NOOK, ...) y el color de fondo es el MISMO que el del
-    // badge de la tarjeta del Kanban. El texto completo del valor queda
-    // en el tooltip (title) para no perder información.
     thead.innerHTML = '<tr class="bg-slate-800 text-white">' +
       '<th class="text-left px-3 py-2 font-semibold border border-slate-700">Etiqueta de fila</th>' +
       columnas.map(c => {
-        const color = colorResultado(c);
-        const acro = acronimoResultado(c);
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
         return '<th class="px-3 py-2 font-semibold border border-slate-700 text-center"'
              + ' style="background:' + color.bg + '; color:' + color.text + ';"'
-             + ' title="Tickets con resultado_pruebas = \'' + c + '\'">'
-             + _escapeHtml(acro) + '</th>';
+             + ' title="Tickets con resultado_pruebas = \'' + c + '\'">' + c + '</th>';
       }).join('') +
       '<th class="px-3 py-2 font-semibold border border-slate-700 text-center bg-slate-900">Total general</th>' +
       '</tr>';
@@ -1443,7 +1370,7 @@
       const trClass = esBlanco ? 'italic text-slate-400 bg-slate-50/50' : 'text-slate-700';
       const celdas = columnas.map(c => {
         const v = f.valores[c] || 0;
-        const color = colorResultado(c);
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#f1f5f9', text: '#475569', cellText: '#1f2937' };
         const contenido = esBlanco ? '—' : (v === 0 ? '—' : v);
         const bg = esBlanco ? 'transparent' : (v === 0 ? '#ffffff' : color.bg + '22');
         // Drill-down: celdas con valor > 0 son clickeables (HTMX → modal).
@@ -1459,7 +1386,7 @@
                +     ' hx-get="' + url + '"'
                +     ' hx-target="#modal-cuenta-resultado-root"'
                +     ' hx-swap="innerHTML"'
-               +     ' title="Ver detalle: ' + _escapeHtml(f.modulo || '') + ' / ' + _escapeHtml(c || '') + '"'
+               +     ' title="Ver detalle: ' + f.modulo + ' / ' + c + '"'
                +     ' class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">'
                +     contenido
                +   '</button>'
@@ -1485,7 +1412,7 @@
       '<td class="px-3 py-2 border border-slate-400 text-left">Total general</td>' +
       columnas.map(c => {
         const v = totales[c] || 0;
-        const color = colorResultado(c);
+        const color = CUENTA_RESULTADO_COLORES[c] || { bg: '#475569', text: '#ffffff' };
         const contenido = v === 0 ? '—' : v;
         return '<td class="px-3 py-2 border border-slate-400 text-center font-mono"'
              + ' style="background:' + color.bg + '; color:' + color.text + ';">'
@@ -1613,10 +1540,10 @@
   }
   function _estadoBadge(e) {
     if (!e || !e.nombre) return '<span class="text-slate-400 text-[11px]">—</span>';
-    const bg = _escapeHtml(e.color || '#94a3b8') + '22';
+    const bg = (e.color || '#94a3b8') + '22';
     return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"'
-         + ' style="background:' + bg + '; color:' + _escapeHtml(e.color || '#475569') + ';">'
-         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + _escapeHtml(e.color || '#94a3b8') + '"></span>'
+         + ' style="background:' + bg + '; color:' + (e.color || '#475569') + ';">'
+         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + (e.color || '#94a3b8') + '"></span>'
          + _escapeHtml(e.nombre)
          + '</span>';
   }

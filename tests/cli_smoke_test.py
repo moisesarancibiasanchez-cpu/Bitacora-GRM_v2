@@ -60,32 +60,13 @@ finally:
 
 
 def _run_cli(extra_args):
-    # Se usa el intérprete actual (``sys.executable``) en vez de una ruta
-    # absoluta: así el smoke test funciona en cualquier entorno (venv local,
-    # imagen Docker, CI) y no depende de un path hardcodeado.
     cmd = [
-        sys.executable,
+        "/tmp/.venv/bin/python",
         "scripts/bulk_update_fechas_gar_ri_backlog.py",
         *extra_args,
     ]
     print(f"\n$ {' '.join(cmd)}")
-    # El script hace ``from app.db.session import SessionLocal``, así que la
-    # raíz del repo tiene que estar en su ``sys.path``. No se da por supuesto
-    # que el paquete esté instalado: se pasa por ``PYTHONPATH``, que el
-    # subproceso hereda. (El runner de pytest, además, ya insure la raíz en
-    # el primer nivel; esto cubre el segundo nivel, el script real.)
-    env = os.environ.copy()
-    repo_root = str(Path(__file__).resolve().parent.parent)
-    actual = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = repo_root + (os.pathsep + actual if actual else "")
-    p = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-    )
+    p = subprocess.run(cmd, capture_output=True, text=True, env=os.environ.copy())
     return p.returncode, p.stdout, p.stderr
 
 

@@ -59,50 +59,39 @@ from app.models.ticket import Ticket, Prioridad
 
 db = SessionLocal()
 try:
-    # El seed se hace ENTIDAD POR ENTIDAD, no "si la tabla esta vacia".
-    # Las migraciones ya insertan el estado terminal 'Produccion OK' en una
-    # base nueva: con el seed global, la tabla `estados` llegaba al seed
-    # con una fila y los estados de este script no se creaban nunca
-    # (el ticket se quedaba sin estado y el script terminaba con
-    # AttributeError en `e_nuevo.id`).
-    def _usuario_por_nombre(username):
-        return db.query(Usuario).filter(Usuario.username == username).first()
-
-    if _usuario_por_nombre("admin") is None:
-        db.add(Usuario(
+    if db.query(Usuario).count() == 0:
+        admin = Usuario(
             username="admin",
             email="admin@test.local",
             nombre_completo="Admin Test",
             hashed_password=hash_password("admin123"),
             rol=RolUsuario.ADMINISTRADOR,
             departamento="TI",
-        ))
-    if _usuario_por_nombre("agente1") is None:
-        db.add(Usuario(
+        )
+        agente = Usuario(
             username="agente1",
             email="agente1@test.local",
             nombre_completo="Agente Test",
             hashed_password=hash_password("agente123"),
             rol=RolUsuario.AGENTE,
             departamento="Soporte",
-        ))
-    db.flush()
+        )
+        db.add_all([admin, agente])
+        db.flush()
 
-    def _estado_por_nombre(nombre):
-        return db.query(Estado).filter(Estado.nombre == nombre).first()
+    if db.query(Estado).count() == 0:
+        db.add_all([
+            Estado(nombre="Nuevo", orden=1, es_inicial=True,
+                    color="#94a3b8", categoria="abierto"),
+            Estado(nombre="Entregado", orden=2, es_final=True,
+                    es_entrega=True, color="#10b981", categoria="cerrado"),
+        ])
+        db.flush()
 
-    if _estado_por_nombre("Nuevo") is None:
-        db.add(Estado(nombre="Nuevo", orden=1, es_inicial=True,
-                      color="#94a3b8", categoria="abierto"))
-    if _estado_por_nombre("Entregado") is None:
-        db.add(Estado(nombre="Entregado", orden=2, es_final=True,
-                      es_entrega=True, color="#10b981", categoria="cerrado"))
-    db.flush()
-
-    if db.query(Ticket).filter(Ticket.codigo == "TEST-001").first() is None:
-        e_nuevo = _estado_por_nombre("Nuevo")
-        ag = _usuario_por_nombre("agente1")
-        adm = _usuario_por_nombre("admin")
+    if db.query(Ticket).count() == 0:
+        e_nuevo = db.query(Estado).filter(Estado.nombre == "Nuevo").first()
+        ag = db.query(Usuario).filter(Usuario.username == "agente1").first()
+        adm = db.query(Usuario).filter(Usuario.username == "admin").first()
         db.add(Ticket(
             codigo="TEST-001",
             titulo="Ticket de prueba",

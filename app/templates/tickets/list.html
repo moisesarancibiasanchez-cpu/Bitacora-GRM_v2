@@ -93,7 +93,6 @@
               <th class="px-4 py-3 text-left">Asignado</th>
               <th class="px-4 py-3 text-left">Fecha Vencimiento</th>
               <th class="px-4 py-3 text-left">SLA</th>
-              <th class="px-4 py-3 text-left" title="Resultado de pruebas">Resultado</th>
               <th class="px-4 py-3 text-center">Activo</th>
               <th class="px-4 py-3 text-center">Acción</th>
             </tr>
@@ -137,10 +136,6 @@
                   <span class="text-slate-400">—</span>
                 {% endif %}
               </td>
-              {# Badge de "Resultado de Pruebas": se reutiliza el mismo render del
-                 Kanban (app/core/resultado_pruebas.py) para que el color y el
-                 acrónimo sean idénticos y no haya que duplicar la paleta. #}
-              <td class="px-4 py-3 text-xs">{{ badge_resultado(resultado_info_ticket(t)) }}</td>
               <td class="px-4 py-3 text-center">
                 {% if t.archivado %}
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-200">
@@ -174,7 +169,7 @@
             {% endfor %}
             {% if not tickets %}
             <tr>
-              <td colspan="10" class="px-4 py-10 text-center text-slate-400 text-sm">
+              <td colspan="9" class="px-4 py-10 text-center text-slate-400 text-sm">
                 No hay tickets que coincidan con los filtros.
                 <a href="/kanban" class="text-indigo-600 hover:underline ml-1">Crear el primero →</a>
               </td>

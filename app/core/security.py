@@ -7,7 +7,7 @@ incompatibilidades con ``bcrypt>=4.0`` (``__about__`` deprecado y
 ``passlib`` sólo como dependencia declarada.
 """
 import bcrypt
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 
 from jose import jwt, JWTError
@@ -45,10 +45,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(data: dict, expires_minutes: Optional[int] = None) -> str:
     """Crea un JWT con los datos del usuario."""
     to_encode = data.copy()
-    # ``datetime.utcnow()`` está obsoleto (DeprecationWarning en 3.12) y deja
-    # el claim ``exp`` sin zona horaria. Se usa ``datetime.now(timezone.utc)``
-    # para que el ``exp`` sea un instante UTC explícito.
-    expire = datetime.now(timezone.utc) + timedelta(
+    expire = datetime.utcnow() + timedelta(
         minutes=expires_minutes or settings.JWT_EXPIRATION_MINUTES
     )
     to_encode.update({"exp": expire})
