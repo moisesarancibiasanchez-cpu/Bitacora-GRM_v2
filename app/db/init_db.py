@@ -323,6 +323,34 @@ def seed_tickets_demo(db: Session):
     ]
     contador = 1
     from datetime import timedelta
+
+    # Los tickets de demostración dependen de los usuarios, estados y
+    # etiquetas de demostración, que SOLO se crean cuando
+    # SEED_DEMO_USERS=true (desactivado por defecto, y desactivado en
+    # producción). Antes, sin ellos, ``usuarios[creador_un]`` reventaba
+    # con ``KeyError: 'usuario1'`` y abortaba TODA la siembra en el
+    # arranque: la base nueva se quedaba a medias y el servicio no
+    # llegaba a levantar. Ahora, si falta el material de demostración, los
+    # tickets de demostración se omiten con un aviso y el resto de la
+    # semilla continúa.
+    faltan = []
+    for _t, _d, _p, estado_nombre, creador_un, asignado_un, et_nombres, _c, _k in tickets_demo:
+        if estado_nombre not in estados:
+            faltan.append("estado '%s'" % estado_nombre)
+        for usuario_un in (creador_un, asignado_un):
+            if usuario_un and usuario_un not in usuarios:
+                faltan.append("usuario '%s'" % usuario_un)
+        for etiqueta_nombre in et_nombres:
+            if etiqueta_nombre not in etiquetas:
+                faltan.append("etiqueta '%s'" % etiqueta_nombre)
+    if faltan:
+        print(
+            "  · Tickets de demostración omitidos: falta el material de "
+            "demostración (%s). Defina SEED_DEMO_USERS=true si los quiere."
+            % ", ".join(sorted(set(faltan)))
+        )
+        return
+
     for titulo, desc, prio, estado_nombre, creador_un, asignado_un, et_nombres, checklists_data, comentarios_data in tickets_demo:
         estado = estados[estado_nombre]
         t = Ticket(

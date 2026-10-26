@@ -99,12 +99,10 @@ def sesion_aislada():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from app.models.estado import Estado
-    from app.models.estado import TransicionEstado
+    from app.db.base import Base
 
     motor = create_engine("sqlite://", future=True)
-    Estado.__table__.create(motor)
-    TransicionEstado.__table__.create(motor)
+    Base.metadata.create_all(motor)
     sesion = sessionmaker(bind=motor, future=True)()
     try:
         yield sesion
@@ -317,3 +315,74 @@ def test_el_barrido_anonimo_existe_y_esta_documentado():
     assert "barrer_anonimo.py" in readme, (
         "el barrido anónimo no está documentado en tools/verificacion/README.md"
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. La siembra completa no aborta en una base nueva
+# ---------------------------------------------------------------------------
+def test_los_tickets_demo_se_omiten_si_falta_el_material_de_demostracion(sesion_aislada):
+    """Sin usuarios de demo (SEED_DEMO_USERS apagado) no hay KeyError.
+
+    Antes ``usuarios[creador_un]`` reventaba con ``KeyError: 'usuario1'`` y
+    abortaba el resto de la semilla: la base nueva se quedaba a medias y
+    el servicio no llegaba a levantar.
+    """
+    from app.db.init_db import seed_tickets_demo
+    from app.models.ticket import Ticket
+
+    # Sin estados, usuarios ni etiquetas de demostracion.
+    seed_tickets_demo(sesion_aislada)
+    sesion_aislada.commit()
+
+    assert sesion_aislada.query(Ticket).count() == 0
+
+
+def test_el_arranque_completo_sobre_una_base_nueva_no_falla(tmp_path):
+    """``init_database()`` completo, como en el arranque de producción.
+
+    Se ejecuta en un subproceso con ``DATABASE_URL`` apuntando a una
+    SQLite temporal, porque el motor de la aplicación se crea al importar
+    el modulo de configuracion. Los tests de la suite NUNCA ejecutan esta
+    ruta (AUTO_INIT_DB esta apagado ahi), asi que sin esta prueba un fallo
+    de arranque solo apareceria al desplegar.
+    """
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "import os, sys\n"
+        "sys.path.insert(0, %r)\n"
+        "os.environ['DATABASE_URL'] = 'sqlite:///' + %r\n"
+        "os.environ['SECRET_KEY'] = 'x' * 40\n"
+        "from app.db.base import Base\n"
+        "from app.db.session import engine\n"
+        "from app.db.init_db import init_database\n"
+        "Base.metadata.create_all(bind=engine)\n"
+        "init_database()\n"
+        "from app.db.session import SessionLocal\n"
+        "from app.models import Estado, TransicionEstado\n"
+        "db = SessionLocal()\n"
+        "e = db.query(Estado).count()\n"
+        "t = db.query(TransicionEstado).count()\n"
+        "db.close()\n"
+        "print('ESTADOS=%%d TRANSICIONES=%%d' %% (e, t))\n"
+    ) % (str(RAIZ), str(tmp_path / "arranque.db").replace("\\", "/"))
+
+    proceso = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", script],
+        capture_output=True, text=True, timeout=600,
+        cwd=str(RAIZ),
+    )
+
+    assert proceso.returncode == 0, (
+        "init_database() fallo en una base nueva:\n%s\n%s"
+        % (proceso.stdout[-2000:], proceso.stderr[-2000:])
+    )
+    salida = proceso.stdout
+    assert "ESTADOS=" in salida, salida[-800:]
+    m_estados = re.search(r"ESTADOS=(\d+)", salida)
+    m_transiciones = re.search(r"TRANSICIONES=(\d+)", salida)
+    assert m_estados and m_transiciones, salida[-800:]
+    assert int(m_estados.group(1)) >= 7, "faltan estados del flujo: %s" % m_estados.group(1)
+    assert int(m_transiciones.group(1)) >= 15, "faltan transiciones: %s" % m_transiciones.group(1)
