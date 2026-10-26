@@ -17,6 +17,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, desc
 
+from app.core.timezone import now_utc
 from app.models.usuario import Usuario
 from app.models.espacio import Espacio, Tablero, PermisoTablero
 from app.models.watch import Watch, Reaccion, Notificacion
@@ -341,7 +342,7 @@ class NotificacionService:
         if not notif:
             return False
         notif.leida = True
-        notif.leida_en = datetime.utcnow().isoformat()
+        notif.leida_en = now_utc().isoformat()
         self.db.commit()
         return True
 
@@ -349,7 +350,7 @@ class NotificacionService:
         count = (
             self.db.query(Notificacion)
             .filter(Notificacion.usuario_id == usuario_id, Notificacion.leida == False)  # noqa
-            .update({"leida": True, "leida_en": datetime.utcnow().isoformat()})
+            .update({"leida": True, "leida_en": now_utc().isoformat()})
         )
         self.db.commit()
         return count
@@ -590,7 +591,7 @@ class VistasService:
                          anio: Optional[int] = None) -> dict:
         """Genera eventos para vista calendario (por mes)."""
         from calendar import monthrange
-        hoy = datetime.utcnow()
+        hoy = now_utc()
         m = mes or hoy.month
         a = anio or hoy.year
         _, dias_mes = monthrange(a, m)
