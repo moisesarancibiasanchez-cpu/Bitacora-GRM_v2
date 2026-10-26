@@ -141,7 +141,11 @@ celery -A app.core.celery_app beat --loglevel=info
 redis-server
 ```
 
-Abrir <http://localhost:8000/kanban> y autenticarse con `admin / admin123`.
+Abrir <http://localhost:8000/kanban> y autenticarse con el usuario
+administrador. La contraseña inicial la define la variable de entorno
+`BOOTSTRAP_ADMIN_PASSWORD` (por defecto `admin123`, SOLO para desarrollo):
+en cualquier entorno compartido hay que asignarle una propia antes del
+primer arranque.
 
 ## Pruebas
 

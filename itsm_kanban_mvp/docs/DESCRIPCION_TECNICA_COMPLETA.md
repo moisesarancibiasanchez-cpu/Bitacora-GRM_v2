@@ -724,7 +724,7 @@ Gestionadas por Pydantic Settings v2 con validación en carga. El proceso **fall
 | `DEBUG` | No | `false` | Modo depuración |
 | `PUBLIC_BASE_URL` | No | `http://localhost:8000` | URL pública |
 | `BOOTSTRAP_ADMIN_USERNAME` | No | `admin` | Usuario inicial |
-| `BOOTSTRAP_ADMIN_PASSWORD` | No | `admin123` | **Cambiar en producción** |
+| `BOOTSTRAP_ADMIN_PASSWORD` | No | `admin123` (SOLO desarrollo) | **Cambiar en producción** |
 | `BOOTSTRAP_ADMIN_EMAIL` | No | `admin@example.com` | Correo inicial |
 
 **Riesgo de configuración:** `BOOTSTRAP_ADMIN_PASSWORD` tiene default `admin123` y se aplica automáticamente en el primer arranque. Si se despliega sin sobrescribirla, existe una cuenta administrativa con credencial publicada en el repositorio.

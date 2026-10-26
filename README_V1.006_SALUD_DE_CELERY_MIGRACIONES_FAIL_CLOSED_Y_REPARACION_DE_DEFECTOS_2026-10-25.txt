@@ -582,6 +582,31 @@ valor por defecto `60 * 8` = 8 h, y leida en `app/core/security.py:52`).
 No existe ninguna variable `JWT_EXPIRE_MINUTES` en el codigo: quien
 configure esa variable creera que fija la duracion y no sera cierto.
 
+6.3.1) ERRATAS de credenciales en documentos anteriores
+---------------------------------------------------------
+Por el mismo motivo (no se reescriben los documentos anteriores), se
+declaran aqui dos referencias que quedaron desactualizadas cuando la
+credencial de `admin` se roto O el 2026-10-24:
+
+  - `README_V1.002_REPARACION_ARRANQUE_PRODUCCION_Y_MIGRACIONES_POSTGRES_2026-10-24.txt`,
+    linea 393: el procedimiento de verificacio On manual en PRODUCCION dice
+    "Entrar con admin / admin123". Esa combinacion esta ROTADA y
+    responde 401: el login de produccion exige la credencial vigente,
+    que se entrega al propietario por canal privado y NO se escribe en
+    ningun fichero del repositorio.
+  - `REPORTE_SEGURIDAD.md`, linea 27: la tabla registra
+    "POST /api/v1/auth/login (admin/admin123) -> 200 + cookie JWT". Ese
+    resultado corresponde a la base de DESARROLLO sembrada con
+    `SEED_DEMO_USERS=true`, no al despliegue de produccion, donde la
+    misma combinacion responde 401.
+
+En este lote se corrigen, en el ambito del subproyecto legacy
+`itsm_kanban_mvp` (que NO usa la aplicacion principal), las tres
+referencias que podian inducir a error: la pantalla de login ya no
+muestra "Credenciales iniciales: admin / admin123" sino el nombre de la
+variable de entorno que las define, y su README y su documentacion
+tecnica lo aclaran como valor SOLO de desarrollo.
+
 6.4) Evidencia de la validacion
 --------------------------------
   Suite pytest completa:            126 passed, 0 failed (10 min 48 s)
