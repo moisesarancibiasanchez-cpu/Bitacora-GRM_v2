@@ -963,5 +963,94 @@ index e7dac2b..b0e3193 100644
    window.exportarIncidenciasRecientes = exportarIncidenciasRecientes;
 
 ================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-10-26, addendum posterior al cierre)
+================================================================================
+
+  9.1  POR QUE AL PRINCIPIO NO LLEGO A PRODUCCION
+
+    El primer despliegue del fix (commit b403de6) se pidio sobre la rama
+    'release/v2.001'. Worker y beat lo tomaron correctamente (SUCCESS), pero
+    el WEB NO: el servicio web de Railway tiene autoDeploy siguiendo 'main',
+    y al detectar el despliegue de una rama distinta Railway removio ese
+    despliegue (estado REMOVED, id 54158c89-980b-489c-9ebf-fc829976ea16) y
+    redesplego 'main', que seguia apuntando al arbol del viernes (c6eca9b).
+
+    Consecuencia: worker y beat quedaron con b403de6 y el web con el
+    codigo del viernes, es decir, los tres servicios DESALINEADOS entre si.
+    La verificacion lo confirmo: el modal seguia devolviendo 2 tickets
+    frente a los 18 del resumen.
+
+  9.2  CORRECCION: 'main' ALINEADO CON EL ARBOL DESPLEGADO
+
+    Para que el autoDeploy del web sirviera el fix, 'main' tuvo que
+    llevar ese mismo arbol. Se hizo con un COMMIT DE FUSION:
+
+      commit 1900def1b862230cd62c40b2fbf806e7cf14c7b6
+      padres: c6eca9b (main anterior) y b403de6
+      arbol:  0fa2ae5210a76688be5f7f296b9c1216369578bb
+
+    El arbol de 'main' es IDENTICO al de b403de6 (mismo hash de arbol), de
+    modo que los tres servicios sirven exactamente el mismo codigo.
+
+    NO se reescribio la historia: c6eca9b (el 'main' anterior) y b403de6
+    siguen siendo ancestros de 'main'. El push fue un avance rapido
+    (c6eca9b..1900def) y NO hizo falta 'push --force'.
+
+    La rama 'release/v2.001' se conserva en b403de6 y 'release/v1.006' en
+    4d1a603.
+
+  9.3  VERIFICACION EN PRODUCCION (2026-10-26)
+
+    Despliegues (los tres, estado SUCCESS):
+      web    1900def  id 219845ab-fd66-4f3b-8c52-523e3acfe349
+      worker b403de6  id ea60958e-5a56-4577-81bf-d739b9e3eb3a
+      beat   b403de6  id a62e30ba-9616-4c71-9d70-d486e7d74fe9
+
+    Comprobacion del defecto (con login de administrador):
+      GET /api/v1/metricas/incidencias-recientes
+          ?tipo=incidencia&periodo_dias=30
+          &fecha_desde=2026-07-28&fecha_hasta=2026-10-26&limite=200
+        -> metricas.total_periodo = 18
+      GET /api/v1/metricas/detalle-kpi
+          ?kpi=total_periodo&tipo=incidencia&periodo_dias=30
+          &fecha_desde=2026-07-28&fecha_hasta=2026-10-26&limite=200
+        -> total = 18, total_listado = 18, truncado = false,
+           rango_explicito = true
+      LAS DOS CIFRAS COINCIDEN: 18 = 18. El defecto queda cerrado.
+
+    Salud y acceso:
+      GET  /health   -> 200 (database ok, redis ok)
+      GET  /ready    -> 200
+      GET  /info     -> 200 (ya no publica database_url)
+      POST /api/v1/auth/login (admin) -> 200, rol administrador
+
+    Rutas que con el codigo del viernes devolvian 500:
+      GET /admin/reporte-entregas -> 200
+    Ruta que no existia con el codigo del viernes:
+      GET /salud-celery -> 200
+
+    Cabeceras de seguridad restauradas:
+      content-security-policy, strict-transport-security,
+      permissions-policy, x-frame-options, x-content-type-options
+
+    Barrido anonimo (tools/verificacion/barrer_anonimo.py) contra
+    produccion: TODAS LAS COMPROBACIONES SUPERADAS.
+      - ninguna ruta GET sirve contenido a un anonimo (fugas = 0)
+      - ninguna ruta GET produce un error de servidor (errores = 0)
+      - ninguna respuesta anonima contiene huellas de datos reales
+      - el modal de cambio de contrasena exige sesion (401)
+
+    Pruebas: 164 passed sobre el arbol real de 'main' (155 heredadas + 9
+    nuevas de este lote).
+
+  9.4  NOTA PARA EL PROPIETARIO
+
+    El servicio web de Railway tiene autoDeploy siguiendo 'main'. Cualquier
+    push a 'main' redespliega el web. Worker y beat NO tienen autoDeploy
+    activo: se despliegan con la API (serviceInstanceDeploy) o desde el
+    panel. Si se vuelve a alinear 'main' con un arbol distinto del que
+    sirven worker y beat, se repite la desalineacion descrita arriba.
+
+================================================================================
 FIN DEL DOCUMENTO README V2.002
 ================================================================================
