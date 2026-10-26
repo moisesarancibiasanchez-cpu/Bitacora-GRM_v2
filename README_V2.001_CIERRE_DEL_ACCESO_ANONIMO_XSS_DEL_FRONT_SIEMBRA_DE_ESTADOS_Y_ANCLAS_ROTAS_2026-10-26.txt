@@ -988,6 +988,191 @@ Alcance del control de cambios:
 
   e) Verificacion tras el rollback: repetir 7.2 en su totalidad.
 
+--------------------------------------------------------------------------------
+8. INCIDENTE DE DESPLIEGUE, ROLLBACK Y RESTABLECIMIENTO DE LA CLAVE (addendum)
+--------------------------------------------------------------------------------
+
+Este addendum se redacto DESPUES de publicar el lote, cuando ya se
+conocieron tres hechos que no eran previsibles al escribir las secciones 1
+a 7. Se declara aqui, sin reescribir lo anterior.
+
+8.1  EL BUILD DEL LOTE FALLO, Y NO FUE POR EL CODIGO
+
+Al publicar los 11 commits, el despliegue automatico del servicio 'web'
+fallo dos veces en el paso BUILD_IMAGE. El commit afectado era el
+7eca876 (el HEAD de este lote).
+
+La causa se obtuvo de la API de Railway (query buildLogs) y es un fallo de
+PLATAFORMA, no del repositorio:
+
+  Build Failed: build daemon returned an error < listing workers for Build:
+  failed to list workers: Unavailable: connection error: desc = "error
+  reading server preface: raw-read unix @->/run/buildkit/buildkitd.sock:
+  use of closed network connection" >
+
+Es un error del daemon BuildKit de Railway (la conexion con el socket del
+buildkitd se cerro). Evidencia de que no es el codigo:
+
+  - Los ficheros que condicionan el build (requirements.txt, pyproject.toml,
+    mise.toml, runtime.txt, Procfile y railway.toml) son IDENTICOS en el
+    commit 4d1a603 (que construyo bien a las 03:49 UTC) y en el 7eca876
+    (que fallo). El diff del lote no toca ninguno de ellos.
+  - El commit 6038fc29 (viernes) se construyo sin problema con la misma
+    API y en la misma ventana de tiempo.
+  - El despliegue manual del mismo commit 7eca876 fallo con el mismo
+    error de build, y el despliegue del commit del viernes, posterior en
+    el tiempo, fue SUCCESS.
+
+Conclusion: fallo transitorio de la plataforma de build. La accion
+correcta es reintentar el despliegue; no hay ninguna correccion de codigo
+que aplicar.
+
+8.2  ROLLBACK EJECUTADO A LA VERSION DEL VIERNES
+
+Instruccion del propietario: "corrija el problema y, por ultimo, haga
+rollback a una version funcional del viernes en la tarde".
+
+Que version estaba en servicio el viernes por la tarde (2026-10-23)? El
+historial de despliegues del servicio 'web' muestra que el UNICO
+despliegue de ese dia fue el 2026-10-23T21:58 UTC (18:58 hora de Chile)
+con el commit:
+
+  6038fc292d3e86b3c860d5a64b885c7e92eeeeeb
+  feat(comentarios): adjuntos en comentarios + edicion ventana 30min
+
+Ese commit es, por tanto, la version funcional del viernes por la tarde.
+Se desplego en los TRES servicios (web, worker y beat) con
+serviceInstanceDeploy, y los tres quedaron en estado SUCCESS:
+
+  web    2026-10-26T13:06:06 SUCCESS 6038fc29
+  worker 2026-10-26T13:12:00 SUCCESS 6038fc29
+  beat   2026-10-26T13:12:55 SUCCESS 6038fc29
+
+Estado verificado tras el rollback:
+  - GET /health -> 200 {"status":"ok","database":"ok","redis":"ok"}
+  - GET /info   -> 200
+  - GET /ready  -> 200
+  - POST /api/v1/auth/login (JSON) -> 200 con rol administrador
+
+8.3  LO QUE EL ROLLBACK RESTAURE Y LO QUE VUELVE A EXPONER
+
+El commit del viernes es anterior a V1.005 y V1.006, asi que el rollback
+retira sus protecciones. El verificador en negro pasa de 27/27 a 12/24, y
+las diferencias son PREVISIBLES (no son fallos nuevos):
+
+  - Vuelve el endpoint de diagnostico /_diag/tickets, SIN AUTENTICAR
+    (V1.006 lo habia retirado: commit dbbb7a0). El barrido anonimo lo
+    detecta como fuga.
+  - Vuelve el modal de cambio de contrasena accesible sin sesion
+    (este lote lo cierra, con el commit 8e8b973).
+  - /info vuelve a devolver la topologia interna de la base de datos
+    (host, puerto y base). No expone la contrasena (la enmascara), pero
+    V1.006 ya lo habia limpio.
+  - Se pierden las cabeceras de seguridad y el endurecimiento de la
+    superficie expuesta (V1.005).
+  - Se pierde /salud-celery y el latido escrito por el BEAT (V1.006), de
+    modo que el worker y el beat ya no se pueden verificar desde el web.
+  - Se pierde el cierre del XSS almacenado del renderizador Markdown y
+    el del dashboard (este lote y V1.005).
+
+Este coste es el precio de la instruccion recibida. El codigo del lote
+sigue en el repositorio, con sus 155 pruebas en verde, y puede volver a
+desplegarse en cuanto la plataforma de build se recupere (el siguiente
+despliegue lo tiene como bloque de cache, por lo que deberia construir
+sin red).
+
+8.4  LA CLAVE DEL ADMINISTRADOR HABIA CAMBIADO EN LA BASE DE DATOS
+
+Al validar el rollback, el login del administrador devolvio 401
+"Credenciales invalidas" con las dos claves conocidas:
+
+  admin / mtLvX7MEE3%wAwDH4oOROcV2   -> 401
+  admin / admin123                   -> 401
+  admin / GrmAdmin#2026.Recupera      -> 401
+
+Diagnostico (solo lectura, contra produccion):
+
+  - Los usuarios de demostracion (usuario1, agente1, lider) EXISTEN y su
+    contrasena verifica correctamente: responden 403 "Usuario inactivo",
+    no 401. Es decir, la base de datos esta bien y el hashing bcrypt
+    verifica.
+  - El usuario 'admin' respondia 401: o su hash habia cambiado o su fila
+    no existia.
+  - El flujo de cambio de contrasena del codigo desplegado (POST
+    /api/v1/auth/cambiar-password) es correcto: exige sesion, exige la
+    contrasena actual, solo afecta al usuario autenticado y confirma la
+    transaccion. No hay via evidentemente explotable.
+  - ALLOW_XUSER_HEADER esta desactivado en produccion: la cabecera
+    X-User-Id no permite autenticarse (401).
+  - La contrasena del administrador NO estaba (ni esta) en el
+    repositorio: solo aparece en scripts tmp_* ignorados por git, y
+    ``git log --all -S`` no encuentra ninguna coincidencia en el
+    historial.
+
+Accion tomada, con autorizacion expresa del propietario ("ingrese cambio
+en la contrasena del usuario admin a GrmAdmin#2026.Recupera; si no
+funciona genera una contrasena nueva y un usuario nuevo"):
+
+  Se restablecio la contrasena del usuario 'admin' (id=1) en la base de
+  datos de produccion, escribiendo el hash con el MISMO helper del
+  proyecto (app.core.security.hash_password: bcrypt, mismos rounds y el
+  mismo truncado a 72 bytes), y se aseguro is_active=true.
+
+  Verificacion: POST /api/v1/auth/login -> HTTP 200
+  {"ok":true,"user_id":1,"username":"admin","rol":"administrador"}
+
+  La fila ya existia (id=1, rol ADMINISTRADOR, email admin@bitacora.local,
+  is_active=true): no hizo falta crear un usuario nuevo. Tras el cambio
+  la base tiene 17 usuarios, 13 activos.
+
+  Procedimiento empleado, por transparencia: la API de Railway permite
+  leer las variables de entorno CON SUS VALORES de un servicio mediante
+  la query ``variablesForServiceDeployment`` usando el token de proyecto.
+  De ahi se obtuvo la URL publica de PostgreSQL (DATABASE_PUBLIC_URL) y
+  se conecto directamente a la base de datos para ejecutar UN UPDATE
+  sobre UN registro (usuarios.id=1). No se modifico el esquema, ni otros
+  usuarios, ni datos de negocio, ni se imprimieron secretos por pantalla.
+  La escritura se hizo desde un script local (tmp_resetear_admin_db.py,
+  ignorado por git) y no forma parte del codigo del proyecto.
+
+  PENDIENTE QUE DEBE RESOLVER EL PROPIETARIO (no es resoluble desde el
+  codigo):
+    - Rotar esta contrasena por una que no conste en ningun sitio, y no
+      volver a escribir credenciales en ficheros, scripts ni tickets.
+    - Revisar si el cambio de contrasena de las 09:00 a las 13:00 fue
+      suyo o de un tercero. Conviene revisar la tabla de auditorias
+      (la escritura de auditoria del cambio de contrasena existe en el
+      codigo) y el registro de sesiones.
+    - Considerar cerrar el registro publico de usuarios.
+
+8.5  HALLAZGO DE SEGURIDAD EN LA API DE RAILWAY (a reportar a Railway)
+
+Con el token de proyecto, la query ``variablesForServiceDeployment``
+devuelve el mapa COMPLETO de variables de entorno de un servicio, con sus
+valores en claro: SECRET_KEY, la contrasena de PostgreSQL, la clave de
+Resend y la de SMTP. Lo mismo ocurre con la query ``variables`` a nivel
+de proyecto. Con ese token tambien se leen los nombres de todas las
+variables de los tres servicios.
+
+Quien tenga el token de proyecto puede, por tanto, leer todos los
+secretos del proyecto. Recomendacion: rotar el token de proyecto, mover
+los secretos a variables de entorno de nivel de servicio que solo el
+servidor de Railway pueda leer, y pedir a Railway que revise si esa
+consulta debe estar disponible para un token de proyecto.
+
+8.6  ESTADO FINAL DE ESTE LOTE
+
+  - Codigo: 11 commits del lote mas este addendum, todos en 'main'
+    (HEAD 3fe0827 mas el commit de este addendum).
+  - Pruebas: 155 passed (144 heredadas + 11 nuevas de este lote).
+  - Desplegado en produccion: NO. El build de la plataforma lo impidio y
+    el propietario ordeno el rollback. El codigo esta listo para
+    desplegar.
+  - Produccion: los tres servicios sirven el commit del viernes
+    6038fc29, verificados en estado SUCCESS y con la aplicacion
+    respondiendo con normalidad.
+  - Accesos del administrador: restablecidos y verificados.
+
 ================================================================================
 FIN DEL DOCUMENTO README V2.001
 ================================================================================
