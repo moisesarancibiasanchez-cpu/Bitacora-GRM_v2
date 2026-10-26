@@ -485,11 +485,17 @@ def cambiar_password_form(
 
 
 @router.get("/cambiar-password-modal", response_class=HTMLResponse)
-def cambiar_password_modal():
+def cambiar_password_modal(usuario: Usuario = Depends(get_current_user)):
     """
     Devuelve el fragmento HTML del modal de cambio de contraseña.
 
     Se carga por HTMX desde el botón en la navbar (`hx-get`).
+
+    EXIGE SESIÓN (``Depends(get_current_user)``): sin cookie de sesión ni
+    token válido responde 401. Antes devolvía 200 a cualquier visitante
+    anónimo; el fragmento no filtra datos, pero es una superficie pública
+    innecesaria que expone la plantilla de autenticación sin control de
+    acceso.
     """
     import os
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
