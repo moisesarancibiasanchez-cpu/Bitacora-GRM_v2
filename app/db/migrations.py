@@ -256,7 +256,8 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
     # alinear (creación de tablas y columnas). ``errors`` es el total e
     # incluye también las migraciones de datos, que no impiden servir.
     stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0,
-             "schema_errors": 0, "tables_created": 0, "data_migrated": 0}
+             "schema_errors": 0, "tables_created": 0, "data_migrated": 0,
+             "index_errors": 0}
 
     # 1) Asegurar que todas las tablas existen (no-op si ya están).
     #    Necesario porque algunas columnas tienen FKs a tablas nuevas (tableros,
@@ -301,12 +302,20 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
                     stats["schema_errors"] += 1
 
         # 3) Crear índices faltantes (IF NOT EXISTS funciona en ambos motores)
+        #    Un índice que no se puede crear NO es fatal (la app sirve sin
+        #    él), pero el fallo tiene que quedar VISIBLE: antes se
+        #    registraba con ``logger.debug`` (invisible en producción) y no
+        #    se contabilizaba, de modo que un esquema al que le faltaba un
+        #    índice pasaba el ``verificar_esquema`` sin dejar rastro.
         for name, sql in INDEXES:
             try:
                 conn.execute(text(sql))
                 stats["indexes"] += 1
             except Exception as e:
-                logger.debug("[migrations] Índice %s: %s", name, e)
+                stats["index_errors"] += 1
+                logger.warning(
+                    "[migrations] Índice %s NO se pudo crear: %s", name, e,
+                )
 
     # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
     #    y de valores permitidos. Se ejecutan en una TRANSACCIÓN SEPARADA
@@ -325,9 +334,9 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
 
     logger.info(
         "[migrations] Resultado: applied=%d skipped=%d indexes=%d errors=%d "
-        "schema_errors=%d data_migrated=%d",
+        "schema_errors=%d data_migrated=%d index_errors=%d",
         stats["applied"], stats["skipped"], stats["indexes"], stats["errors"],
-        stats["schema_errors"], stats["data_migrated"],
+        stats["schema_errors"], stats["data_migrated"], stats["index_errors"],
     )
     return stats
 
@@ -994,10 +1003,16 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
     errores_esquema = int(stats.get("schema_errors", 0) or 0)
     logger.info(
         "[migrations] aplicar: aplicadas=%s omitidas=%s errores=%s "
-        "errores_esquema=%s",
+        "errores_esquema=%s indices_fallidos=%s",
         stats.get("applied", 0), stats.get("skipped", 0), errores,
-        errores_esquema,
+        errores_esquema, stats.get("index_errors", 0),
     )
+    if stats.get("index_errors", 0):
+        logger.warning(
+            "[migrations] %s índice(s) NO se pudieron crear. El esquema sirve, "
+            "pero esas consultas van a recorrer la tabla completa.",
+            stats.get("index_errors", 0),
+        )
     if faltan:
         logger.error("[migrations] DERIVA DE ESQUEMA: %s", "; ".join(faltan))
     if errores_esquema:
