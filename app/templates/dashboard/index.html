@@ -1231,11 +1231,11 @@
       +         ' · Total: <span class="font-mono">' + (data.total || 0) + '</span> tickets'
       +       '</p>'
       +       (data.truncado
-      +         ? '<p class="text-[11px] text-amber-600 mt-1">Se muestran '
-      +             + (data.total_listado || 0) + ' de ' + (data.total || 0)
-      +             + ' tickets: el listado está limitado a ' + (data.limite || 0)
-      +             + ' filas. Usa "Exportar CSV" para el período completo.</p>'
-      +         : '')
+        ? '<p class="text-[11px] text-amber-600 mt-1">Se muestran '
+            + (data.total_listado || 0) + ' de ' + (data.total || 0)
+            + ' tickets: el listado está limitado a ' + (data.limite || 0)
+            + ' filas. Usa "Exportar CSV" para el período completo.</p>'
+        : '')
       +     '</div>'
       +     '<button type="button" data-close-modal="1" class="text-slate-400 hover:text-slate-700 p-1" aria-label="Cerrar">'
       +       '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
