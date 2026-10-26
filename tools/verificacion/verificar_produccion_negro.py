@@ -216,7 +216,16 @@ def main() -> int:
                 check("hay un worker que responde al ping",
                       bool((salud.get("worker") or {}).get("responde")),
                       str((salud.get("worker") or {}).get("detalle")))
-                check("el beat wrote un latido reciente",
+                # El catalogo de tareas del worker dice si el servicio
+                # worker esta con el codigo actual: si no conoce la tarea
+                # del latido, esta con un despliegue anterior.
+                worker = salud.get("worker") or {}
+                check("el worker conoce la tarea del latido (codigo actual)",
+                      worker.get("conoce_latido") is True,
+                      "tareas_registradas=%s conoce_latido=%s" % (
+                          worker.get("tareas_registradas"),
+                          worker.get("conoce_latido")))
+                check("el beat escribio un latido reciente",
                       bool((salud.get("beat") or {}).get("ok")),
                       str((salud.get("beat") or {}).get("detalle")))
         except Exception as exc:  # noqa: BLE001

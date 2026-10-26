@@ -1239,6 +1239,30 @@ En el panel de Railway, proyecto Bitacora-GRM_v2, entorno production:
   - Permisos 600 sobre NTFS, QA visual con navegador y el
     comportamiento interno de Railway.
 
+8.7) El "Redeploy" del panel NO reconstruye la imagen
+------------------------------------------------------
+Al redesplegar worker y beat desde el panel, el hostname del worker
+cambio (`celery@fb03d2da82df` -> `celery@80e74cad5ea6`): es un contenedor
+nuevo. Pero el catalogo seguia mostrando 12 tareas y
+`conoce_latido = False`: arranco con la MISMA imagen anterior.
+
+La razon es el significado de la opcion del panel: "Redeploy" vuelve a
+arrancar el deployment existente reutilizando su imagen; NO reconstruye
+desde el codigo del repositorio. Para tomar el codigo actual hace falta
+"Redeploy (rebuild)" o desplegar de nuevo la rama `main`.
+
+Por eso la seccion 8 del verificador en negro comprueba ahora, ademas
+del ping y del latido, que el worker CONOZCA la tarea del latido: es la
+comprobacion que detecta un worker con un despliegue anterior. Y el
+endpoint enriquece el detalle del beat con el diagnostico exacto:
+
+  - `beat.diagnostico = "worker_desactualizado"`: el worker no tiene
+    registrada la tarea del latido. Hay que reconstruir y redesplegar el
+    servicio worker.
+  - `beat.diagnostico = "beat_desactualizado_o_parado"`: el worker
+    conoce la tarea pero nadie la publica. Hay que reconstruir y
+    redesplegar el servicio beat (o el beat no esta planificando).
+
 ================================================================================
 FIN DEL README V1.006
 ================================================================================

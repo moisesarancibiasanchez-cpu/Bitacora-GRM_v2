@@ -610,6 +610,98 @@ def test_salud_celery_informa_cuando_no_responde_ningun_worker(
     assert "ningun worker" in worker["detalle"]
 
 
+def test_el_diagnostico_del_beat_dice_si_el_worker_esta_desactualizado(
+    local_client, db_session, monkeypatch
+):
+    """Sin latido, el endpoint dice si el fallo esta en el worker o en el beat.
+
+    Es la diferencia entre "hay que redesplegar el worker" y "hay que
+    redesplegar el beat": sin ella solo se puede conjeturar.
+    """
+    from app.core.celery_app import celery_app
+    from app.models.usuario import RolUsuario
+
+    _crear_usuario(db_session, "v1006_admin_diag", RolUsuario.ADMINISTRADOR)
+
+    class ControlViejo:
+        def ping(self, timeout=None):
+            return [{"celery@worker1": {"ok": "pong"}}]
+
+        def inspect(self, timeout=None):
+            class Inspect:
+                def registered(self):
+                    # Catalogo de un worker con el codigo anterior: 12
+                    # tareas y ninguna del latido.
+                    return {"celery@worker1": ["app.tasks.sla_tasks.recalcular_sla_masivo"]}
+            return Inspect()
+
+    monkeypatch.setattr(celery_app, "control", ControlViejo())
+    monkeypatch.setattr(
+        "app.tasks.salud_tasks.leer_latido",
+        lambda: {"ok": False, "latido": None, "antiguedad_segundos": None,
+                 "detalle": "sin latido"},
+    )
+
+    login = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "v1006_admin_diag", "password": "Clave-local-de-regresion-2026"},
+    )
+    assert login.status_code == 200, login.text
+
+    respuesta = local_client.get("/salud-celery")
+    assert respuesta.status_code == 200, respuesta.text
+    cuerpo = respuesta.json()
+
+    assert cuerpo["worker"]["conoce_latido"] is False
+    assert cuerpo["beat"]["diagnostico"] == "worker_desactualizado"
+    assert "worker NO tiene registrada" in cuerpo["beat"]["detalle"]
+    assert "Redeploy (rebuild)" in cuerpo["beat"]["detalle"]
+
+
+def test_el_diagnostico_del_beat_dice_si_el_worker_conoce_la_tarea(
+    local_client, db_session, monkeypatch
+):
+    """Si el worker conoce la tarea y aun asi no hay latido, la causa es el beat."""
+    from app.core.celery_app import celery_app
+    from app.models.usuario import RolUsuario
+
+    _crear_usuario(db_session, "v1006_admin_diag2", RolUsuario.ADMINISTRADOR)
+
+    class ControlNuevo:
+        def ping(self, timeout=None):
+            return [{"celery@worker1": {"ok": "pong"}}]
+
+        def inspect(self, timeout=None):
+            class Inspect:
+                def registered(self):
+                    return {"celery@worker1": [
+                        "app.tasks.salud_tasks.registrar_latido",
+                        "app.tasks.sla_tasks.recalcular_sla_masivo",
+                    ]}
+            return Inspect()
+
+    monkeypatch.setattr(celery_app, "control", ControlNuevo())
+    monkeypatch.setattr(
+        "app.tasks.salud_tasks.leer_latido",
+        lambda: {"ok": False, "latido": None, "antiguedad_segundos": None,
+                 "detalle": "sin latido"},
+    )
+
+    login = local_client.post(
+        "/api/v1/auth/login",
+        json={"username": "v1006_admin_diag2", "password": "Clave-local-de-regresion-2026"},
+    )
+    assert login.status_code == 200, login.text
+
+    respuesta = local_client.get("/salud-celery")
+    assert respuesta.status_code == 200, respuesta.text
+    cuerpo = respuesta.json()
+
+    assert cuerpo["worker"]["conoce_latido"] is True
+    assert cuerpo["beat"]["diagnostico"] == "beat_desactualizado_o_parado"
+    assert "nadie la publica" in cuerpo["beat"]["detalle"]
+
+
 # ---------------------------------------------------------------------------
 # 6. XSS almacenado en el renderizador Markdown (guard estatico sobre el JS)
 # ---------------------------------------------------------------------------

@@ -2638,6 +2638,33 @@ def salud_celery(request: Request):
     # --- beat: el ultimo latido escrito en Redis ---
     beat = leer_latido()
 
+    # --- diagnostico combinado: donde esta exactamente la rotura ---
+    # El latido falta por una de estas dos razones, y conviene decir
+    # cual de las dos es en lugar de dejar un "sin latido" generico:
+    #   1. el worker no tiene registrada la tarea (servicio worker con
+    #      codigo anterior: no se redesplego);
+    #   2. el worker la conoce pero nadie la publica (servicio beat con
+    #      codigo anterior, o el beat no esta planificando).
+    if not beat.get("ok"):
+        conoce = worker.get("conoce_latido")
+        if conoce is False:
+            beat["detalle"] = (
+                "sin latido: el worker NO tiene registrada la tarea "
+                "app.tasks.salud_tasks.registrar_latido ("
+                f"{worker.get('tareas_registradas')} tareas registradas). "
+                "El servicio worker no se redesplego con el codigo actual: "
+                "en Railway, 'Redeploy' reutiliza la imagen anterior; hace "
+                "falta 'Redeploy (rebuild)' o desplegar la rama actual."
+            )
+            beat["diagnostico"] = "worker_desactualizado"
+        elif worker.get("responde"):
+            beat["detalle"] = (
+                "sin latido: el worker CONOCE la tarea pero nadie la publica. "
+                "El servicio beat no se redesplego con el codigo actual o no "
+                "esta planificando."
+            )
+            beat["diagnostico"] = "beat_desactualizado_o_parado"
+
     # --- broker: profundidad de la cola ---
     colas = {}
     try:
