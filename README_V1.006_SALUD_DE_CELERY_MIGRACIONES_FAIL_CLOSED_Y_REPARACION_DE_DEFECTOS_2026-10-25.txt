@@ -322,8 +322,46 @@ llamante sigue vigente.
     puede romper el atributo `href` ni colar un manejador de evento.
   - Los enlaces llevan `rel="noopener noreferrer"`.
 
-2.10) Configuracion, dependencias y documentacion
+2.11) El latido lo escribe el BEAT, no solo el worker
 ---------------------------------------------------
+Con el latido escrito por una tarea que ejecuta el worker, la ausencia
+del latido no permitia distinguir "el beat no planifica" de "el worker no
+ejecuta": las dos senales terminaban en la misma clave de Redis.
+
+`app/core/salud_scheduler.py` (nuevo) define `SaludScheduler`, que
+hereda de `celery.beat.PersistentScheduler` y escribe el latido en cada
+`tick()`. Asi el latido depende SOLO del beat, que es justo lo que se
+quiere comprobar, y el ping del worker sigue siendo la senal
+independiente del worker.
+
+`app/core/salud.py` (nuevo) es el SSOT del latido: la clave, el TTL y las
+funciones de escritura y lectura. El scheduler, la tarea del worker y el
+endpoint comparten ese modulo sin duplicar ni la clave ni el TTL.
+
+El TTL pasa de 300 a 900 s: el `maxinterval` por defecto del beat es de
+300 s, de modo que un TTL de 300 s expiraria justo en el borde entre dos
+ticks y produciria falsos negativos.
+
+`start.sh` arranca el beat con
+`--scheduler=app.core.salud_scheduler:SaludScheduler`, con reserva: si el
+modulo no estuviera disponible, se cae al scheduler estandar de Celery
+(el beat sigue funcionando; solo se pierde el latido).
+
+Si Redis no responde, el scheduler NO se tumba: registra el aviso y el
+beat sigue planificando.
+
+2.12) Verificacion con la version de Celery de produccion
+---------------------------------------------------------
+El entorno de desarrollo tiene celery 5.6.3, pero `requirements.txt` fija
+`celery==5.4.0` y produccion corre 5.4.0 (los logs del despliegue lo
+confirman). La validacion se repitio con celery 5.4.0 instalado en un
+directorio aislado: el scheduler se instancia, `tick()` funciona, la tarea
+`app.tasks.salud_tasks.registrar_latido` se registra y el beat sobrevive a
+un fallo de Redis. El desfase de versiones del entorno de desarrollo queda
+declarado como deuda (ver 6.5).
+
+2.13) Configuracion, dependencias y documentacion
+--------------------------------------------------
   - `.env.example` (nuevo): documenta los 38 campos de `Settings` (los
     38, verificado por comparacion automatica) y las variables que se
     leen directamente fuera de `Settings`, separadas por origen: shell
@@ -423,8 +461,8 @@ Desde la raiz del repositorio:
 
     C:\Python311embed\python.exe -X utf8 -m pytest tests/ -q --tb=line
 
-Resultado esperado: 128 passed (91 de V1.005 + 6 de test_v1005_regressions
-+ 31 de test_v1006_regressions). Tiempos observados: 10 min 40 s.
+Resultado esperado: 132 passed (91 de V1.005 + 6 de test_v1005_regressions
++ 35 de test_v1006_regressions). Tiempos observados: 11 min 08 s.
 
 5.2) Arrancable y esquema (local)
 ---------------------------------
@@ -623,8 +661,8 @@ tecnica lo aclaran como valor SOLO de desarrollo.
 
 6.4) Evidencia de la validacion
 --------------------------------
-  Suite pytest completa:            128 passed, 0 failed (10 min 40 s)
-  test_v1006_regressions.py:         31 passed
+  Suite pytest completa:            132 passed, 0 failed (11 min 08 s)
+  test_v1006_regressions.py:         35 passed
   test_v1005_regressions.py:          6 passed
   verificar_arranque.py:             16 PASA / 0 FALLA
   verificar_migrations.py:            13 PASA / 0 FALLA
@@ -647,12 +685,9 @@ tecnica lo aclaran como valor SOLO de desarrollo.
   Barrido autenticado (post-deploy):  todas las comprobaciones superadas,
                                       0 respuestas 5xx (111 respuestas 200
                                       en la API, 0 errores)
-  Verificador en negro (post-deploy):  27 comprobaciones, 2 FALLOS: el worker
-                                      no conoce la tarea del latido y el
-                                      latido no aparece. Los dos son la
-                                      MISMA causa: los servicios worker y
-                                      beat no se han reconstruido (ver el
-                                      ADDENDUM 8)
+  Verificador en negro (post-deploy):  27 comprobaciones, 0 FALLOS (el worker
+                                      ya conoce la tarea del latido y el
+                                      beat escribe el latido cada minuto)
 
 6.5) Hallazgos declarados que NO se corrigieron
 -------------------------------------------------
@@ -1290,7 +1325,7 @@ nuevo. Pero el catalogo seguia mostrando 12 tareas y
 La razon es el significado de la opcion del panel: "Redeploy" vuelve a
 arrancar el deployment existente reutilizando su imagen; NO reconstruye
 desde el codigo del repositorio. Para tomar el codigo actual hace falta
-"Redeploy (rebuild)" o desplegar de nuevo la rama `main`.
+desplegar la rama, no redesplegar el deployment viejo.
 
 Por eso la seccion 8 del verificador en negro comprueba ahora, ademas
 del ping y del latido, que el worker CONOZCA la tarea del latido: es la
@@ -1298,11 +1333,60 @@ comprobacion que detecta un worker con un despliegue anterior. Y el
 endpoint enriquece el detalle del beat con el diagnostico exacto:
 
   - `beat.diagnostico = "worker_desactualizado"`: el worker no tiene
-    registrada la tarea del latido. Hay que reconstruir y redesplegar el
+    registrada la tarea del latido. Hay que desplegar la rama en el
     servicio worker.
   - `beat.diagnostico = "beat_desactualizado_o_parado"`: el worker
-    conoce la tarea pero nadie la publica. Hay que reconstruir y
-    redesplegar el servicio beat (o el beat no esta planificando).
+    conoce la tarea pero nadie la publica. Hay que desplegar la rama en
+    el servicio beat (o el beat no esta planificando).
+
+8.8) Causa raiz confirmada por la API de Railway
+-------------------------------------------------
+Con el token de proyecto renovado (nota de uso: el token de proyecto de
+Railway va en la cabecera `Project-Access-Token`; con
+`Authorization: Bearer` la API responde "Not Authorized"), la API
+`serviceInstanceAutoDeployStatus` y `latestDeployment` darON la causa
+exacta:
+
+  Servicio  autoDeploy  ultimo commit desplegado
+  --------  ----------  ------------------------------------------
+  web       ACTIVADO    ae1d882 (HEAD de V1.006)      reason=deploy
+  worker    DESACTIVADO 685df67 ("README V1.004 ...") reason=redeploy
+  beat      DESACTIVADO 685df67 ("README V1.004 ...") reason=redeploy
+
+Es decir: **worker y beat llevan el commit de V1.004 desde el 2026-10-24**
+y su despliegue automatico ante push esta DESACTIVADO (el web si lo tiene
+activo y por eso se actualizaba en cada push). El "Redeploy" del panel
+reconstruyo ese commit viejo, de ahi el contenedor nuevo con codigo viejo.
+
+Acciones aplicadas en este lote:
+  1. Despliegue de la rama `main` en worker y beat con
+     `serviceInstanceDeploy(latestCommit: true)`. Ambos arrancaron con el
+     commit `bf8d9a8` (HEAD, reason=deploy).
+  2. Rediseno del latido (2.11): ahora lo escribe el BEAT, con lo que la
+     senal deja de depender del worker.
+
+Lo que NO se pudo activar por API (queda como accion del propietario):
+  - `serviceInstanceAutoDeployUpdate` y `deploymentTriggerCreate`
+    responden **"Bad Access"** con el token de proyecto: crear el
+    `repoTrigger` de los servicios worker y beat (como el `94058cbf` del
+    web) requiere el token de API de usuario. Sin el, los dos servicios
+    NO se actualizan solos con un push: hay que desplegar la rama desde
+    el panel cada vez que toque.
+
+8.9) Estado final verificado en produccion
+---------------------------------------------
+  GET /salud-celery (con sesion de administrador):
+    ok                      true
+    worker.responde         true   (celery@19800286faa4)
+    worker.tareas_registradas 13  (incluye app.tasks.salud_tasks.registrar_latido)
+    worker.conoce_latido    true
+    beat.ok                 true
+    beat.latido             2026-10-26T03:44:00Z (escrito por el beat)
+    beat.antiguedad         49 s  (se renueva cada minuto)
+    colas.celery            0
+
+  Verificador en negro: 27 comprobaciones, 0 FALLOS.
+  Barrido autenticado: 31 paginas + 124 endpoints GET, 0 respuestas 5xx.
 
 ================================================================================
 FIN DEL README V1.006
