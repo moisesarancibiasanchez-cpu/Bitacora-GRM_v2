@@ -310,13 +310,13 @@
             <!-- Rango explícito (precedencia sobre el bloque) -->
             <input id="incidencias-recientes-desde"
                    type="date"
-                   onchange="aplicarBloqueFechas()"
+                   onchange="aplicarFechasManuales()"
                    title="Fecha desde (apertura de la incidencia)"
                    class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
             <span class="text-[10px] text-slate-400">→</span>
             <input id="incidencias-recientes-hasta"
                    type="date"
-                   onchange="aplicarBloqueFechas()"
+                   onchange="aplicarFechasManuales()"
                    title="Fecha hasta (apertura de la incidencia)"
                    class="text-[11px] border border-slate-200 rounded px-2 py-1 bg-white">
 
@@ -1058,6 +1058,21 @@
     'tiempo_promedio_resolucion_horas':    'TTR prom. (h)',
   };
 
+  // FIX-KPI-CONSISTENCIA(dashboard): el modal mostraba siempre
+  // "Período: N días" aunque el resumen estuviera filtrando por un rango
+  // explícito de fechas (28-07-2026 → 26-10-2026). Ahora muestra el rango
+  // REAL con el que se calculó el listado, para que el modal y la franja
+  // de KPI sean legibles como el mismo filtro.
+  function _kpiRangoTexto(data) {
+    if (!data) return '?';
+    if (data.rango_explicito && (data.fecha_desde || data.fecha_hasta)) {
+      const a = data.fecha_desde ? String(data.fecha_desde).slice(0, 10) : '…';
+      const b = data.fecha_hasta ? String(data.fecha_hasta).slice(0, 10) : '…';
+      return a + ' → ' + b;
+    }
+    return (data.periodo_dias || '?') + ' días';
+  }
+
   function _kpiPrioridadColor(p) {
     if (!p) return '#94a3b8';
     const v = String(p).toLowerCase();
@@ -1116,15 +1131,20 @@
       + '</div>';
 
     try {
-      const sel = safeId('periodo');
-      const periodo = sel ? (sel.value || '30') : '30';
-      const tipoSel = safeId('incidencias-tipo');
-      const tipo = tipoSel ? (tipoSel.value || 'incidencia') : 'incidencia';
+      // FIX-KPI-CONSISTENCIA(dashboard): el modal parte de EXACTAMENTE los
+      // mismos filtros que la franja de KPI de arriba. Antes leía el
+      // selector global '#periodo' (30 días por defecto) y un id de
+      // selector de tipo inexistente ('incidencias-tipo'), de modo que
+      // ignoraba el rango explícito elegido por el usuario: el resumen
+      // contaba 18 tickets de 90 días y el modal listaba 2 de 30 días.
+      const filtros = _filtrosIncidenciasRecientes();
       const url = '/api/v1/metricas/detalle-kpi'
         + '?kpi=' + encodeURIComponent(kpi)
-        + '&periodo_dias=' + encodeURIComponent(periodo)
-        + '&tipo=' + encodeURIComponent(tipo)
+        + '&periodo_dias=' + encodeURIComponent(filtros.periodo)
+        + '&tipo=' + encodeURIComponent(filtros.tipo)
         + '&limite=200'
+        + (filtros.fecha_desde ? '&fecha_desde=' + encodeURIComponent(filtros.fecha_desde) : '')
+        + (filtros.fecha_hasta ? '&fecha_hasta=' + encodeURIComponent(filtros.fecha_hasta) : '')
         + '&_=' + Date.now();
       const r = await fetch(url, {
         headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
@@ -1206,10 +1226,16 @@
       +       '</h3>'
       +       '<p class="text-xs text-slate-500 mt-1">' + _escapeHtml(data.descripcion || '') + '</p>'
       +       '<p class="text-[11px] text-slate-400 mt-1">'
-      +         'Período: <span class="font-mono">' + (data.periodo_dias || '?') + ' días</span>'
+      +         'Período: <span class="font-mono">' + _escapeHtml(_kpiRangoTexto(data)) + '</span>'
       +         ' · Tipo: <span class="font-mono">' + _escapeHtml(data.tipo || '?') + '</span>'
       +         ' · Total: <span class="font-mono">' + (data.total || 0) + '</span> tickets'
       +       '</p>'
+      +       (data.truncado
+      +         ? '<p class="text-[11px] text-amber-600 mt-1">Se muestran '
+      +             + (data.total_listado || 0) + ' de ' + (data.total || 0)
+      +             + ' tickets: el listado está limitado a ' + (data.limite || 0)
+      +             + ' filas. Usa "Exportar CSV" para el período completo.</p>'
+      +         : '')
       +     '</div>'
       +     '<button type="button" data-close-modal="1" class="text-slate-400 hover:text-slate-700 p-1" aria-label="Cerrar">'
       +       '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
@@ -1621,6 +1647,51 @@
          + '</span>';
   }
 
+  // ===================================================================
+  // FILTROS DE LA "LISTA DE INCIDENCIAS RECIENTES" (fuente única)
+  // ===================================================================
+  // FIX-KPI-CONSISTENCIA(dashboard): el resumen (franja de 7 KPI), la
+  // tabla y el modal de drill-down deben partir de EXACTAMENTE los mismos
+  // filtros. Antes cada uno los resolvía por su cuenta: el modal leía el
+  // selector global '#periodo' (30 días por defecto) y un id de selector
+  // de tipo inexistente ('incidencias-tipo'), de modo que ignoraba el
+  // rango explícito elegido por el usuario. El resumen contaba 18
+  // tickets de 90 días y el modal listaba 2 de 30 días.
+  //
+  // Esta función es la única fuente de verdad: la usan la carga del
+  // resumen, la apertura del modal y la exportación a CSV.
+  function _filtrosIncidenciasRecientes() {
+    const tipoSel = safeId('incidencias-recientes-tipo');
+    const tipo    = (tipoSel && tipoSel.value) ? tipoSel.value : 'incidencia';
+
+    const bloque = safeId('incidencias-recientes-bloque');
+    const desde  = safeId('incidencias-recientes-desde');
+    const hasta  = safeId('incidencias-recientes-hasta');
+    const fd = (desde && desde.value) || '';
+    const fh = (hasta && hasta.value) || '';
+
+    // El bloque rápido de la SECCIÓN es el que manda ('hoy' | 7 | 30 | 90).
+    // 'personalizado' sin fechas informadas cae al selector global de la
+    // cabecera, que es el único caso en el que se usa.
+    let periodo = (bloque && bloque.value) ? bloque.value : '';
+    if (!periodo || periodo === 'personalizado') {
+      const globalSel = safeId('periodo');
+      periodo = (globalSel && globalSel.value) ? globalSel.value : '30';
+    }
+    if (periodo === 'hoy') periodo = '1';
+
+    return {
+      tipo: tipo,
+      periodo: periodo,
+      fecha_desde: fd,
+      fecha_hasta: fh,
+      // Etiqueta legible del rango efectivo (la muestra el modal).
+      rango_texto: (fd || fh)
+        ? (fd || '…') + ' → ' + (fh || '…')
+        : periodo + ' días',
+    };
+  }
+
   async function cargarIncidenciasRecientes() {
     const cont    = safeId('incidencias-recientes-wrap');
     const loading = safeId('incidencias-recientes-loading');
@@ -1629,19 +1700,11 @@
     const badge   = safeId('incidencias-recientes-periodo');
     if (!cont || !table || !tbody) return;
 
-    const tipoSel = safeId('incidencias-recientes-tipo');
-    const tipo    = (tipoSel && tipoSel.value) ? tipoSel.value : 'incidencia';
-    const periodo = (safeId('periodo') || { value: '30' }).value;
-
-    // === Filtro de rango de fechas ===
-    // El bloque rápido (hoy / 7d / 30d / 90d) solo se aplica si NO hay
-    // un rango explícito definido en los inputs desde/hasta. Si el
-    // usuario escoge uno o ambos, toman precedencia.
-    const bloque  = safeId('incidencias-recientes-bloque');
-    const desde   = safeId('incidencias-recientes-desde');
-    const hasta   = safeId('incidencias-recientes-hasta');
-    const fd = (desde && desde.value) || '';
-    const fh = (hasta && hasta.value) || '';
+    const filtros = _filtrosIncidenciasRecientes();
+    const tipo    = filtros.tipo;
+    const periodo = filtros.periodo;
+    const fd      = filtros.fecha_desde;
+    const fh      = filtros.fecha_hasta;
 
     // Mostrar loading sin perder la tabla (sólo overlay visual)
     if (loading) loading.classList.remove('hidden');
@@ -1695,8 +1758,19 @@
         } else {
           label = (data.periodo_dias || periodo) + 'd';
         }
-        badge.textContent =
-          label + ' · ' + (data.tickets || []).length + ' tickets';
+        // FIX-KPI-CONSISTENCIA(dashboard): el badge muestra el TOTAL real
+        // del período (el mismo número que la casilla "Total periodo"), no
+        // la cantidad de filas que devolvió la tabla, que viene truncada
+        // por 'limite'. Antes ambos números podían discordar entre sí.
+        const totalReal = (data.metricas && data.metricas.total_periodo != null)
+          ? data.metricas.total_periodo
+          : (data.tickets || []).length;
+        const mostrados = (data.tickets || []).length;
+        let textoBadge = label + ' · ' + totalReal + ' tickets';
+        if (mostrados < totalReal) {
+          textoBadge += ' (mostrando ' + mostrados + ')';
+        }
+        badge.textContent = textoBadge;
       }
 
       // === Pintar tabla ===
@@ -1842,13 +1916,35 @@
     }
 
     const hoy = new Date();
-    let dias = parseInt(val, 10);
-    if (isNaN(dias)) dias = 7;
+    // FIX-KPI-CONSISTENCIA(dashboard): la opción "Hoy" se traducía a 7
+    // días (parseInt('hoy') es NaN y caía al valor por defecto 7), de modo
+    // que un filtro rotulado "Hoy" cubría en realidad los últimos 7 días.
+    let dias;
+    if (val === 'hoy') {
+      dias = 0;
+    } else {
+      dias = parseInt(val, 10);
+      if (isNaN(dias)) dias = 7;
+    }
 
     const fmt = (d) => d.toISOString().slice(0, 10);
     if (desde) desde.value = fmt(new Date(hoy.getTime() - dias * 86400 * 1000));
     if (hasta) hasta.value = fmt(hoy);
 
+    cargarIncidenciasRecientes();
+  }
+
+  // FIX-KPI-CONSISTENCIA(dashboard): cuando el operador escribe a mano una
+  // fecha, el bloque rápido debe pasar a "Personalizado…" para que el rango
+  // elegido no se sobrescriba al recargar. Antes los inputs llamaban a
+  // aplicarBloqueFechas(), que reponía las fechas del bloque rápido y
+  // descartaba la edición manual (el comentario del código describía el
+  // comportamiento contrario al que realmente había).
+  function aplicarFechasManuales() {
+    const bloque = safeId('incidencias-recientes-bloque');
+    if (bloque && bloque.value !== 'personalizado') {
+      bloque.value = 'personalizado';
+    }
     cargarIncidenciasRecientes();
   }
 
@@ -1862,14 +1958,43 @@
     cargarIncidenciasRecientes();
   }
 
-  function exportarIncidenciasRecientes() {
-    if (!_incidenciasRecientesCache) {
-      alert('No hay datos cargados para exportar. Espera unos segundos o cambia el filtro para recargar.');
-      return;
+  // FIX-KPI-CONSISTENCIA(dashboard): el CSV se armaba con la caché de la
+  // tabla, que viene truncada por 'limite' (50 filas). Con un período
+  // grande el archivo exportado contenía menos tickets que el total del
+  // período. Ahora se vuelve a pedir el listado con el tope máximo del
+  // endpoint (200) usando EXACTAMENTE los mismos filtros, y se avisa si
+  // aun así queda contenido fuera.
+  async function exportarIncidenciasRecientes() {
+    const filtros = _filtrosIncidenciasRecientes();
+    let data = _incidenciasRecientesCache;
+    let tickets = (data && data.tickets) || [];
+
+    try {
+      const params = [
+        'periodo_dias=' + encodeURIComponent(filtros.periodo),
+        'tipo=' + encodeURIComponent(filtros.tipo),
+        'limite=200',
+        '_=' + Date.now(),
+      ];
+      if (filtros.fecha_desde) params.push('fecha_desde=' + encodeURIComponent(filtros.fecha_desde));
+      if (filtros.fecha_hasta) params.push('fecha_hasta=' + encodeURIComponent(filtros.fecha_hasta));
+      const r = await fetch('/api/v1/metricas/incidencias-recentes?' + params.join('&'), {
+        headers: { 'X-User-Id': String(window.CURRENT_USER_ID || 1) },
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      if (r.ok) {
+        data = await r.json();
+        tickets = data.tickets || [];
+      }
+    } catch (e) {
+      // Si la recarga falla se exporta la caché que haya, que es mejor
+      // que no exportar nada, pero se avisa.
+      alert('No se pudo recuperar el listado completo del período. '
+            + 'Se exporta lo que hay en pantalla, que puede estar truncado.');
     }
-    const data = _incidenciasRecientesCache;
+
     const headers = ['Código', 'Título', 'Estado', 'Prioridad', 'Asignado', 'Fecha Vencimiento', 'SLA Activo', 'Horas Restantes', 'Módulo'];
-    const tickets = data.tickets || [];
     const rows = tickets.map(t => [
       t.codigo || '',
       t.titulo || '',
@@ -1893,6 +2018,16 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // Aviso de truncamiento: el total del período es mayor que lo exportado.
+    const totalPeriodo = (data && data.metricas && data.metricas.total_periodo != null)
+      ? data.metricas.total_periodo
+      : null;
+    if (totalPeriodo != null && totalPeriodo > tickets.length) {
+      alert('El período contiene ' + totalPeriodo + ' tickets y el CSV contiene '
+            + tickets.length + ' (tope del endpoint). Filtra por un rango más '
+            + 'corto para exportar el período completo.');
+    }
   }
 
   // === Drill-down modal: Cuenta de Resultado ===
@@ -1984,6 +2119,7 @@
   // Expongo solo las funciones que el HTML invoca desde atributos, no
   // toda la API interna (mantener superficie mínima).
   window.aplicarBloqueFechas       = aplicarBloqueFechas;
+  window.aplicarFechasManuales      = aplicarFechasManuales;
   window.limpiarFiltroFechas       = limpiarFiltroFechas;
   window.cargarIncidenciasRecientes = cargarIncidenciasRecientes;
   window.exportarIncidenciasRecientes = exportarIncidenciasRecientes;
