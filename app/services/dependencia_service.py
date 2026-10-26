@@ -106,7 +106,7 @@ class TicketDependenciaService:
         if self._existe_camino(sucesor_id, predecesor_id):
             raise DependenciaError(
                 f"Crear esta dependencia generaría un ciclo en el grafo "
-                f"({sucesor.codigo} ya depende transitivamente de {pred.codigo}).",
+                f"({suc.codigo} ya depende transitivamente de {pred.codigo}).",
                 codigo="ciclo_detectado",
             )
 

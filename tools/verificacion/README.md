@@ -1,0 +1,86 @@
+# Verificaciones reproducibles — Bitácora GRM
+
+Scripts de verificación **sin mocks y sin datos falsos** que comprueban los
+arreglos aplicados en la versión 1.002 (ver `README_V1.002_*.txt` en la raíz).
+
+Todos se ejecutan contra datos propios: base de datos SQLite **en memoria**,
+un servidor Starlette real o un sandbox de shell. Ninguno toca la base de
+datos de producción ni la de Railway.
+
+## Uso
+
+```bash
+# Desde la raíz del repositorio
+python tools/verificacion/verificar_arranque.py
+python tools/verificacion/verificar_migrations.py
+python tools/verificacion/verificar_config.py
+python tools/verificacion/verificar_cors.py
+python tools/verificacion/verificar_sqlite_lower.py
+
+# El de start.sh necesita bash (Git Bash en Windows / Linux / macOS)
+bash tools/verificacion/verificar_secret_key.sh
+
+# Contra el despliegue (requieren red)
+python tools/verificacion/verificar_produccion_negro.py
+python tools/verificacion/barrer_rutas.py [URL_BASE]
+python tools/verificacion/barrer_anonimo.py [URL_BASE]
+python tools/verificacion/inventariar_rutas.py [URL_BASE]
+python tools/verificacion/esperar_redeploy.py
+```
+
+`barrer_anonimo.py` NO necesita credenciales: recorre las rutas sin sesión
+para comprobar que no se sirve nada a un visitante anónimo.
+
+Antes de ejecutar los scripts que autentican al administrador hay que definir
+`BITACORA_ADMIN_USER` y `BITACORA_ADMIN_PASSWORD` en el entorno. No tienen
+valores por defecto: si falta alguna variable, el script indica exactamente
+cuál falta y termina con código `2` (verificación no realizable). El código
+`0` significa que todo pasó y `1`, que la verificación encontró fallos.
+
+En PowerShell, las variables se definen así (los valores los proporciona el
+operador, no el repositorio):
+
+```powershell
+$env:BITACORA_ADMIN_USER = "<usuario-admin>"
+$env:BITACORA_ADMIN_PASSWORD = "<contrasena-admin>"
+```
+
+Cada script de comprobaciones imprime una línea `PASA`/`FALLA` y termina con
+un resumen `RESULTADO ...` cuando corresponde.
+
+## Qué comprueba cada uno
+
+| Script | Comprobaciones | Qué cubre |
+|---|---|---|
+| `verificar_arranque.py` | 16 | Arranque real de la aplicación (lifespan completo de FastAPI) contra una BD SQLite temporal: guard de configuración, migraciones aplicadas, `/health`, login real con `BITACORA_ADMIN_USER`/`BITACORA_ADMIN_PASSWORD`, `/kanban` con el badge `data-resultado-pruebas` y `/dashboard` con las islas JSON de la paleta. Comprueba además que en la BD quedan el estado `Producción OK` y sus 3 transiciones. |
+| `verificar_migrations.py` | 13 | Aislamiento por `SAVEPOINT` de cada unidad de datos; comparador booleano por dialecto en `etiquetas.activo` (PostgreSQL `BOOLEAN` vs SQLite entero); creación del estado `Producción OK` y de sus 3 transiciones; idempotencia en el segundo arranque. Recuento medido por ejecución (13 líneas `PASA`, 0 `FALLA`). |
+| `verificar_config.py` | 11 | Derivación de `PUBLIC_BASE_URL` desde `RAILWAY_PUBLIC_DOMAIN` / `RAILWAY_STATIC_URL`; respeto del valor explícito; guard de HTTPS intacto; `CORS_ORIGINS='*'` no bloqueante en producción; `SECRET_KEY` vacía **sí** bloqueante; comodín en desarrollo **sí** bloqueante. |
+| `verificar_cors.py` | 9 | Comportamiento real de Starlette con la configuración exacta de `app/main.py`: con el comodín no se emite `Access-Control-Allow-Credentials`, por lo que el navegador no puede leer respuestas autenticadas cross-origin. |
+| `verificar_sqlite_lower.py` | 0 (demostrativo) | `LOWER()` de SQLite sólo normaliza ASCII: `LOWER('Producción OK')` → `'producción ok'`. Demuestra por qué el literal SQL sin tilde no podía coincidir con el nombre canónico del estado. **No falla nunca**: es una demostración que imprime el comportamiento real de SQLite y de la normalización en Python; su valor es documental, no asertivo. |
+| `verificar_secret_key.sh` | 24 | Lógica de `start.sh`: generación, persistencia, idempotencia entre reinicios, rechazo de placeholders, permisos `600`, y que la clave **nunca** se escribe en el log. Recuento medido por ejecución (24 líneas `PASA`; las 3 comprobaciones de claves aceptadas se generan dentro de un bucle, por eso el recuento estático de llamadas no coincide). |
+| `verificar_produccion_negro.py` | 27 (24 sin credenciales) | Verificación **en negro** del despliegue, sin sesión y sin credenciales: salud del servicio, retirada de `/_diag/tickets` (404 y sin volcado de tickets en el cuerpo), `/info` sin topología interna de la base de datos, cabeceras de seguridad presentes (HSTS, CSP, Permissions-Policy, X-Frame-Options, nosniff, Referrer-Policy), redirección de `/onboarding` **sin** degradar a `http://`, barrido de las 124 rutas GET del OpenAPI y de las 17 páginas HTML exigiendo **0 respuestas 5xx**. Solo hace peticiones GET. Variables opcionales: `BITACORA_APP_URL` y, para la sección 8, `BITACORA_ADMIN_USER`/`BITACORA_ADMIN_PASSWORD` (esa sección comprueba que el worker responde al ping, que **conoce la tarea del latido** — es decir, que el servicio worker va con el código actual — y que el beat escribió un latido reciente; sin credenciales se informa `SALTADO` y el recuento baja a 24). Recuento medido por ejecución contra el despliegue. |
+| `barrer_rutas.py` | Barrido | Barrido contra el despliegue, con sesión iniciada mediante `BITACORA_ADMIN_USER`/`BITACORA_ADMIN_PASSWORD`: 31 páginas HTML (todas 200 o 307) y **los 124 endpoints GET del esquema OpenAPI real** — las rutas de API ya no se mantienen a mano, se derivan de `/openapi.json`, de modo que una ruta inexistente es un fallo del propio barrido y no un 404 "esperado". Deriva además del propio OpenAPI la ruta única que termina en `/reporte-entregas/estados`; cero o más de una coincidencia es un fallo explícito. Comprueba 0 respuestas 5xx, que el dashboard sirve la paleta desde el servidor y que el JS no la re-declara (chequeo por identificador, no por valor de hex: `#16a34a` y `#94a3b8` coinciden con las paletas de prioridad y de etiquetas), y que el endpoint temporal de diagnóstico `/_diag/tickets` ya no esté expuesto. |
+| `barrer_anonimo.py` | 5 | Barrido **sin sesión** contra el despliegue: recorre los 124 endpoints GET del OpenAPI **sin cookie ni token** y exige que ninguno sirva datos. La referencia de "sin datos" es la propia pantalla de login (las páginas HTML sin sesión se sirven idénticas al formulario de autenticación). Un 200 con un cuerpo distinto al de la pantalla de login es una **fuga**; un 5xx es un error; además busca huellas de datos reales (correos y códigos de ticket) que no aparezcan en la pantalla de login. No requiere credenciales: solo hace peticiones GET de solo lectura. Excluye explícitamente el ruido conocido `sortablejs@1.15.2` (la CDN de SortableJS tiene forma de dirección de correo pero no lo es). Es la herramienta que detectó el modal de cambio de contraseña, que respondía 200 sin sesión. |
+| `inventariar_rutas.py` | 1 | Inventario real de rutas contra el esquema OpenAPI del despliegue, contraste con la lista de 36 rutas del README V1.001 (indicando la ruta real equivalente de cada una desactualizada) y rastreo autenticado de enlaces, anclas e identificadores en las 17 páginas principales. No sigue redirecciones: una página que redirija a `/auth/login` se informa como un único hallazgo agregado «SIN SESIÓN / redirección a login». |
+| `diagnostico_tickets.py` | 1 | Diagnóstico **local** de serialización de tickets con `TicketRead` (el primero que falla, con campo y motivo). Sustituye al endpoint temporal `/_diag/tickets`, que se retiró de la aplicación el 2026-10-24 por estar expuesto sin autenticación y por iterar toda la tabla de tickets en cada petición. |
+| `esperar_redeploy.py` | 1 | Vigila `/health` hasta que responda 200 tras un push (30 s entre intentos) y, cuando la app levanta, valida el login con `BITACORA_ADMIN_USER`/`BITACORA_ADMIN_PASSWORD` y las rutas autenticadas. |
+| `verificar_dist.py` | 13 | Integridad de la salida de build `dist/` antes de publicarla: `index.html` en la raíz, 24 secciones, los 25 recursos de `imgs/` presentes, las 25 anclas internas resueltas, sin andamiaje de la plataforma de hosting y sin placeholders sin resolver (salvo `{{build_date}}`, que rellena el propio script del proyecto). Recuento medido por ejecución (13 líneas `PASA`, 0 `FALLA`). |
+| `verificar_sitio.py` | 9 | Verificación del sitio ya publicado: estado, secciones, descarga real de cada imagen y resolución de cada ancla. |
+| `verificar_secretos_source.py` | 1 | Control de secretos sobre el directorio que se sube como `source_path` a almacenamiento privado. |
+| `recuperar_guia_publicada.py` | 12 | Recupera la versión publicada de la guía de Onboarding separando el contenido del proyecto del andamiaje que inyecta la plataforma de hosting (resaltado de iframe, globo flotante "Created by MiniMax Agent"), conservando los scripts propios del proyecto (resaltado del índice y `{{build_date}}`). No escribe nada si no supera las comprobaciones. |
+| `instalar_guia_recuperada.py` | 1 | Instala la guía recuperada como fuente canónica en `docs/onboarding-demo/` y reconstruye `dist/` (index.html + imgs/). Muestra el diff por líneas contra la versión anterior del repo. |
+| `verificar_flujo_produccion.py` | 8 | Autentica con `BITACORA_ADMIN_USER`/`BITACORA_ADMIN_PASSWORD` y comprueba contra la base de datos de PRODUCCIÓN que el estado terminal de producción existe una sola vez, que no hay homónimos duplicados, que es alcanzable y que conserva su salida. La base de producción usa un flujo propio (BackLog, En desarrollo, Entregado, APROBADO QA, `produccion ok`, DESESTIMADA, ...) y NO los estados del seed, así que la comprobación se hace sobre el flujo real y no sobre los nombres de ejemplo. |
+| `verificar_flujo_produccion_ok.py` | 6 | Verifica el flujo de "Producción OK" sobre una base **sembrada desde cero** (SQLite en memoria con los nombres canónicos del seed: `Producción OK` CON tilde). Es el caso donde mordía el bug de tildes: sin la comparación normalizada, la migración 4.6 intentaba insertar un duplicado y la 4.7 no creaba las 3 transiciones. Comprueba estado único, las 3 transiciones y la idempotencia. Recuento medido por ejecución (6 líneas `PASA`, 0 `FALLA`). |
+| `barrer_secrets_final.py` | 16 | Higiene final del repositorio: credenciales completas en el working tree, tokens en `.git/config` o en la URL del remote, secretos utilizables en el historial publicado, binarios de runtime versionados, árbol de trabajo limpio, `HEAD == origin/main` y cobertura de `.gitignore`. El detector descarta los valores de ejemplo (`re_XXXX...`, `PLACEHOLDER`), que no son secretos filtrados. Recuento medido por ejecución (15 `PASA` + 1 `FALLA` con el árbol sin commitear; son 16 comprobaciones). |
+
+## Nota de plataforma
+
+`verificar_secret_key.sh` informa el modo de permisos del archivo persistido.
+En Windows con Git Bash sobre NTFS el comando `chmod` es un *no-op* (el
+filesystem no representa el bit POSIX de otros-lectura), así que el modo
+`600` **no es verificable ahí**; el script lo detecta y lo reporta en lugar
+de fallar. En el contenedor de Railway (Linux) el `chmod 600` sí se aplica.
+
+`_probe_config.py` es un módulo auxiliar: lo invoca `verificar_config.py` en
+un subproceso por escenario, porque `Settings` es un singleton y cada
+escenario necesita un `os.environ` limpio.

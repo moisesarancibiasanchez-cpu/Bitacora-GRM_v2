@@ -1,1 +1,0 @@
-![](extract/subset_96_96_08305ea9_e67ae9ae/images/page_1_img_in_chart_box_66_67_1459_1110.jpg)

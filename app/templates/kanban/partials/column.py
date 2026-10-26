@@ -1,9 +1,16 @@
 """
 Fragmento Jinja2: columna del Kanban.
 """
-from jinja2 import Template
+from jinja2 import Environment
+from markupsafe import Markup
 
-COLUMN_TEMPLATE = Template("""
+# Entorno Jinja con ``autoescape=True``: el nombre y el color del estado se
+# insertan escapados en el HTML. Antes se usaba ``Template(...)`` sin
+# autoescape, por lo que un nombre de estado con ``<script>`` se inyectaba
+# crudo en el DOM.
+_ENV = Environment(autoescape=True)
+
+COLUMN_TEMPLATE = _ENV.from_string("""
 <div id="column-{{ estado.id }}"
      class="kanban-column flex-shrink-0 w-72 rounded-xl bg-slate-100/70 p-3 flex flex-col"
      data-estado-id="{{ estado.id }}"
@@ -34,8 +41,13 @@ COLUMN_TEMPLATE = Template("""
 def render_columna(estado, tickets) -> str:
     """Renderiza la columna completa de un estado."""
     from app.templates.kanban.partials.card import render_tarjeta
+
+    # ``render_tarjeta`` ya renderiza con autoescape=True, por lo que su HTML
+    # es seguro: se marca como ``Markup`` para que el autoescape de esta
+    # plantilla no lo escape de nuevo (si no, la tarjeta se mostraría como
+    # texto plano en lugar de como HTML).
     return COLUMN_TEMPLATE.render(
         estado=estado,
         tickets=tickets,
-        card_macro=lambda t: render_tarjeta(t),
+        card_macro=lambda t: Markup(render_tarjeta(t)),
     )

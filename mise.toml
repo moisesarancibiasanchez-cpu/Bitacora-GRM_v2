@@ -7,6 +7,10 @@
 #  permanente para que la instalación de Python sea consistente.
 # =============================================================================
 
+[tools]
+# Debe coincidir con runtime.txt y con el intervalo declarado en pyproject.toml.
+python = "3.12.5"
+
 [settings]
 # Desactiva la verificación de atestaciones de GitHub al instalar Python.
 # Esto es necesario porque algunas versiones (p. ej. 3.12.5) no tienen

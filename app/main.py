@@ -15,13 +15,10 @@ from fastapi.templating import Jinja2Templates
 from app.api.v1.router import api_router
 from app.core.config import settings
 
-# Importante: importar whitenoise SOLO si está disponible. Si falta el
-# paquete (modo dev minimalista) caemos al StaticFiles de FastAPI.
-try:
-    from whitenoise import WhiteNoise
-    HAS_WHITENOISE = True
-except ImportError:  # pragma: no cover
-    HAS_WHITENOISE = False
+# Nota: `whitenoise` ya NO se usa en este módulo. Antes se intentaba
+# integrar con `a2wsgi.ASGIMiddleware`, que rompía el arranque ASGI de
+# uvicorn; `/static` lo sirve `StaticFiles` (ASGI nativo). Ver el bloque
+# "Estáticos" al final de este fichero.
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,7 +40,21 @@ async def lifespan(app: FastAPI):
        tablas faltantes y carga datos semilla. En producción NO es
        necesario porque las migraciones del paso 1 ya garantizan el
        esquema; AUTO_INIT_DB solo se activa explícitamente.
+
+    0) VALIDACIÓN DE CONFIGURACIÓN: en producción (DEBUG=False) la app
+       ABORTA si la configuración es insegura (SECRET_KEY vacía o con
+       placeholder, CORS con comodín, PUBLIC_BASE_URL sin HTTPS). En
+       desarrollo los avisos sólo se registran.
     """
+    # Paso 0: validación de configuración (bloqueante sólo en producción)
+    avisos = settings.validar()
+    if avisos:
+        mensaje = "Configuración insegura:\n" + "\n".join(f"  - {a}" for a in avisos)
+        if not settings.DEBUG:
+            logger.error(mensaje)
+            raise RuntimeError(mensaje)
+        logger.warning("[startup] " + mensaje.replace("\n", " | "))
+
     # Paso 1: migraciones idempotentes (SIEMPRE)
     try:
         from app.db.migrations import apply_migrations
@@ -52,7 +63,11 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[startup] No se pudieron aplicar migraciones: {e}")
 
     # Paso 2: init completo solo si está activado
-    if settings.DEBUG or os.getenv("AUTO_INIT_DB", "false").lower() == "true":
+    # NOTA: se lee de ``settings`` (pydantic-settings) y NO de ``os.getenv``:
+    # pydantic-settings NO exporta las variables del archivo ``.env`` al
+    # ``os.environ``, por lo que ``os.getenv("AUTO_INIT_DB")`` siempre
+    # devolvía ``None`` y el flag era INELECTIVO.
+    if settings.DEBUG or settings.AUTO_INIT_DB:
         try:
             from app.db.init_db import init_database
             init_database()
@@ -66,15 +81,36 @@ app = FastAPI(
     description="Sistema híbrido ITSM + Kanban para gestión de incidencias",
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.EXPOSE_API_DOCS else None,
+    redoc_url="/redoc" if settings.EXPOSE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.EXPOSE_API_DOCS else None,
 )
 
 # === Middlewares ===
+# CORS: la aplicación es *server-rendered* (el frontend lo sirve el mismo
+# FastAPI) y autentica con la cookie ``access_token``.
+#
+# Permitir credenciales (``allow_credentials=True``) junto con el comodín
+# "*" es una combinación que (a) la especificación CORS rechaza — el
+# navegador no envía cookies si la cabecera es ``Access-Control-Allow-Origin:
+# *`` — y (b) es una vulnerabilidad: cualquier sitio web podría ejecutar
+# peticiones autenticadas en nombre del usuario. Por eso, cuando hay
+# comodín se desactivan las credenciales; con orígenes explícitos se
+# mantienen intactas.
+_cors_origins = [o for o in (settings.CORS_ORIGINS or []) if o]
+_cors_wildcard = "*" in _cors_origins
+if _cors_wildcard:
+    logger.warning(
+        "[cors] CORS_ORIGINS contiene '*': se desactiva allow_credentials "
+        "para impedir que orígenes arbitrarios ejecuten peticiones "
+        "autenticadas con la cookie de sesión. Define orígenes explícitos "
+        "en producción."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=not _cors_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -90,10 +126,19 @@ async def add_security_and_cache_headers(request: Request, call_next):
       ``X-Content-Type-Options: nosniff`` para evitar MIME-sniffing.
 
     - Todas las respuestas: ``X-Frame-Options: DENY`` (anti-clickjacking),
-      ``Referrer-Policy: strict-origin-when-cross-origin`` y
-      ``X-Content-Type-Options: nosniff``. Se usan ``setdefault`` para
-      respetar cualquier cabecera ya fijada por un endpoint o middleware
-      posterior (p.ej. WhiteNoise).
+      ``Referrer-Policy: strict-origin-when-cross-origin``,
+      ``X-Content-Type-Options: nosniff`` y ``Permissions-Policy``.
+
+    - Sobre HTTPS: ``Strict-Transport-Security`` (HSTS). Sin esta cabecera el
+      navegador no tiene un ancla de HTTPS y una redireccion a ``http://``
+      degrada la sesion en claro.
+
+    - ``Content-Security-Policy`` (configurable con ``SECURITY_CSP``): acota
+      los origenes desde los que la pagina puede cargar scripts, estilos,
+      fuentes e imagenes.
+
+    Se usan ``setdefault`` para respetar cualquier cabecera ya fijada por un
+    endpoint o middleware posterior (p.ej. WhiteNoise).
     """
     response = await call_next(request)
     path = request.url.path
@@ -102,9 +147,27 @@ async def add_security_and_cache_headers(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), camera=(), microphone=()"
+    )
 
-    # Caché de 5 minutos + íes anti-sniffing explícito para archivos estáticos
-    if path.startswith("/static") or path.startswith("/onboarding"):
+    # HSTS: solo tiene sentido sobre HTTPS (en HTTP el navegador lo ignora).
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+
+    # CSP: cadena vacía en `SECURITY_CSP` desactiva la cabecera.
+    if settings.SECURITY_CSP:
+        response.headers.setdefault("Content-Security-Policy", settings.SECURITY_CSP)
+
+    # Caché de 5 minutos + anti-sniffing explícito para archivos estáticos.
+    # La comparación es exacta o por subruta: `startswith("/static")` también
+    # capturaba rutas como "/staticfoo" que no son estáticos.
+    es_estatico = path == "/static" or path.startswith("/static/")
+    es_onboarding = path == "/onboarding" or path.startswith("/onboarding/")
+    if es_estatico or es_onboarding:
         response.headers["Cache-Control"] = "public, max-age=300"
 
     return response
@@ -148,6 +211,26 @@ for _fname, _ffunc in ALL_FILTERS.items():
 # Mantener livianos: nada de I/O pesado, solo decisiones de UI.
 from app.services.dev_inbox import is_enabled as _dev_inbox_enabled  # noqa: E402
 templates.env.globals["dev_inbox_enabled"] = _dev_inbox_enabled
+
+# Globals del catálogo de "Resultado de Pruebas" (LOV + acrónimos + colores).
+# ``app.core.resultado_pruebas`` es la única fuente de verdad: las
+# tarjetas del Kanban y el dashboard consumen esta misma paleta, por lo
+# que no pueden divergir entre sí.
+from app.core.resultado_pruebas import (  # noqa: E402
+    info_resultado as _resultado_info,
+    info_resultado_ticket as _resultado_info_ticket,
+    lov_formulario_js as _lov_formulario_js,
+    render_badge_resultado as _badge_resultado,
+)
+templates.env.globals["resultado_info"] = _resultado_info
+templates.env.globals["resultado_info_ticket"] = _resultado_info_ticket
+templates.env.globals["badge_resultado"] = _badge_resultado
+
+# Valores del LOV de "Resultado de Pruebas" en el orden de presentación de
+# los formularios. Se inyectan como global para que los `<select>` de alta
+# y de edición de ticket iteren la lista del catálogo en vez de redeclarar
+# los valores a mano (regla: el catálogo es el único que define el LOV).
+templates.env.globals["resultados_lov_formulario"] = _lov_formulario_js()
 
 
 # === Routers API ===
@@ -2254,10 +2337,24 @@ async def dashboard_page(request: Request):
     usuario, redirect = _require_session_or_redirect(request)
     if redirect is not None:
         return redirect
+    # La paleta y los acrónimos de "Resultado de Pruebas" se inyectan desde
+    # el catálogo Python para que la sección "Cuenta de Resultado" use
+    # EXACTAMENTE los mismos colores que el badge de las tarjetas del Kanban.
+    from app.core.resultado_pruebas import acronimos_js, fallback_js, lov_js, paleta_js
+
     return templates.TemplateResponse(
         request,
         "dashboard/index.html",
-        {"usuario": usuario},
+        {
+            "usuario": usuario,
+            "cuenta_resultado_colores": paleta_js(),
+            "cuenta_resultado_acronimos": acronimos_js(),
+            "cuenta_resultado_fallback": fallback_js(),
+            # Columnas del pivote, en el orden que define el catálogo. Es la
+            # misma lista que devuelve el endpoint /api/v1/metricas/
+            # cuenta-resultado, para que el JS no redeclare el LOV.
+            "cuenta_resultado_lov": lov_js(),
+        },
     )
 
 
@@ -2321,7 +2418,8 @@ async def notificaciones_page(request: Request):
 async def tablero_publico(slug: str, request: Request):
     """Vista pública (sin auth) de un tablero con visibilidad=publico."""
     from app.db.session import SessionLocal
-    from app.models.espacio import Tablero, Estado
+    from app.models.espacio import Tablero
+    from app.models.estado import Estado
     from app.models.ticket import Ticket
     from sqlalchemy import func
     from fastapi import HTTPException
@@ -2345,6 +2443,11 @@ async def tablero_publico(slug: str, request: Request):
             {
                 "tablero": tablero, "estados": estados,
                 "slug": slug,
+                # La vista es pública (sin sesión): `base.html` referencia
+                # `usuario` en varios puntos. Se entrega explícitamente como
+                # None para que las guards `{% if usuario %}` no dependan de
+                # que la plantilla herede o no la variable del contexto.
+                "usuario": None,
             },
         )
     finally:
@@ -2415,113 +2518,205 @@ def dev_inbox_alias_root_slash():
     return RedirectResponse(url="/api/v1/dev/inbox", status_code=307)
 
 
-@app.get("/_diag/tickets")
-def diag_tickets():
-    """Endpoint TEMPORAL de diagnóstico: intenta serializar todos los tickets
-    con TicketRead y devuelve el primer ValidationError (campo y motivo).
-
-    Se usa SOLO para encontrar qué campo causa el 500 en /api/v1/tickets.
-    Se eliminará tras identificar y corregir la causa.
-    """
-    import traceback
-    from app.db.session import SessionLocal
-    from app.models.ticket import Ticket
-    from app.schemas.ticket import TicketRead
-    from pydantic import ValidationError
-
-    db = SessionLocal()
-    try:
-        tickets = db.query(Ticket).order_by(Ticket.created_at.desc()).all()
-        result = {
-            "total_tickets": len(tickets),
-            "first_ticket_id": tickets[0].id if tickets else None,
-            "tried": 0,
-            "ok": 0,
-            "errors": [],
-        }
-        # Inspeccionar el primer ticket para ver tipo y repr reales
-        if tickets:
-            t = tickets[0]
-            result["first_ticket_debug"] = {
-                "id": t.id,
-                "codigo": t.codigo,
-                "datos_catalogo_type": type(t.datos_catalogo).__name__,
-                "datos_catalogo_repr": repr(t.datos_catalogo)[:300],
-                "datos_catalogo_is_None": t.datos_catalogo is None,
-            }
-        for t in tickets:
-            result["tried"] += 1
-            try:
-                TicketRead.model_validate(t)
-                result["ok"] += 1
-            except ValidationError as ve:
-                # Capturar info detallada
-                errs = []
-                for e in ve.errors()[:10]:
-                    inp = e.get("input")
-                    errs.append({
-                        "loc": list(e.get("loc", [])),
-                        "type": e.get("type"),
-                        "msg": e.get("msg"),
-                        "input_type": type(inp).__name__ if inp is not None else None,
-                        "input_repr": repr(inp)[:200] if inp is not None else None,
-                    })
-                result["errors"].append({
-                    "ticket_id": t.id,
-                    "ticket_codigo": t.codigo,
-                    "datos_catalogo_type": type(t.datos_catalogo).__name__,
-                    "datos_catalogo_repr": repr(t.datos_catalogo)[:200],
-                    "errors": errs,
-                })
-                # Solo devolver el primer fallo
-                result["more_failures"] = result["tried"] - result["ok"]
-                return result
-        return result
-    except Exception as e:
-        return {
-            "error": type(e).__name__,
-            "message": str(e),
-            "traceback": traceback.format_exc()[-2000:],
-        }
-    finally:
-        db.close()
-
-
 @app.get("/info")
 def info():
-    """Información del entorno (útil para debugging)."""
+    """Información del entorno (útil para debugging).
+
+    Es un endpoint PÚBLICO: por eso NO se expone la topología interna de la
+    base de datos (host, puerto y nombre de la base de datos de Railway).
+    Solo se indica el motor y si está configurado.
+    """
+    url_bd = settings.get_database_url()
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "debug": settings.DEBUG,
         "port": int(os.getenv("PORT", "8000")),
-        "database_url": (settings.get_database_url().split("@")[-1]
-                         if "@" in settings.get_database_url()
-                         else "sqlite"),
+        "database": "sqlite" if url_bd.startswith("sqlite") else "postgresql",
         "redis_configured": bool(settings.REDIS_URL),
         "celery_broker_configured": bool(settings.CELERY_BROKER_URL),
     }
 
 
-# === Compresión estática en producción ===
-# WhiteNoise 6.x expone una clase WSGI (no ASGI middleware). Para integrarla
-# con FastAPI/ASGI necesitaríamos un adaptador (a2wsgi). Por simplicidad
-# y robustez usamos `StaticFiles` de FastAPI (que es nativo ASGI) y
-# dejamos WhiteNoise instalado solo como referencia para el entorno WSGI
-# (gunicorn lo podría usar si se importa vía `wsgi.py`).
-#
-# Activar WhiteNoise solo si el adaptador ASGI está disponible
-# (a2wsgi) Y no estamos en debug. De lo contrario, StaticFiles hace
-# el trabajo perfectamente.
-if HAS_WHITENOISE and not settings.DEBUG:
-    try:
-        from a2wsgi import ASGIMiddleware  # type: ignore
-        app = ASGIMiddleware(app)
-        logger.info("a2wsgi+WhiteNoise ASGIMiddleware activado")
-    except ImportError:
-        # Sin a2wsgi no podemos integrar WhiteNoise con ASGI; StaticFiles
-        # sigue siendo válido.
-        logger.info(
-            "WhiteNoise instalado pero a2wsgi no disponible; "
-            "sirviendo /static con StaticFiles de FastAPI"
+# === Salud de Celery (worker y beat) ===
+@app.get("/salud-celery")
+def salud_celery(request: Request):
+    """Estado real del worker y del beat de Celery. Solo lectura.
+
+    NO es un endpoint público: exige sesión de Administrador (401 sin
+    sesión, 403 con un rol que no sea administrador).
+
+    Tres señales, todas de solo lectura:
+
+      - ``worker``: ``celery.control.ping()`` pregunta al broker quién
+        contesta. Los workers que responden son la prueba directa de que
+        hay uno consumiendo la cola.
+      - ``beat``: el beat planifica cada minuto una tarea que escribe un
+        latido en Redis (``app/tasks/salud_tasks.py``) y el worker la
+        ejecuta. Si la clave no existe o está vencida, esa cadena
+        beat -> worker no está funcionando.
+      - ``colas``: profundidad de la cola del broker. Si crece sin
+        consumirse, el worker está caído; si está a cero con un worker
+        respondiendo, el flujo está bien.
+      - ``worker.tareas_registradas`` y ``worker.conoce_latido``: el
+        catálogo de tareas que el worker tiene registrado. Distingue un
+        worker con código viejo (no conoce la tarea del latido) de un
+        worker sano al que simplemente nadie publica la tarea.
+
+    Existe porque verificar el worker y el beat exigía la API de Railway
+    (token de proyecto), que puede estar revocada: sin esta señal, "el
+    worker está arriba" era una suposición.
+    """
+    import time
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    from app.models.usuario import RolUsuario
+
+    usuario = _get_usuario_actual(request)
+    if usuario is None:
+        raise HTTPException(status_code=401, detail="Se requiere sesion activa")
+    if usuario.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(
+            status_code=403, detail="Acceso restringido a Administradores"
         )
+
+    from app.core.celery_app import celery_app
+    from app.tasks.salud_tasks import leer_latido
+
+    ahora = datetime.now(timezone.utc)
+
+    # --- worker: quien responde al ping ---
+    worker = {"responde": False, "workers": [], "detalle": ""}
+    inicio = time.monotonic()
+    try:
+        # `Control.ping()` devuelve una LISTA de diccionarios
+        # [{'<hostname>': {'ok': 'pong'}}, ...] (Celery 5). Se aceptan
+        # tambien un dict plano por si la version difiere.
+        respuestas = celery_app.control.ping(timeout=2.0) or []
+        nombres = []
+        if isinstance(respuestas, dict):
+            nombres = [str(clave) for clave in respuestas.keys()]
+        else:
+            for respuesta in respuestas:
+                if isinstance(respuesta, dict):
+                    for clave in respuesta.keys():
+                        nombres.append(str(clave))
+                else:
+                    nombres.append(str(respuesta))
+        worker["responde"] = bool(nombres)
+        worker["workers"] = sorted(nombres)
+        worker["detalle"] = (
+            "OK" if nombres else "ningun worker respondio al ping"
+        )
+    except Exception as exc:  # noqa: BLE001
+        worker["detalle"] = f"error al preguntar al broker: {exc}"
+    worker["consulta_segundos"] = round(time.monotonic() - inicio, 2)
+
+    # --- catalogo de tareas del worker ---
+    # `inspect().registered()` usa el mismo mecanismo de fanout que el ping.
+    # Sirve para distinguir "el worker no conoce la tarea" (worker con codigo
+    # viejo, todavia no redesplegado) de "el worker la conoce pero nadie la
+    # publica" (el beat no la planifica).
+    try:
+        registro = celery_app.control.inspect(timeout=2.0).registered() or {}
+        tareas = set()
+        for lista in registro.values():
+            if isinstance(lista, (list, tuple, set)):
+                tareas.update(str(t) for t in lista)
+        worker["tareas_registradas"] = len(tareas)
+        worker["conoce_latido"] = "app.tasks.salud_tasks.registrar_latido" in tareas
+        worker["detalle_registro"] = (
+            "OK" if registro else "el worker no respondio al catalogo de tareas"
+        )
+    except Exception as exc:  # noqa: BLE001
+        worker["tareas_registradas"] = None
+        worker["conoce_latido"] = None
+        worker["detalle_registro"] = f"no se pudo leer el catalogo de tareas: {exc}"
+
+    # --- beat: el ultimo latido escrito en Redis ---
+    beat = leer_latido()
+
+    # --- diagnostico combinado: donde esta exactamente la rotura ---
+    # El latido falta por una de estas dos razones, y conviene decir
+    # cual de las dos es en lugar de dejar un "sin latido" generico:
+    #   1. el worker no tiene registrada la tarea (servicio worker con
+    #      codigo anterior: no se redesplego);
+    #   2. el worker la conoce pero nadie la publica (servicio beat con
+    #      codigo anterior, o el beat no esta planificando).
+    if not beat.get("ok"):
+        conoce = worker.get("conoce_latido")
+        if conoce is False:
+            beat["detalle"] = (
+                "sin latido: el worker NO tiene registrada la tarea "
+                "app.tasks.salud_tasks.registrar_latido ("
+                f"{worker.get('tareas_registradas')} tareas registradas). "
+                "El servicio worker no se redesplego con el codigo actual: "
+                "en Railway, 'Redeploy' reutiliza la imagen anterior; hace "
+                "falta 'Redeploy (rebuild)' o desplegar la rama actual."
+            )
+            beat["diagnostico"] = "worker_desactualizado"
+        elif worker.get("responde"):
+            beat["detalle"] = (
+                "sin latido: el worker CONOCE la tarea pero nadie la publica. "
+                "El servicio beat no se redesplego con el codigo actual o no "
+                "esta planificando."
+            )
+            beat["diagnostico"] = "beat_desactualizado_o_parado"
+
+    # --- broker: profundidad de la cola ---
+    colas = {}
+    try:
+        cola = celery_app.conf.task_default_queue or "celery"
+        with celery_app.connection() as conexion:
+            canal = conexion.default_channel
+            cliente = getattr(canal, "client", None)
+            if cliente is not None and hasattr(cliente, "llen"):
+                colas[cola] = int(cliente.llen(cola))
+            elif hasattr(canal, "_size"):
+                colas[cola] = int(canal._size(cola))
+            else:
+                colas[cola] = None
+                colas["detalle"] = "el transporte del broker no expone la profundidad"
+    except Exception as exc:  # noqa: BLE001
+        colas["error"] = str(exc)
+
+    # --- tareas que el beat deberia estar planificando ---
+    programadas = []
+    for nombre, cfg in (celery_app.conf.beat_schedule or {}).items():
+        programadas.append({
+            "nombre": nombre,
+            "tarea": cfg.get("task"),
+            "programacion": str(cfg.get("schedule", "")),
+        })
+
+    return {
+        "ok": bool(worker["responde"] and beat.get("ok")),
+        "worker": worker,
+        "beat": beat,
+        "colas": colas,
+        "tareas_programadas": programadas,
+        "generado": ahora.isoformat(),
+    }
+
+# === Estáticos: `StaticFiles` de FastAPI (nativo ASGI) ===
+# NOTA (retirado 2026-10-24): este bloque envolvía la aplicación con
+# ``a2wsgi.ASGIMiddleware`` para integrar WhiteNoise. Era un forego latente:
+# ``ASGIMiddleware`` convierte la app ASGI de FastAPI en una *callable WSGI*
+# (``__call__(environ, start_response)``), de modo que, si ``a2wsgi`` llega a
+# estar instalada en el entorno, ``app.main:app`` deja de ser ASGI y el
+# arranque aborta con::
+#
+#     TypeError: ASGIMiddleware.__call__() missing 1 required positional
+#     argument: 'start_response'
+#
+# es decir, el servicio web NO levantaría. Como ``a2wsgi`` no se declaraba en
+# ``requirements.txt``, el bloque nunca se ejecutaba en producción: era
+# código muerto con una trampa dentro.
+#
+# ``/static`` lo sirve ``StaticFiles``, que es ASGI nativo y no necesita
+# adaptador. Si en el futuro se quiere WhiteNoise (compresión brotli/gzip),
+# la vía correcta es ``whitenoise.middleware.WhiteNoiseMiddleware`` (ASGI
+# nativo de WhiteNoise 6.x), NO envolver la app con un adaptador WSGI.
+# Ver ``app/templates/base.html`` para los recursos que se sirven por ahí.

@@ -15,12 +15,13 @@ para evitar cuentas de acceso público en producción.
 import json
 import logging
 import os
-from datetime import datetime
+from typing import List
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
+from app.core.timezone import now_utc
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.models import (
@@ -47,7 +48,9 @@ SEED_DEMO_USERS_ENABLED = os.getenv("SEED_DEMO_USERS", "false").lower() == "true
 def init_database():
     """Crea todas las tablas, aplica migraciones pendientes y carga los datos iniciales."""
     print("=" * 60)
-    print(f"Inicializando BD: {settings.get_database_url()}")
+    # La URL se enmascara: sin esto, la contraseña de PostgreSQL quedaba
+    # escrita en el log de arranque del despliegue en produccion.
+    print(f"Inicializando BD: {settings.get_database_url_enmascarada()}")
     print("=" * 60)
 
     # 1) Aplicar migraciones idempotentes (alinea columnas nuevas)
@@ -88,8 +91,24 @@ def init_database():
 
 
 def seed_estados(db: Session):
-    """Crea el flujo estándar ITSM: Nuevo → En curso → En espera → Resuelto → Cerrado."""
-    if db.query(Estado).count() > 0:
+    """Crea el flujo estándar ITSM: Nuevo → En curso → En espera → Resuelto → Cerrado.
+
+    IDEMPOTENTE POR NOMBRE (no "si hay filas, no hago nada").
+
+    Por qué cambió: la migración 4.6 inserta 'Producción OK' en las bases
+    nuevas ANTES de que corra esta siembra. El seed antiguo se saltaba
+    entero en cuanto encontraba UN estado, así que en una base recién
+    creada se quedaba con ese único estado: 'Nuevo', 'En curso', 'En
+    espera', 'Resuelto', 'Cerrado' y 'Cancelado' nunca se creaban y la
+    siembra de transiciones reventaba con ``KeyError: 'Nuevo'``, dejando
+    la base sin flujo de trabajo.
+
+    Salvaguarda: si la base YA tiene transiciones se considera
+    inicializada y NO se toca nada. Así una instalación con su propio
+    flujo (o la de producción) no ve alterados sus estados.
+    """
+    if db.query(TransicionEstado).count() > 0:
+        # La BD ya está inicializada: el flujo puede ser propio. No se toca.
         print("  · Estados ya existen, saltando seed")
         return
 
@@ -102,12 +121,19 @@ def seed_estados(db: Session):
         Estado(nombre="Cancelado",      color="#9ca3af", orden=6, es_inicial=False, es_final=True,  categoria="cerrado",  sla_horas=None, descripcion="Cancelado por el solicitante o duplicado"),
         # Producción OK: estado TERMINAL posterior a Cerrado. Indica que
         # la corrección fue desplegada y verificada en ambiente productivo.
-        Estado(nombre="Producción OK",  color="#0d9488", orden=7, es_inicial=False, es_final=True,  categoria="produccion_ok", sla_horas=None, descripcion="Corrección desplegada y verificada en ambiente productivo"),
+        Estado(nombre="Producción OK",  color="#0d9488", orden=7, es_inicial=False, es_final=True,  categoria="produccion_ok", sla_horas=None, descripcion="Corrección desplegada y verificada en ambiente productivo", es_entrega=True),
     ]
-    for e in estados:
+    # Solo se crean los que faltan: si la migración 4.6 ya insertó
+    # 'Producción OK', no se duplica (el nombre es UNIQUE).
+    existentes = {e.nombre for e in db.query(Estado).all()}
+    faltan = [e for e in estados if e.nombre not in existentes]
+    if not faltan:
+        print("  · Estados ya existen, saltando seed")
+        return
+    for e in faltan:
         db.add(e)
     db.flush()
-    print(f"  ✓ {len(estados)} estados creados")
+    print(f"  ✓ {len(faltan)} estados creados")
 
 
 def seed_transiciones(db: Session):
@@ -143,7 +169,17 @@ def seed_transiciones(db: Session):
         ("Producción OK", "Cerrado", "agente_senior", True,  "Rollback: el deploy en producción tuvo un incidente. Obligatorio documentar el motivo."),
         ("Producción OK", "En curso", "administrador", True, "Reabrir ticket: el fix en producción presenta un bug que requiere trabajo."),
     ]
+    creadas = 0
+    omitidas: List[str] = []
     for origen, destino, rol, comentario, desc in transiciones:
+        # Antes: ``estados[origen]`` reventaba con ``KeyError`` si el
+        # estado no existía (base nueva a la que la migración 4.6 le había
+        # insertado 'Producción OK' antes de la siembra). Ahora la
+        # transición que no puede resolverse se OMITE con aviso visible y
+        # el resto de la siembra continúa.
+        if origen not in estados or destino not in estados:
+            omitidas.append(f"{origen} -> {destino}")
+            continue
         db.add(TransicionEstado(
             estado_origen_id=estados[origen],
             estado_destino_id=estados[destino],
@@ -151,8 +187,14 @@ def seed_transiciones(db: Session):
             requiere_comentario=comentario,
             descripcion=desc,
         ))
+        creadas += 1
     db.flush()
-    print(f"  ✓ {len(transiciones)} transiciones creadas")
+    print(f"  ✓ {creadas} transiciones creadas")
+    if omitidas:
+        print(
+            "  ⚠ %d transición(es) omitidas porque falta su estado: %s"
+            % (len(omitidas), ", ".join(omitidas))
+        )
 
 
 def seed_usuarios(db: Session):
@@ -281,6 +323,34 @@ def seed_tickets_demo(db: Session):
     ]
     contador = 1
     from datetime import timedelta
+
+    # Los tickets de demostración dependen de los usuarios, estados y
+    # etiquetas de demostración, que SOLO se crean cuando
+    # SEED_DEMO_USERS=true (desactivado por defecto, y desactivado en
+    # producción). Antes, sin ellos, ``usuarios[creador_un]`` reventaba
+    # con ``KeyError: 'usuario1'`` y abortaba TODA la siembra en el
+    # arranque: la base nueva se quedaba a medias y el servicio no
+    # llegaba a levantar. Ahora, si falta el material de demostración, los
+    # tickets de demostración se omiten con un aviso y el resto de la
+    # semilla continúa.
+    faltan = []
+    for _t, _d, _p, estado_nombre, creador_un, asignado_un, et_nombres, _c, _k in tickets_demo:
+        if estado_nombre not in estados:
+            faltan.append("estado '%s'" % estado_nombre)
+        for usuario_un in (creador_un, asignado_un):
+            if usuario_un and usuario_un not in usuarios:
+                faltan.append("usuario '%s'" % usuario_un)
+        for etiqueta_nombre in et_nombres:
+            if etiqueta_nombre not in etiquetas:
+                faltan.append("etiqueta '%s'" % etiqueta_nombre)
+    if faltan:
+        print(
+            "  · Tickets de demostración omitidos: falta el material de "
+            "demostración (%s). Defina SEED_DEMO_USERS=true si los quiere."
+            % ", ".join(sorted(set(faltan)))
+        )
+        return
+
     for titulo, desc, prio, estado_nombre, creador_un, asignado_un, et_nombres, checklists_data, comentarios_data in tickets_demo:
         estado = estados[estado_nombre]
         t = Ticket(
@@ -291,7 +361,7 @@ def seed_tickets_demo(db: Session):
             estado_id=estado.id,
             creador_id=usuarios[creador_un].id,
             asignado_id=usuarios[asignado_un].id if asignado_un else None,
-            fecha_vencimiento_sla=datetime.utcnow() + timedelta(hours=estado.sla_horas or 24),
+            fecha_vencimiento_sla=now_utc() + timedelta(hours=estado.sla_horas or 24),
             sla_cumplido=-1,
         )
         db.add(t)
@@ -500,6 +570,11 @@ def seed_tableros(db: Session):
             propietario_id=admin.id,
             visibilidad="espacio",
             color_fondo="#1e293b",
+            # `slug_publico` es un identificador RESERVADO: la ruta
+            # /p/{slug} solo sirve tableros con visibilidad='publico'. Se
+            # guarda aqui para que el tablero tenga ya un handle si el
+            # administrador lo hace publico. La tarjeta de /tableros solo
+            # muestra el enlace cuando el tablero es realmente publico.
             slug_publico="incidencias-prod",
         ),
         Tablero(

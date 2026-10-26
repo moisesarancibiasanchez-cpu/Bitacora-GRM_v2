@@ -8,11 +8,19 @@ resultado_pruebas (réplica del rango A64:H81 de la hoja REPORTE del Excel UAT)
 """
 import logging
 from datetime import datetime, timedelta
+from html import escape
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import String, func, case, and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
+from app.core.resultado_pruebas import (
+    ACRONIMOS as ACRONIMOS_RESULTADO,
+    COLORES as COLORES_RESULTADO,
+    COLOR_FALLBACK as COLOR_FALLBACK_RESULTADO,
+    SIN_RESULTADO as SIN_RESULTADO,
+    normalizar_resultado as _normalizar_resultado,
+)
 from app.core.timezone import now_utc, fmt_cl_iso, fmt_cl
 from app.db.session import get_db
 from app.models.ticket import Ticket, Prioridad, TipoIncidencia
@@ -75,6 +83,67 @@ def _build_tipo_filter(tipo: str):
         return func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]
     # 'todos' o cualquier valor desconocido: union de los 5 tipos del LOV
     return func.upper(Ticket.tipo.cast(String)).in_(list(_TIPOS_VALIDOS.values()))
+
+
+def _resolver_rango_temporal(periodo_dias, fecha_desde, fecha_hasta, ahora):
+    """Resuelve el rango temporal de los listados de incidencias.
+
+    ÚNICA fuente de verdad del rango para TODO el bloque "Lista de
+    Incidencias Recientes": la franja de 7 KPI (resumen), la tabla y el
+    modal de drill-down.
+
+    Antes cada endpoint resolvía la ventana por su cuenta y el modal se
+    quedaba siempre con ``periodo_dias`` aunque el usuario hubiera
+    elegido un rango explícito de fechas. El resultado era que el resumen
+    contaba los tickets del rango elegido (18 en 90 días) y el modal
+    listaba los de otra ventana (2 en 30 días), sin que el usuario
+    pudiera ver la diferencia.
+
+    Precedencia: si se envía ``fecha_desde`` o ``fecha_hasta``, ese rango
+    explícito manda sobre la ventana de ``periodo_dias``. ``fecha_hasta``
+    es inclusivo (se compara contra el final del día en UTC).
+
+    Returns:
+        Diccionario con las claves ``periodo_dias``, ``fecha_limite``,
+        ``fecha_hasta_limite``, ``rango_explicito``, ``fecha_desde_dt`` y
+        ``fecha_hasta_dt``.
+    """
+    periodo_dias = max(1, min(periodo_dias, 365))
+    fecha_desde_dt = None
+    fecha_hasta_dt = None
+    rango_explicito = False
+
+    if fecha_desde:
+        try:
+            fecha_desde_dt = datetime.fromisoformat(fecha_desde)
+            rango_explicito = True
+        except ValueError:
+            fecha_desde_dt = None
+    if fecha_hasta:
+        try:
+            # inclusivo: hasta el final del día 23:59:59
+            fecha_hasta_dt = datetime.fromisoformat(fecha_hasta)
+            fecha_hasta_dt = fecha_hasta_dt.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+            rango_explicito = True
+        except ValueError:
+            fecha_hasta_dt = None
+
+    if rango_explicito:
+        fecha_limite = fecha_desde_dt or datetime.min
+    else:
+        fecha_limite = ahora - timedelta(days=periodo_dias)
+    fecha_hasta_limite = fecha_hasta_dt or ahora
+
+    return {
+        "periodo_dias": periodo_dias,
+        "fecha_limite": fecha_limite,
+        "fecha_hasta_limite": fecha_hasta_limite,
+        "rango_explicito": rango_explicito,
+        "fecha_desde_dt": fecha_desde_dt,
+        "fecha_hasta_dt": fecha_hasta_dt,
+    }
 
 
 # Columnas esperadas para la tabla pivote "Cuenta de Resultado"
@@ -711,16 +780,43 @@ def cuenta_resultado(
     }
 
 
-# Mapa de colores para el badge del modal (sincronizado con el front).
-CUENTA_RESULTADO_COLORES_PARA_MODAL = {
-    "N/A":         {"bg": "#94a3b8", "text": "#ffffff"},
-    "NOK":         {"bg": "#dc2626", "text": "#ffffff"},
-    "OK":          {"bg": "#16a34a", "text": "#ffffff"},
-    "OK CON OBS.": {"bg": "#eab308", "text": "#1f2937"},
-    "POSTERGADA":  {"bg": "#ea580c", "text": "#ffffff"},
-    "DESESTIMADA": {"bg": "#7c3aed", "text": "#ffffff"},
-    "(en blanco)": {"bg": "#cbd5e1", "text": "#475569"},
-}
+# Badge del modal de drill-down.
+#
+# Antes vivía aquí una copia literal de la paleta del dashboard. Ahora todo
+# (color **y** acrónimo) se resuelve contra el catálogo
+# ``app.core.resultado_pruebas``, que es la ÚNICA fuente de verdad y que ya
+# alimenta:
+#   * el badge de las tarjetas del Kanban,
+#   * los encabezados de la tabla "Cuenta de Resultado" del dashboard,
+#   * este badge del modal de drill-down.
+#
+# Así los tres puntos de la UI comparten color y acrónimo por construcción.
+def _badge_resultado_modal(valor: str) -> str:
+    """Devuelve el HTML del badge de *Resultado de Pruebas* para el modal.
+
+    Mismo catálogo que las tarjetas del Kanban y que los encabezados del
+    dashboard: mismo color y mismo acrónimo. Todos los valores que llegan
+    desde el query string se escapan antes de inyectarse en el HTML.
+    """
+    texto = (valor or "").strip()
+    # La clave canónica del catálogo: si el valor es una variante heredada
+    # ("OK CON OBS", "POSTERGADO", ...) se normaliza a su forma canónica.
+    clave = texto if texto in COLORES_RESULTADO else (_normalizar_resultado(texto) or texto)
+    color = COLORES_RESULTADO.get(clave, COLOR_FALLBACK_RESULTADO)
+    acronimo = ACRONIMOS_RESULTADO.get(clave) or (texto[:10].upper() if texto else "—")
+    if clave == SIN_RESULTADO:
+        titulo = "Resultado de pruebas: sin dato"
+    else:
+        titulo = "Resultado de pruebas: {0}".format(clave)
+    return (
+        "<span class='inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold' "
+        "title='{0}' style='background:{1}; color:{2};'>{3}</span>".format(
+            escape(titulo),
+            escape(color["bg"]),
+            escape(color["text"]),
+            escape(acronimo),
+        )
+    )
 
 
 @router.get("/cuenta-resultado/detalle")
@@ -822,12 +918,12 @@ def cuenta_resultado_detalle(
     def _fmt_resultado(val):
         if val is None or (isinstance(val, str) and val.strip() == ""):
             return '<span class="text-slate-400 italic">(en blanco)</span>'
-        return val
+        return escape(str(val))
 
     def _fmt_item(val):
         if val is None or (isinstance(val, str) and val.strip() == ""):
             return '<span class="text-slate-400">—</span>'
-        return val
+        return escape(str(val))
 
     rows_html = []
     for t, estado, asignado in tickets_q:
@@ -845,7 +941,7 @@ def cuenta_resultado_detalle(
                 f"hx-get='/api/v1/tickets/{ticket_id}/detalle-html?tab=detalles' "
                 f"hx-target='#modal-cuenta-resultado-root' "
                 f"hx-swap='innerHTML' "
-                f"title='Ver y editar ticket {t.codigo or ticket_id}' "
+                f"title='Ver y editar ticket {escape(str(t.codigo or ticket_id))}' "
                 f"class='inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 transition'>"
                 "<svg class='w-4 h-4' fill='none' stroke='currentColor' viewBox='0 0 24 24'>"
                 "<path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M15 12a3 3 0 11-6 0 3 3 0 016 0z'/>"
@@ -858,19 +954,19 @@ def cuenta_resultado_detalle(
             accion_html = "<td class='px-3 py-2 text-center text-slate-300'>—</td>"
         rows_html.append(
             "<tr class='hover:bg-slate-50'>"
-            f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{t.codigo or ''}</td>"
-            f"<td class='px-3 py-2 text-xs text-slate-800 max-w-xs truncate' title='{t.titulo or ''}'>{t.titulo or ''}</td>"
+            f"<td class='px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap'>{escape(str(t.codigo or ''))}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-800 max-w-xs truncate' title='{escape(str(t.titulo or ''))}'>{escape(str(t.titulo or ''))}</td>"
             "<td class='px-3 py-2 text-xs'>"
             f"<span class='inline-flex items-center gap-1.5'>"
-            f"<span class='w-2 h-2 rounded-full' style='background:{estado_color}'></span>"
-            f"<span class='text-slate-700'>{estado_nombre}</span>"
+            f"<span class='w-2 h-2 rounded-full' style='background:{escape(str(estado_color))}'></span>"
+            f"<span class='text-slate-700'>{escape(str(estado_nombre))}</span>"
             "</span></td>"
             f"<td class='px-3 py-2 text-xs'>{_fmt_resultado(t.resultado_pruebas)}</td>"
             f"<td class='px-3 py-2 text-xs text-slate-600'>{_fmt_item(t.item)}</td>"
             "<td class='px-3 py-2 text-xs'>"
             f"<span class='px-2 py-0.5 text-[10px] font-semibold rounded-full {prio_cls}'>{prio_label}</span>"
             "</td>"
-            f"<td class='px-3 py-2 text-xs text-slate-600'>{asignado_nombre}</td>"
+            f"<td class='px-3 py-2 text-xs text-slate-600'>{escape(str(asignado_nombre))}</td>"
             f"<td class='px-3 py-2 text-xs text-slate-600 whitespace-nowrap'>{_fmt_fecha(t.fecha_vencimiento_sla)}</td>"
             f"{accion_html}"
             "</tr>"
@@ -882,13 +978,8 @@ def cuenta_resultado_detalle(
         "No se encontraron tickets para esta combinación de módulo y resultado.</td></tr>"
     )
 
-    color_cfg = CUENTA_RESULTADO_COLORES_PARA_MODAL.get(resultado_filtro)
-    if color_cfg is None:
-        color_cfg = {"bg": "#475569", "text": "#ffffff"}
-    resultado_badge = (
-        f"<span class='inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold' "
-        f"style='background:{color_cfg['bg']}; color:{color_cfg['text']};'>{resultado_filtro}</span>"
-    )
+    resultado_badge = _badge_resultado_modal(resultado_filtro)
+    modulo_badge = escape(modulo_filtro) if modulo_filtro else "—"
 
     html = f"""
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 modal-backdrop"
@@ -902,7 +993,7 @@ def cuenta_resultado_detalle(
         <h3 class="text-sm font-semibold text-slate-800">Detalle de Cuenta de Resultado</h3>
         <div class="flex items-center gap-2 text-xs text-slate-500">
           <span class="text-[10px] uppercase tracking-wide text-slate-400">Módulo:</span>
-          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{modulo_filtro}</span>
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">{modulo_badge}</span>
           <span class="text-[10px] uppercase tracking-wide text-slate-400">Resultado:</span>
           {resultado_badge}
           <span class="text-[10px] uppercase tracking-wide text-slate-400">Ambiente:</span>
@@ -996,44 +1087,20 @@ def incidencias_recientes(
         habitual del dashboard. Si la fecha de inicio ``Ticket.fecha_inicio``
         está presente se prefiere para mostrar el "inicio real" del trabajo.
     """
-    periodo_dias = max(1, min(periodo_dias, 365))
     limite = max(1, min(limite, 200))
     ahora = datetime.utcnow()
 
-    # === Rango explícito tiene precedencia ===
-    rango_explicito = False
-    fecha_desde_dt = None
-    fecha_hasta_dt = None
-    if fecha_desde:
-        try:
-            fecha_desde_dt = datetime.fromisoformat(fecha_desde)
-            rango_explicito = True
-        except ValueError:
-            fecha_desde_dt = None
-    if fecha_hasta:
-        try:
-            # inclusivo: hasta el final del día 23:59:59
-            fecha_hasta_dt = datetime.fromisoformat(fecha_hasta)
-            fecha_hasta_dt = fecha_hasta_dt.replace(
-                hour=23, minute=59, second=59, microsecond=999999
-            )
-            rango_explicito = True
-        except ValueError:
-            fecha_hasta_dt = None
-
-    if rango_explicito:
-        # Cuando el usuario define un rango explícito, el "periodo_dias"
-        # deja de tener efecto. Mantenemos el valor informativo para el
-        # front pero la consulta usa el rango.
-        fecha_limite = fecha_desde_dt or datetime.min
-    else:
-        # FIX(metricas): sin rango explícito caemos al comportamiento
-        # legacy (ventana de N días hacia atrás). Sin este else el
-        # filtro `Ticket.created_at >= fecha_limite` lanzaba
-        # UnboundLocalError y el dashboard quedaba colgado en
-        # "Cargando métricas...".
-        fecha_limite = ahora - timedelta(days=periodo_dias)
-    fecha_hasta_limite = fecha_hasta_dt or ahora
+    # FIX-KPI-CONSISTENCIA(metricas): el rango se resuelve con el helper
+    # compartido para que el resumen, la tabla y el modal de drill-down
+    # usen EXACTAMENTE la misma ventana. Antes cada endpoint lo resolvía
+    # por su cuenta y el modal ignoraba el rango explícito.
+    rango = _resolver_rango_temporal(periodo_dias, fecha_desde, fecha_hasta, ahora)
+    periodo_dias = rango["periodo_dias"]
+    fecha_limite = rango["fecha_limite"]
+    fecha_hasta_limite = rango["fecha_hasta_limite"]
+    rango_explicito = rango["rango_explicito"]
+    fecha_desde_dt = rango["fecha_desde_dt"]
+    fecha_hasta_dt = rango["fecha_hasta_dt"]
 
     # === Filtro de tipo ===
     # FIX(metricas): el Enum Python (TipoIncidencia.INCIDENCIA.value = 'incidencia')
@@ -1293,31 +1360,31 @@ _KPI_DETALLE = {
     "total_periodo": {
         "titulo": "Total periodo",
         "descripcion": "Todos los tickets del período (tipo y filtros aplicados).",
-        "filtro": lambda base: base,
+        "filtro": lambda base, ahora: base,
     },
     "vencidas": {
         "titulo": "Tickets vencidos",
         "descripcion": "Tickets sin completar cuya fecha de vencimiento SLA ya pasó.",
-        "filtro": lambda base: base.filter(
+        "filtro": lambda base, ahora: base.filter(
             Ticket.fecha_completado.is_(None),
             Ticket.fecha_vencimiento_sla.isnot(None),
-            Ticket.fecha_vencimiento_sla < datetime.utcnow(),
+            Ticket.fecha_vencimiento_sla < ahora,
         ),
     },
     "en_riesgo_72h": {
         "titulo": "Tickets en riesgo (próximas 72h)",
         "descripcion": "Tickets sin completar cuya fecha de vencimiento SLA está dentro de las próximas 72 horas.",
-        "filtro": lambda base: base.filter(
+        "filtro": lambda base, ahora: base.filter(
             Ticket.fecha_completado.is_(None),
             Ticket.fecha_vencimiento_sla.isnot(None),
-            Ticket.fecha_vencimiento_sla >= datetime.utcnow(),
-            Ticket.fecha_vencimiento_sla <= datetime.utcnow() + timedelta(hours=72),
+            Ticket.fecha_vencimiento_sla >= ahora,
+            Ticket.fecha_vencimiento_sla <= ahora + timedelta(hours=72),
         ),
     },
     "criticas_o_altas": {
         "titulo": "Tickets Crít/Altas",
         "descripcion": "Tickets del período con prioridad Crítica o Alta.",
-        "filtro": lambda base: base.filter(
+        "filtro": lambda base, ahora: base.filter(
             func.upper(Ticket.prioridad.cast(String)).in_([
                 Prioridad.CRITICA.value.upper(),
                 Prioridad.ALTA.value.upper(),
@@ -1331,19 +1398,19 @@ _KPI_DETALLE = {
         # los OK=1 vs NOK=0 vs pendientes=-1.
         "titulo": "Tickets base del % SLA OK",
         "descripcion": "Tickets cerrados del período. El % SLA OK se calcula sobre este conjunto.",
-        "filtro": lambda base: base.filter(Ticket.fecha_completado.isnot(None)),
+        "filtro": lambda base, ahora: base.filter(Ticket.fecha_completado.isnot(None)),
     },
     "porcentaje_sin_asignar": {
         "titulo": "Tickets sin asignar",
         "descripcion": "Tickets del período sin responsable asignado.",
-        "filtro": lambda base: base.filter(Ticket.asignado_id.is_(None)),
+        "filtro": lambda base, ahora: base.filter(Ticket.asignado_id.is_(None)),
     },
     "tiempo_promedio_resolucion_horas": {
         # TTR prom. no tiene categoría clara: mostramos los cerrados
         # del período (la base del cálculo TTR).
         "titulo": "Tickets base del TTR promedio",
         "descripcion": "Tickets cerrados del período (base del cálculo de tiempo promedio de resolución).",
-        "filtro": lambda base: base.filter(Ticket.fecha_completado.isnot(None)),
+        "filtro": lambda base, ahora: base.filter(Ticket.fecha_completado.isnot(None)),
     },
 }
 
@@ -1354,6 +1421,8 @@ def detalle_kpi(
     periodo_dias: int = 30,
     tipo: str = "incidencia",
     limite: int = 200,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
     db: Session = Depends(get_db),
     user: Usuario = Depends(get_current_user),
 ):
@@ -1372,6 +1441,11 @@ def detalle_kpi(
               con prefijo INC- / INC_ (ver FIX-PREFIX en
               ``incidencias_recientes``).
       - limite: máximo de tickets devueltos (1..500).
+      - fecha_desde / fecha_hasta: rango explícito ISO (YYYY-MM-DD) que
+              tiene precedencia sobre ``periodo_dias``, igual que en
+              ``incidencias_recientes``. Sin esto el modal drill-down
+              contaba otra ventana distinta a la del resumen y mostraba
+              una lista que no correspondía con la cifra del KPI.
     """
     if kpi not in _KPI_DETALLE:
         raise HTTPException(
@@ -1382,10 +1456,19 @@ def detalle_kpi(
             ),
         )
 
-    periodo_dias = max(1, min(periodo_dias, 365))
     limite = max(1, min(limite, 500))
     ahora = datetime.utcnow()
-    fecha_limite = ahora - timedelta(days=periodo_dias)
+
+    # FIX-KPI-CONSISTENCIA(metricas): el modal usa el MISMO resolvedor de
+    # rango que el resumen, de modo que el listado que muestra y el
+    # contador de la casilla KPI del que se partió son el mismo conjunto.
+    rango = _resolver_rango_temporal(periodo_dias, fecha_desde, fecha_hasta, ahora)
+    periodo_dias = rango["periodo_dias"]
+    fecha_limite = rango["fecha_limite"]
+    fecha_hasta_limite = rango["fecha_hasta_limite"]
+    rango_explicito = rango["rango_explicito"]
+    fecha_desde_dt = rango["fecha_desde_dt"]
+    fecha_hasta_dt = rango["fecha_hasta_dt"]
 
     # === Filtro de tipo ===
     # FIX-PREFIX-DRY(metricas): se usa el helper compartido
@@ -1394,18 +1477,28 @@ def detalle_kpi(
     tipo_filter = _build_tipo_filter(tipo)
 
     # === Base + filtro de período + archivado ===
+    # outerjoin (y no join): el resumen cuenta sobre ``Ticket`` sin join,
+    # así que el modal tampoco debe perder tickets por un estado huérfano.
     base = (
         db.query(Ticket, Estado)
-        .join(Estado, Estado.id == Ticket.estado_id)
+        .outerjoin(Estado, Estado.id == Ticket.estado_id)
         .filter(
             tipo_filter,
             Ticket.archivado == False,  # noqa: E712
             Ticket.created_at >= fecha_limite,
+            Ticket.created_at <= fecha_hasta_limite,
         )
     )
 
     # === Aplicar el filtro específico del KPI ===
-    base = _KPI_DETALLE[kpi]["filtro"](base)
+    base = _KPI_DETALLE[kpi]["filtro"](base, ahora)
+
+    # FIX-KPI-CONSISTENCIA(metricas): 'total' es el total real del KPI
+    # (sin truncar por 'limite'), para que coincida con la cifra que
+    # muestra la casilla del resumen. Antes era len(tickets_out), de modo
+    # que el modal podía anunciar "Total: N tickets" sin cuadrar con el
+    # KPI de la franja.
+    total_real = base.count()
 
     # === Orden: vencidas primero, luego más recientes ===
     base = base.order_by(
@@ -1440,6 +1533,13 @@ def detalle_kpi(
         "periodo_dias": periodo_dias,
         "tipo":         tipo,
         "limite":       limite,
-        "total":        len(tickets_out),
+        "total":        total_real,
+        "total_listado": len(tickets_out),
+        "truncado":     total_real > len(tickets_out),
+        "rango_explicito": rango_explicito,
+        "fecha_desde":  fecha_desde_dt.isoformat() if fecha_desde_dt else None,
+        "fecha_hasta":  fecha_hasta_dt.isoformat() if fecha_hasta_dt else None,
+        "fecha_desde_cl": fmt_cl_iso(fecha_desde_dt) if fecha_desde_dt else None,
+        "fecha_hasta_cl": fmt_cl_iso(fecha_hasta_dt) if fecha_hasta_dt else None,
         "tickets":      tickets_out,
     }

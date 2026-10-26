@@ -3,9 +3,9 @@ Tareas asíncronas de Celery: recálculo de SLA.
 Se ejecutan en segundo plano liberando el hilo principal de FastAPI.
 """
 import logging
-from datetime import datetime
 
 from app.core.celery_app import celery_app
+from app.core.timezone import now_utc
 from app.db.session import SessionLocal
 
 
@@ -42,10 +42,8 @@ def recalcular_sla_masivo() -> dict:
             .all()
         )
         service = SLAService(db)
-        procesados = 0
-        for t in tickets:
-            service.recalcular_ticket(t.id)
-            procesados += 1
-        return {"ok": True, "procesados": procesados, "fecha": datetime.utcnow().isoformat()}
+        # Un único commit para todo el lote (antes: uno por ticket).
+        procesados = service.recalcular_tickets(tickets)
+        return {"ok": True, "procesados": procesados, "fecha": now_utc().isoformat()}
     finally:
         db.close()

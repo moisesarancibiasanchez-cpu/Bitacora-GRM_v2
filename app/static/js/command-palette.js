@@ -141,7 +141,7 @@
     cont.innerHTML = results.map((r, i) => `
       <a href="javascript:void(0)" data-idx="${i}" role="button" tabindex="0"
          class="cp-item flex items-center gap-3 px-4 py-2 text-sm ${i === selectedIndex ? 'bg-indigo-50' : 'hover:bg-slate-50'}">
-        <span class="w-7 text-center">${r.icono}</span>
+        <span class="w-7 text-center">${escapeHtml(r.icono)}</span>
         <span class="flex-1 min-w-0">
           <span class="block text-slate-800 truncate">${escapeHtml(r.titulo)}</span>
           <span class="block text-[11px] text-slate-500 truncate">${escapeHtml(r.subtitulo)}</span>
@@ -270,7 +270,7 @@
               +       '</svg>'
               +     '</div>'
               +     '<h3 class="text-lg font-semibold text-slate-800 mb-2">Error al cargar el ticket</h3>'
-              +     '<p class="text-sm text-slate-600 mb-4">' + String(err.message || err) + '</p>'
+              +     '<p class="text-sm text-slate-600 mb-4">' + escapeHtml(String(err.message || err)) + '</p>'
               +     '<button data-close-modal class="px-4 py-2 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300">Cerrar</button>'
               +   '</div>'
               + '</div>';

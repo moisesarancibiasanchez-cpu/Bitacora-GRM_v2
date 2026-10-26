@@ -138,7 +138,7 @@ Se realizó una validación exhaustiva y minuciosa de la aplicación **Bitácora
 ### 5.3 Cambiar Estado (con transiciones definidas)
 - ⚠️ Por defecto el sistema requiere que existan `TransicionesEstado` registradas (esto es **correcto** desde la perspectiva ITSM)
 - ✅ POST `/api/v1/estados/transiciones` permite crear transiciones (admin)
-- ✅ PATCH `/api/v1/tickets/{id}/estado` con transición válida → 200
+- ✅ PATCH `/api/v1/tickets/{ticket_id}/estado` con transición válida → 200
 - ❌ PATCH sin transición válida → 422 con mensaje claro "No existe una transición válida de 'X' a 'Y'"
 
 ### 5.4 Duplicar

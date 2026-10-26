@@ -18,10 +18,10 @@
 | **PATCH /estado (HTMX drag&drop)** | OK (200, 2.5 KB HTML tarjeta actualizada) |
 | **URLs en templates** | 70/72 matchean routers; `/onboarding` es válido vía StaticFiles |
 | **URLs en JS** | 7/7 matchean endpoints reales |
-| **Bug fix modal close** | VALIDADO ✓ |
-| **Feature filtro TIPO** | VALIDADO ✓ |
+| **Bug fix modal close** | VALIDADO OK |
+| **Feature filtro TIPO** | VALIDADO OK |
 
-**Veredicto**: ✅ **No se detectaron bugs funcionales, links rotos, ni rutas inválidas en producción.**
+**Veredicto**:  **No se detectaron bugs funcionales, links rotos, ni rutas inválidas en producción.**
 
 ---
 
@@ -78,11 +78,11 @@
 | `/p/{slug}` | Tablero público | OK |
 | `/dev/inbox` | Dev inbox | OK |
 | `/dev/inbox/` | Dev inbox (con /) | OK |
-| `/_diag/tickets` | Diagnóstico tickets | OK |
+| `/_diag/tickets` | Diagnóstico tickets | RETIRADO del código (2026-10-24): era un endpoint temporal sin autenticación. La comprobación reproducible es local: `python tools/verificacion/diagnostico_tickets.py`. |
 | `/usuarios/{id}/editar` | Editar usuario | OK |
 | `/tickets/exportar-csv` | Exportar CSV | OK |
 
-**Todos retornan HTTP 200 ✓**
+**Todos retornan HTTP 200 OK**
 
 ---
 
@@ -109,13 +109,13 @@ function installDrillDownListeners() {
 
 ### 3.2 Validación end-to-end
 
-- ✅ Endpoint `/api/v1/metricas/cuenta-resultado/detalle?modulo=Incidencias&resultado=OK&ambiente=QA` → **200 OK, 52,189 bytes**
-- ✅ Modal HTML se renderiza con 29 botones "Ver"
-- ✅ Cada botón Ver tiene `hx-get` correcto apuntando a `/detalle-html`
-- ✅ Modal incluye `onclick="if(event.target===this) cerrarModalCuentaResultado()"` para cerrar por backdrop
-- ✅ Modal incluye `[data-close-modal]` en el botón X
+-  Endpoint `/api/v1/metricas/cuenta-resultado/detalle?modulo=Incidencias&resultado=OK&ambiente=QA` → **200 OK, 52,189 bytes**
+-  Modal HTML se renderiza con 29 botones "Ver"
+-  Cada botón Ver tiene `hx-get` correcto apuntando a `/detalle-html`
+-  Modal incluye `onclick="if(event.target===this) cerrarModalCuentaResultado()"` para cerrar por backdrop
+-  Modal incluye `[data-close-modal]` en el botón X
 
-**Estado**: ✅ FUNCIONA CORRECTAMENTE
+**Estado**:  FUNCIONA CORRECTAMENTE
 
 ---
 
@@ -129,79 +129,79 @@ function installDrillDownListeners() {
 
 ### 4.2 Validación
 
-- ✅ 925 tarjetas con `data-tipo` attribute en el HTML
-- ✅ Distribución: 922 `incidencia` + 3 `resultado_pruebas`
-- ✅ Listener `filtro-tipo` registrado en array de IDs
-- ✅ Filtro se aplica correctamente al cambiar dropdown
-- ✅ Combinable con filtros existentes (estado, prioridad, etiqueta, asignado, búsqueda)
+-  925 tarjetas con `data-tipo` attribute en el HTML
+-  Distribución: 922 `incidencia` + 3 `resultado_pruebas`
+-  Listener `filtro-tipo` registrado en array de IDs
+-  Filtro se aplica correctamente al cambiar dropdown
+-  Combinable con filtros existentes (estado, prioridad, etiqueta, asignado, búsqueda)
 
-**Estado**: ✅ FUNCIONA CORRECTAMENTE
+**Estado**:  FUNCIONA CORRECTAMENTE
 
 ---
 
 ## 5. Validación de Endpoints (38 testados en vivo)
 
 ### 5.1 Auth
-- ✅ `GET /api/v1/auth/me` → 200
-- ✅ `GET /api/v1/auth/check` → 200
+-  `GET /api/v1/auth/me` → 200
+-  `GET /api/v1/auth/check` → 200
 
 ### 5.2 Estados
-- ✅ `GET /api/v1/estados` → 200
-- ✅ `GET /api/v1/estados/transiciones` → 200
-- ✅ `GET /api/v1/estados/diagnostico/responsables` → 200
+-  `GET /api/v1/estados` → 200
+-  `GET /api/v1/estados/transiciones` → 200
+-  `GET /api/v1/estados/diagnostico/responsables` → 200
 
 ### 5.3 Butler
-- ✅ `GET /api/v1/butler/reglas` → 200
+-  `GET /api/v1/butler/reglas` → 200
 
 ### 5.4 Métricas
-- ✅ `GET /api/v1/metricas/resumen?dias=7` → 200
-- ✅ `GET /api/v1/metricas/resumen?dias=30` → 200
-- ✅ `GET /api/v1/metricas/cuenta-resultado` → 200
-- ⚠️ `GET /api/v1/metricas/cuenta-resultado/detalle` (sin params) → 422 (esperado: requiere `modulo`, `resultado`, `ambiente`)
+-  `GET /api/v1/metricas/resumen?dias=7` → 200
+-  `GET /api/v1/metricas/resumen?dias=30` → 200
+-  `GET /api/v1/metricas/cuenta-resultado` → 200
+- Advertencia: `GET /api/v1/metricas/cuenta-resultado/detalle` (sin params) → 422 (esperado: requiere `modulo`, `resultado`, `ambiente`)
 
 ### 5.5 Catálogos
-- ✅ `GET /api/v1/catalogos/tipos` → 200
-- ✅ `GET /api/v1/catalogos/usuarios` → 200
-- ✅ `GET /api/v1/catalogos/etiquetas` → 200
+-  `GET /api/v1/catalogos/tipos` → 200
+-  `GET /api/v1/catalogos/usuarios` → 200
+-  `GET /api/v1/catalogos/etiquetas` → 200
 
 ### 5.6 Features (sin prefijo)
-- ✅ `GET /api/v1/etiquetas` → 200
-- ✅ `GET /api/v1/tickets/1/checklists` → 200
-- ✅ `GET /api/v1/tickets/1/comentarios` → 200
-- ✅ `GET /api/v1/tickets/1/adjuntos` → 200
-- ✅ `GET /api/v1/automatizaciones` → 200
-- ✅ `GET /api/v1/buscar/avanzado?q=test` → 200
-- ✅ `GET /api/v1/buscar/estadisticas` → 200
+-  `GET /api/v1/etiquetas` → 200
+-  `GET /api/v1/tickets/1/checklists` → 200
+-  `GET /api/v1/tickets/1/comentarios` → 200
+-  `GET /api/v1/tickets/1/adjuntos` → 200
+-  `GET /api/v1/automatizaciones` → 200
+-  `GET /api/v1/buscar/avanzado?q=test` → 200
+-  `GET /api/v1/buscar/estadisticas` → 200
 
 ### 5.7 Trello features
-- ✅ `GET /api/v1/espacios` → 200
-- ✅ `GET /api/v1/tableros` → 200
-- ✅ `GET /api/v1/watch` → 200
-- ✅ `GET /api/v1/notificaciones` → 200
+-  `GET /api/v1/espacios` → 200
+-  `GET /api/v1/tableros` → 200
+-  `GET /api/v1/watch` → 200
+-  `GET /api/v1/notificaciones` → 200
 
 ### 5.8 Tickets
-- ✅ `GET /api/v1/tickets` → 200
-- ✅ `GET /api/v1/tickets/1` → 200
-- ✅ `GET /api/v1/tickets/archivados` → 200
-- ✅ `GET /api/v1/tickets/buscar/query?q=INC` → 200
-- ✅ `GET /api/v1/tickets/1/detalle-html` → 200
-- ✅ `GET /api/v1/tickets/1/card-html` → 200
-- ✅ `GET /api/v1/tickets/1/transicion-info/2` → 200
-- ✅ `GET /api/v1/tickets/exportar/csv` → 200
+-  `GET /api/v1/tickets` → 200
+-  `GET /api/v1/tickets/1` → 200
+-  `GET /api/v1/tickets/archivados` → 200
+-  `GET /api/v1/tickets/buscar/query?q=INC` → 200
+-  `GET /api/v1/tickets/1/detalle-html` → 200
+-  `GET /api/v1/tickets/1/card-html` → 200
+-  `GET /api/v1/tickets/1/transicion-info/2` → 200
+-  `GET /api/v1/tickets/exportar/csv` → 200
 
 ### 5.9 Kanban
-- ✅ `GET /api/v1/kanban` → 200
-- ✅ `GET /api/v1/kanban/columna/1` → 200
+-  `GET /api/v1/kanban` → 200
+-  `GET /api/v1/kanban/columna/1` → 200
 
 ### 5.10 Import/Export
-- ✅ `GET /api/v1/tickets-ie/formatos` → 200
+-  `GET /api/v1/tickets-ie/formatos` → 200
 
 ### 5.11 Dev Inbox
-- ⚠️ `GET /api/v1/dev/inbox/json` → 403 (esperado: solo admin)
-- ✅ `GET /api/v1/dev/inbox/status` → 200
-- ✅ `GET /api/v1/dev/inbox/stats` → 200
+- Advertencia: `GET /api/v1/dev/inbox/json` → 403 (esperado: solo admin)
+-  `GET /api/v1/dev/inbox/status` → 200
+-  `GET /api/v1/dev/inbox/stats` → 200
 
-### 5.12 HTMX Crítico: PATCH /tickets/{id}/estado
+### 5.12 HTMX Crítico: PATCH /tickets/{ticket_id}/estado
 
 ```bash
 curl -X PATCH "https://.../api/v1/tickets/1/estado" \
@@ -227,14 +227,14 @@ Script Python que:
 ### 6.2 Resultados
 
 **72 URLs únicas extraídas de templates**:
-- ✅ **70 URLs matchean** una ruta registrada
-- ⚠️ **1 URL no matchea en script pero SÍ funciona**: `/onboarding` (montada vía FastAPI StaticFiles, no como ruta @app.get)
-- ✅ **0 links rotos reales**
+-  **70 URLs matchean** una ruta registrada
+- Advertencia: **1 URL no matchea en script pero SÍ funciona**: `/onboarding` (montada vía FastAPI StaticFiles, no como ruta @app.get)
+-  **0 links rotos reales**
 
 ### 6.3 URLs JS adicionales
 
 **7 URLs únicas extraídas de archivos JS**:
-- ✅ Todas matchean endpoints reales
+-  Todas matchean endpoints reales
 
 ### 6.4 Distribución de URLs validadas
 
@@ -260,24 +260,24 @@ Script Python que:
 
 ### 7.1 Auditoría
 
-- ✅ `Auditoria` model existe en `app/models/auditoria.py`
-- ✅ Función `registrar_auditoria()` invocada en transiciones de estado (vía `TicketService`)
-- ✅ Endpoint `detalle-html` embebe timeline de auditoría en el modal
-- ⚠️ Nota: No existe endpoint REST dedicado `/auditoria`; se renderiza inline en el detalle del ticket (por diseño)
+-  `Auditoria` model existe en `app/models/auditoria.py`
+-  Función `registrar_auditoria()` invocada en transiciones de estado (vía `TicketService`)
+-  Endpoint `detalle-html` embebe timeline de auditoría en el modal
+- Advertencia: Nota: No existe endpoint REST dedicado `/auditoria`; se renderiza inline en el detalle del ticket (por diseño)
 
 ### 7.2 SLA
 
-- ✅ Celery + Redis configurados para recálculo asíncrono
-- ✅ Endpoint `GET /api/v1/metricas/resumen` retorna `sla_cumplido_pct` y métricas de tiempo promedio
-- ✅ `metricas/resumen` retorna distribución por prioridad y estado
+-  Celery + Redis configurados para recálculo asíncrono
+-  Endpoint `GET /api/v1/metricas/resumen` retorna `sla_cumplido_pct` y métricas de tiempo promedio
+-  `metricas/resumen` retorna distribución por prioridad y estado
 
 ### 7.3 Transición de Estados
 
-- ✅ `PATCH /api/v1/tickets/{id}/estado` valida transiciones vía `CambioEstadoRequest` (Pydantic)
-- ✅ `GET /api/v1/tickets/{id}/transicion-info/{destino}` retorna metadata para confirmar transición
-- ✅ Respuesta incluye tarjeta HTML actualizada para swap de HTMX
-- ✅ Errores 400 para `TransicionInvalidaError`
-- ✅ Errores 403 para `PermisoInsuficienteError`
+-  `PATCH /api/v1/tickets/{ticket_id}/estado` valida transiciones vía `CambioEstadoRequest` (Pydantic)
+-  `GET /api/v1/tickets/{id}/transicion-info/{destino}` retorna metadata para confirmar transición
+-  Respuesta incluye tarjeta HTML actualizada para swap de HTMX
+-  Errores 400 para `TransicionInvalidaError`
+-  Errores 403 para `PermisoInsuficienteError`
 
 ---
 
@@ -285,12 +285,12 @@ Script Python que:
 
 ### 8.1 Sin bugs críticos
 
-✅ Todos los smoke tests pasaron
-✅ Todos los endpoints API responden correctamente
-✅ No hay links rotos
-✅ Modal close handler funciona
-✅ Filtro TIPO funciona
-✅ Drill-cr modal funciona con datos reales
+ Todos los smoke tests pasaron
+ Todos los endpoints API responden correctamente
+ No hay links rotos
+ Modal close handler funciona
+ Filtro TIPO funciona
+ Drill-cr modal funciona con datos reales
 
 ### 8.2 Observaciones menores (no son bugs)
 
@@ -315,9 +315,17 @@ Script Python que:
 
 ---
 
-## 9. Conclusión Final
+## 9. Acciones pendientes del propietario
 
-✅ **El sistema Bitácora GRM v2 está completamente funcional y libre de bugs.**
+- [ ] Revocar el token de proyecto de Railway en Project Settings → Tokens.
+- [ ] Definir una `SECRET_KEY` real y montar un volumen persistente en `/data`.
+- [ ] Migrar la configuración de `railway.toml` al panel de Railway antes del 2026-12-01.
+- [ ] Rotar el PAT de GitHub filtrado.
+- [ ] Rotar la contraseña de PostgreSQL de producción.
+
+## 10. Conclusión Final
+
+ **El sistema Bitácora GRM v2 está completamente funcional y libre de bugs.**
 
 - 22/22 páginas HTML responden correctamente
 - 38/38 endpoints API validados responden según contrato

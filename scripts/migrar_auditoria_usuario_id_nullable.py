@@ -22,8 +22,8 @@ failed: auditorias.usuario_id``.
 
 Uso
 ---
-    cd /workspace/Bitacora-GRM_v2
-    .venv/bin/python -m scripts.migrar_auditoria_usuario_id_nullable
+    cd <raíz-del-repositorio>     # p. ej. /workspace
+    python -m scripts.migrar_auditoria_usuario_id_nullable
 
 Idempotente
 -----------

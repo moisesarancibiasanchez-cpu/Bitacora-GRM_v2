@@ -35,14 +35,14 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 
 ```
 ┌──────────────┐   1. drag end      ┌────────────────────┐
-│  SortableJS  │ ─────────────────▶ │  fetch PATCH /api  │
+│  SortableJS  │ ─────────────────> │  fetch PATCH /api  │
 │  (frontend)  │                    │  /v1/tickets/{id}/ │
 └──────────────┘                    │  estado            │
         ▲                           └────────┬───────────┘
         │ 3. outerHTML swap                  │ 2. valida
         │                                    ▼
 ┌──────────────┐                    ┌────────────────────┐
-│  HTMX        │ ◀── fragment ──── │  FastAPI service   │
+│  HTMX        │ <── fragment ──── │  FastAPI service   │
 │  (respuesta) │                    │  TicketService     │
 └──────────────┘                    └────────┬───────────┘
                                             │ ok
@@ -65,7 +65,7 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 ### Pasos detallados
 
 1. El usuario arrastra una tarjeta con **SortableJS**.
-2. Al soltarla, `kanban.js` envía un `PATCH /api/v1/tickets/{id}/estado` con `{estado_id, orden}`.
+2. Al soltarla, `kanban.js` envía un `PATCH /api/v1/tickets/{ticket_id}/estado` con `{estado_id, orden}`.
 3. **FastAPI** valida la transición contra la tabla `transiciones_estado` (reglas ITSM).
 4. Si la transición es válida:
    - UPDATE del ticket.
@@ -80,7 +80,7 @@ MVP del **Módulo de Incidencias** que incluye las bases para futuros mantenedor
 .
 ├── app/
 │   ├── api/v1/                # Endpoints REST
-│   │   ├── tickets.py         # PATCH /tickets/{id}/estado (CORE)
+│   │   ├── tickets.py         # PATCH /tickets/{ticket_id}/estado (CORE)
 │   │   ├── estados.py         # CRUD de estados y transiciones
 │   │   ├── catalogos.py       # Mantenedores de catálogos
 │   │   ├── kanban.py          # Render HTML del tablero
@@ -157,7 +157,7 @@ catalogo_tipos ─< catalogo_items
 | Método | Ruta                                        | Descripción                                        |
 |--------|---------------------------------------------|----------------------------------------------------|
 | GET    | `/kanban`                                   | Render del tablero (HTML)                          |
-| PATCH  | `/api/v1/tickets/{id}/estado`               | **Cambio de estado desde Kanban (CORE)**          |
+| PATCH  | `/api/v1/tickets/{ticket_id}/estado`         | **Cambio de estado desde Kanban (CORE)**          |
 | POST   | `/api/v1/tickets`                           | Crear incidencia                                   |
 | GET    | `/api/v1/tickets`                           | Listar tickets                                     |
 | GET    | `/api/v1/estados`                           | Listar estados del flujo                           |
@@ -207,16 +207,9 @@ celery -A app.core.celery_app.celery_app worker --loglevel=info
 celery -A app.core.celery_app.celery_app beat --loglevel=info
 ```
 
-## 8. Usuarios de ejemplo (modo demo)
+## 8. Acceso y registro inicial
 
-| Username | Password   | Rol               |
-|----------|------------|-------------------|
-| admin    | admin123   | Administrador     |
-| lider    | lider123   | Agente Senior     |
-| agente1  | agente123  | Agente            |
-| usuario1 | user123    | Solicitante       |
-
-> Pasa el header `X-User-Id: <id>` para simular la sesión en modo demo.
+Las credenciales de acceso se distribuyen por canal privado. El registro inicial define la cuenta administradora; este repositorio no publica usuarios ni contraseñas de demostración.
 
 ## 9. Roadmap
 

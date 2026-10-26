@@ -109,9 +109,17 @@ def _crear_ticket(
 
 
 def _assert(cond: bool, msg: str) -> None:
+    """Aserción de los checks del script.
+
+    Antes terminaba con ``sys.exit(1)``. Bajo pytest, una ``SystemExit`` en
+    medio de la recolección aborta la SESIÓN COMPLETA (INTERNALERROR) y no
+    se ejecuta ningún test. Se lanza ``AssertionError``, que pytest reporta
+    como fallo normal del caso, y el runner standalone sigue devolviendo
+    código de salida 1.
+    """
     if not cond:
         print(f"  ✗ FAIL: {msg}")
-        sys.exit(1)
+        raise AssertionError(msg)
     print(f"  ✓ {msg}")
 
 
@@ -385,6 +393,20 @@ def main() -> int:
     print("  ✓✓✓ TODOS LOS TESTS PASARON ✓✓✓")
     print("=" * 78)
     return 0
+
+
+def test_bulk_update_fechas_gar_ri_backlog():
+    """Wrapper pytest del script ``main()``.
+
+    El script crea su propia base SQLite temporal y la elimina al final, de
+    modo que puede ejecutarse dentro de la suite sin contaminar el resto de
+    los tests.
+    """
+    try:
+        codigo = main()
+    except AssertionError:
+        codigo = 1
+    assert codigo == 0, "El script de bulk update reportó un fallo (ver salida)"
 
 
 if __name__ == "__main__":

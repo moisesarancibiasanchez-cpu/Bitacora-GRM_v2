@@ -221,7 +221,7 @@ function cambiarTab(tab){
 
 async function toggleRegla(id, activo){
   try {
-    const r = await fetch('/api/v1/reglas/'+id, {
+    const r = await fetch('/api/v1/butler/reglas/'+id, {
       method: 'PATCH', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({activo})
     });
@@ -232,7 +232,7 @@ async function toggleRegla(id, activo){
 async function eliminarRegla(id){
   if (!confirm('¿Eliminar esta regla?')) return;
   try {
-    const r = await fetch('/api/v1/reglas/'+id, {method:'DELETE'});
+    const r = await fetch('/api/v1/butler/reglas/'+id, {method:'DELETE'});
     if (r.ok) location.reload();
   } catch(e) { alert('Error: '+e.message); }
 }

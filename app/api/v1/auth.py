@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.api.v1.deps import get_current_user
+from app.core.config import settings
 from app.core.security import hash_password, verify_password, create_access_token
 from app.db.session import get_db
 from app.models.auditoria import Auditoria
@@ -64,6 +65,7 @@ def _set_session_cookie(response: Response, user_id: int, rol: str) -> str:
         key="access_token",
         value=token,
         httponly=True,
+        secure=not settings.DEBUG,
         max_age=60 * 60 * 8,  # 8h
         samesite="lax",
         path="/",
@@ -227,6 +229,7 @@ def login_form(
         key="access_token",
         value=token,
         httponly=True,
+        secure=not settings.DEBUG,
         max_age=60 * 60 * 8,  # 8h
         samesite="lax",
         path="/",
@@ -305,6 +308,7 @@ def registro_form(
         key="access_token",
         value=token,
         httponly=True,
+        secure=not settings.DEBUG,
         max_age=60 * 60 * 8,
         samesite="lax",
         path="/",
@@ -481,11 +485,17 @@ def cambiar_password_form(
 
 
 @router.get("/cambiar-password-modal", response_class=HTMLResponse)
-def cambiar_password_modal():
+def cambiar_password_modal(usuario: Usuario = Depends(get_current_user)):
     """
     Devuelve el fragmento HTML del modal de cambio de contraseña.
 
     Se carga por HTMX desde el botón en la navbar (`hx-get`).
+
+    EXIGE SESIÓN (``Depends(get_current_user)``): sin cookie de sesión ni
+    token válido responde 401. Antes devolvía 200 a cualquier visitante
+    anónimo; el fragmento no filtra datos, pero es una superficie pública
+    innecesaria que expone la plantilla de autenticación sin control de
+    acceso.
     """
     import os
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

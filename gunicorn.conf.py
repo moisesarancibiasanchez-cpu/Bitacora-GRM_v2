@@ -30,6 +30,18 @@ errorlog = "-"
 loglevel = os.getenv("LOG_LEVEL", "info").lower()
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)sus'
 
+# === Cabeceras del proxy inverso ===
+# Railway termina el TLS y reenvía la petición con `X-Forwarded-Proto: https`.
+# Sin esto, uvicorn ignora esas cabeceras, la aplicación cree estar en HTTP
+# y las redirecciones que genera degradan a `http://` (por ejemplo el 307 de
+# `/onboarding`), rompiendo el bucle HTTPS -> HTTP -> HTTPS.
+#
+# `*` es seguro aquí porque el servicio solo es alcanzable a través del proxy
+# de Railway (no hay puerto público) y el borde sobrescribe las cabeceras
+# `X-Forwarded-*` que envía el cliente. Se puede restringir con la variable
+# `FORWARDED_ALLOW_IPS` si el despliegue cambia de topología.
+forwarded_allow_ips = os.getenv("FORWARDED_ALLOW_IPS", "*")
+
 # === Process name (visible en `ps`) ===
 proc_name = "bitacora-grm-web"
 

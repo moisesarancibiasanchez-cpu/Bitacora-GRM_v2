@@ -30,6 +30,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+# Importar ``app.core.config`` tiene un efecto secundario deliberado:
+# exporta los valores del archivo ``.env`` al ``os.environ`` (con
+# ``setdefault``, sin pisar las variables reales del despliegue). Sin este
+# import, los ``os.getenv`` de nivel de módulo de más abajo verían ``None``
+# en desarrollo. Ver ``app/core/config.py::_exportar_a_environ``.
+from app.core import config as _config  # noqa: F401
+
 
 logger = logging.getLogger(__name__)
 
