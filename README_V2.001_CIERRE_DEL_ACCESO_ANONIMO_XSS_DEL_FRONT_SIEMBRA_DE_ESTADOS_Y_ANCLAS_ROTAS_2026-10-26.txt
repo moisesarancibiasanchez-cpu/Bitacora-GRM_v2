@@ -1162,16 +1162,69 @@ consulta debe estar disponible para un token de proyecto.
 
 8.6  ESTADO FINAL DE ESTE LOTE
 
-  - Codigo: 11 commits del lote mas este addendum, todos en 'main'
-    (HEAD 3fe0827 mas el commit de este addendum).
+  - Codigo: 11 commits del lote mas el commit del README (7eca876), el
+    commit que corrige el arranque en base nueva (3fe0827) y el commit
+    de este addendum. TODOS estan en la rama 'release/v2.001' (HEAD
+    66f37ce mas el commit de este addendum). NO estan en 'main'.
   - Pruebas: 155 passed (144 heredadas + 11 nuevas de este lote).
   - Desplegado en produccion: NO. El build de la plataforma lo impidio y
-    el propietario ordeno el rollback. El codigo esta listo para
-    desplegar.
+    el propietario ordeno el rollback.
   - Produccion: los tres servicios sirven el commit del viernes
     6038fc29, verificados en estado SUCCESS y con la aplicacion
     respondiendo con normalidad.
   - Accesos del administrador: restablecidos y verificados.
+
+8.7  ALINEACION DE 'main' Y PUBLICACION DE LAS RAMAS DE CONSERVACION
+
+  Decision del propietario: alinear 'main' con la version del viernes que
+  esta en produccion y dejar V2.001 en una rama aparte.
+
+  - 'main' quedo alineado con el arbol EXACTO del commit del viernes
+    6038fc29 mediante 'git commit-tree' + 'update-ref', sin 'push --force'
+    ni reescritura de historia. Commit resultante: c6eca9b ("revert:
+    alinear main con el commit del viernes 6038fc29"). 'git diff
+    6038fc29 c6eca9b' no devuelve ninguna diferencia: los 421 ficheros
+    del arbol son identicos.
+  - 'main' se publico como avance rapido (7eca876..c6eca9b), sin force.
+  - Rama de conservacion 'release/v2.001' -> 66f37ce (todo este lote).
+  - Rama de conservacion 'release/v1.006' -> 4d1a603 (V1.006 cerrado).
+  - Las dos ramas se publicaron en el remoto (PUSH_EXIT=0).
+
+  Consecuencia sobre el autoDeploy: el push a 'main' dispara el
+  autoDeploy del servicio web. El despliegue de c6eca9b termino en
+  estado SUCCESS (2026-10-26T14:19:59Z, commit status de GitHub
+  "Success - bitacora-grmv2-production.up.railway.app"). Esto confirma
+  ademas que el daemon BuildKit de la plataforma se ha recuperado: el
+  fallo de build de la seccion 8.1 era transitorio y no afecta al
+  codigo. El contenido desplegado es el mismo que el del viernes
+  (arbol identico), por lo que el servicio no cambia de comportamiento.
+
+8.8  VERIFICACION FINAL EN PRODUCCION (despues del rollback)
+
+  - GET /health  -> 200 {"status":"ok","database":"ok","redis":"ok"}
+  - GET /info    -> 200
+  - GET /ready   -> 200 {"status":"ready"}
+  - POST /api/v1/auth/login con la credencial restablecida -> HTTP 200
+    {"ok":true,"user_id":1,"username":"admin","rol":"administrador"}
+  - Barrido anonimo (tools/verificacion/barrer_anonimo.py): 2 fugas
+    detectadas, coherentes con la version del viernes y ausentes en este
+    lote:
+      - GET /_diag/tickets -> 200 con datos reales sin sesion
+      - GET /api/v1/auth/cambiar-password-modal -> 200 sin sesion
+    Este lote de V2.001 las cierra (8e8b973 y la proteccion de
+    diagnostico).
+  - Rutas que siguen en 500 con la version del viernes (el codigo del
+    viernes es incompatible con la base ya migrada por V1.006):
+      - GET /admin/reporte-entregas -> 500
+      - GET /p/{slug} -> 500
+    Ambas vuelven a responder en cuanto se despliegue V1.006 o V2.001.
+  - GET /salud-celery -> 404 (la ruta no existe en la version del
+    viernes; se introdujo en V1.006).
+  - Cabeceras de seguridad: la version del viernes no envia
+    Content-Security-Policy, Strict-Transport-Security ni
+    Permissions-Policy. V1.006 las restaura.
+  - La version del viernes vuelve a publicar 'database_url' en /info
+    (host y puerto, sin credenciales). V1.006 lo deja de publicar.
 
 ================================================================================
 FIN DEL DOCUMENTO README V2.001
