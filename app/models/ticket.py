@@ -233,10 +233,16 @@ class Ticket(Base, TimestampMixin):
         order_by="Auditoria.created_at.desc()",
     )
     # === Relaciones de funcionalidades estilo Trello ===
+    # `etiquetas` se carga con `selectin`: las vistas que listan tickets
+    # (Kanban, tabla, panel) pintan las etiquetas de CADA tarjeta, y con
+    # el valor por defecto (`select`) eso era un N+1: una consulta extra
+    # por ticket (con 931 tickets en producción, ~931 SELECT por render).
+    # `selectin` las trae en UNA consulta adicional por lote de tickets.
     etiquetas = relationship(
         "Etiqueta",
         secondary="ticket_etiquetas",
         back_populates="tickets",
+        lazy="selectin",
     )
     # Miembros múltiples (asignación adicional sin reemplazar al principal)
     miembros = relationship(

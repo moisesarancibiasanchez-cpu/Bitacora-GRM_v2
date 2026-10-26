@@ -559,11 +559,25 @@ class TicketService:
             ticket.fecha_vencimiento_sla = now_utc() + timedelta(
                 hours=estado_asignado.sla_horas
             )
+        # Un ticket puede abrirse YA en un estado final (lo permiten
+        # ADMINISTRADOR y AGENTE_SENIOR). En ese caso debe quedar cerrado
+        # igual que si hubiera llegado a ese estado por una transición:
+        # ``fecha_completado`` registrada, ``fecha_cumplida`` y SLA
+        # cumplido. Sin esto el ticket quedaba con ``fecha_completado``
+        # NULL y ``sla_cumplido=-1`` (pendiente) y el beat lo marcaba
+        # después como SLA INCUMPLIDO, contradiciendo la regla de
+        # "Producción OK fuerza cumplimiento" y la de "todo estado final
+        # registra fecha_completado".
+        if estado_asignado.es_final:
+            ticket.fecha_completado = now_utc()
+            if _norm(estado_asignado.nombre) == "produccion ok":
+                ticket.fecha_cumplida = True
+            ticket.sla_cumplido = 1
         self.db.add(ticket)
         self.db.flush()
 
         # Historial inicial
-        self.db.add(HistorialEstado(
+        historial_inicial = HistorialEstado(
             ticket_id=ticket.id,
             estado_origen_id=None,
             estado_destino_id=estado_asignado.id,
@@ -571,7 +585,8 @@ class TicketService:
             comentario="Ticket creado",
             origen=ip_origen or "web",
             fecha=now_utc(),
-        ))
+        )
+        self.db.add(historial_inicial)
 
         # Auditoría obligatoria
         registrar_auditoria(
@@ -617,6 +632,32 @@ class TicketService:
                 "[ticket_service] No se pudieron asignar etapas iniciales al "
                 "ticket %s — el ticket se creó igual sin etapas.", ticket.id,
             )
+
+        # === 9.1) FEATURE — Reporte diario de entregas ===
+        # Si el ticket se abre directamente en un estado terminal de
+        # entrega (es_entrega=True), también debe quedar registrado en el
+        # reporte diario: el historial inicial (origen NULL → destino
+        # es_entrega) ES la entrada a ese estado, y su id es la misma clave
+        # de idempotencia (UNIQUE historial_estado_id) que usa
+        # ``cambiar_estado``. Sin esto, un ticket creado en "Producción OK"
+        # quedaba fuera del reporte mientras que el mismo ticket movido
+        # a ese estado sí aparecía.
+        if getattr(estado_asignado, "es_entrega", False):
+            try:
+                from app.tasks.entregas import registrar_entrega_diaria
+                r_entrega = registrar_entrega_diaria.delay(
+                    ticket.id, historial_inicial.id
+                )
+                logger.info(
+                    "[ticket_service] Ticket %s creado en estado de entrega "
+                    "'%s': entrega registrada (task=%s).",
+                    ticket.id, estado_asignado.nombre, r_entrega.id,
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    "[ticket_service] No se pudo encolar registrar_entrega_diaria "
+                    "para el ticket %s (no crítico): %s", ticket.id, exc,
+                )
 
         return ticket
 
