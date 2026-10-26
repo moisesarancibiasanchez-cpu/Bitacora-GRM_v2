@@ -535,6 +535,79 @@ def test_leer_latido_no_lanza_sin_redis():
     assert "detalle" in resultado
 
 
+def test_el_latido_lo_escribe_el_beat_y_no_solo_el_worker():
+    """El scheduler del beat escribe el latido: la senal no depende del worker.
+
+    Si el latido dependiera solo del worker, no se podria distinguir
+    "el beat no planifica" de "el worker no ejecuta".
+    """
+    from app.core import salud
+
+    assert salud.CLAVE_LATIDO == "bitacora:salud:beat"
+    # El TTL debe superar el maxinterval del beat (300 s por defecto),
+    # si no el latido expira justo entre dos ticks.
+    assert salud.TTL_LATIDO > 300
+
+    resultado = salud.escribir_latido()
+    assert "ok" in resultado
+
+    # La tarea del worker y el scheduler comparten el mismo SSOT.
+    from app.tasks import salud_tasks
+
+    assert salud_tasks.CLAVE_LATIDO == salud.CLAVE_LATIDO
+    assert salud_tasks.TTL_LATIDO == salud.TTL_LATIDO
+
+
+def test_el_scheduler_del_beat_escribe_el_latido_en_cada_tick(monkeypatch):
+    """`SaludScheduler.tick()` escribe el latido y no rompe si Redis falla."""
+    from celery.beat import PersistentScheduler
+
+    from app.core import salud_scheduler
+
+    assert issubclass(salud_scheduler.SaludScheduler, PersistentScheduler)
+
+    llamadas = []
+    monkeypatch.setattr(
+        salud_scheduler, "escribir_latido", lambda: llamadas.append(1) or {"ok": True}
+    )
+
+    scheduler = salud_scheduler.SaludScheduler.__new__(salud_scheduler.SaludScheduler)
+    # Se anula el tick real de Celery (necesita un fichero de calendario).
+    monkeypatch.setattr(
+        PersistentScheduler, "tick", lambda self, *a, **k: 0, raising=True
+    )
+
+    scheduler.tick()
+
+    assert len(llamadas) == 1
+
+
+def test_el_scheduler_no_tumba_el_beat_si_redis_falla(monkeypatch):
+    """Si el latido falla, el tick del scheduler continua."""
+    from celery.beat import PersistentScheduler
+
+    from app.core import salud_scheduler
+
+    def falla():
+        raise RuntimeError("Redis caido")
+
+    monkeypatch.setattr(salud_scheduler, "escribir_latido", falla)
+    monkeypatch.setattr(
+        PersistentScheduler, "tick", lambda self, *a, **k: 0, raising=True
+    )
+
+    scheduler = salud_scheduler.SaludScheduler.__new__(salud_scheduler.SaludScheduler)
+    scheduler.tick()  # no debe lanzar
+
+
+def test_start_sh_arranca_el_beat_con_el_scheduler_de_salud():
+    """El rol beat de `start.sh` usa el scheduler que escribe el latido."""
+    texto = (RAIZ / "start.sh").read_text(encoding="utf-8")
+
+    assert "app.core.salud_scheduler:SaludScheduler" in texto
+    assert "--scheduler=" in texto
+
+
 def test_el_beat_planifica_el_latido_de_salud():
     """La periodicidad del latido esta en el `beat_schedule` de Celery."""
     from app.core.celery_app import celery_app

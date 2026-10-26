@@ -341,7 +341,24 @@ case "$ROLE" in
         # escribible: el CWD del contenedor puede ser de solo lectura.
         # Solo debe existir UNA instancia de beat en el proyecto (dos beats
         # dispararian cada tarea dos veces).
+        #
+        # El scheduler propio escribe el LATIDO DE SALUD en cada tick: la
+        # senal de "el beat sigue planificando" no depende del worker, de
+        # modo que se puede distinguir un beat parado de un worker parado.
+        # Si el scheduler no estuviera disponible, se cae al scheduler
+        # estandar de Celery (el beat sigue funcionando; solo se pierde
+        # el latido).
         echo "[start.sh] Lanzando celery beat..."
+        BEAT_SCHEDULER="app.core.salud_scheduler:SaludScheduler"
+        if ! python -c "import sys; sys.path.insert(0, '.'); import app.core.salud_scheduler" 2>/dev/null; then
+            echo "[start.sh] AVISO: el scheduler de salud no esta disponible; se usa el estandar." >&2
+            BEAT_SCHEDULER=""
+        fi
+        if [[ -n "$BEAT_SCHEDULER" ]]; then
+            exec celery -A app.core.celery_app:celery_app beat --loglevel=info \
+                --schedule="${CELERY_BEAT_SCHEDULE_FILE:-/tmp/celerybeat-schedule}" \
+                --scheduler="$BEAT_SCHEDULER"
+        fi
         exec celery -A app.core.celery_app:celery_app beat --loglevel=info \
             --schedule="${CELERY_BEAT_SCHEDULE_FILE:-/tmp/celerybeat-schedule}"
         ;;
