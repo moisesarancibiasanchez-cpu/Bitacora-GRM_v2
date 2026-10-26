@@ -4,7 +4,8 @@ JAVASCRIPT Y VALIDADOR DE SINTAXIS DE PLANTILLAS
 Proyecto: Bitacora GRM v2
 Fecha: 2026-10-26
 Rama base: main y release/v2.001 (commit a175632)
-Estado: CODIGO LISTO Y VERIFICADO EN LOCAL. PENDIENTE DE DESPLEGUE.
+Estado: DESPLEGADO Y VERIFICADO EN PRODUCCION (2026-10-26).
+        Commit b2d72e9 en los tres servicios (web, worker, beat).
 ================================================================================
 
 0. PARCHE EXACTO
@@ -506,3 +507,137 @@ index b0e3193..8dd35fb 100644
   Fichero NUEVO (no aparece en el diff anterior porque no estaba
   versionado): tests/test_v2003_sintaxis_js_plantillas.py
   5 tests de regresion de sintaxis JavaScript (ver seccion 2).
+
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-10-26, addendum posterior al cierre)
+================================================================================
+
+  9.1 PUBLICACION
+
+    Commit del lote:  b2d72e9757da26e456b57d3c9dc2d4b3c53aa4fe
+    Commit padre:     a1756322132e557064a74d06815896db35b6d7a2
+    Rama de trabajo:  release/v2.001 (rama canonica)
+    'main' alineada:  merge --ff-only (a175632..b2d72e9), sin reescribir
+                      historia y sin '--force'.
+    Push (PUSH_EXIT=0):
+        a175632..b2d72e9  main            -> main
+        a175632..b2d72e9  release/v2.001  -> release/v2.001
+
+    Tras el push, 'main' y 'release/v2.001' apuntan al mismo commit.
+
+  9.2 DESPLIEGUE EN RAILWAY
+
+    web    -> autoDeploy desde 'main'   SUCCESS  2026-10-26T19:27:53Z
+              id 59dae165-118b-47f5-99ee-7ce42e6324bf
+    worker -> serviceInstanceDeploy      SUCCESS  2026-10-26T19:30:03Z
+              id c195006b-beae-4de0-a7a1-87f0a10da3c0
+    beat  -> serviceInstanceDeploy      SUCCESS  2026-10-26T19:30:07Z
+              id 11daa2c3-2bd5-423c-8157-80f97f4b9087
+
+    Los tres despliegues declaran en su 'meta':
+        commitHash   = b2d72e9757da26e456b57d3c9dc2d4b3c53aa4fe
+        branch       = main
+        repo         = moisesarancibiasanchez-cpu/Bitacora-GRM_v2
+        commitMessage= fix(dashboard): corregir el error de sintaxis JS que
+                      dejaba el dashboard en blanco
+
+    Los tres servicios quedan alineados en el mismo commit: no se repite el
+    incidente de desalineacion del lote anterior.
+
+  9.3 VERIFICACION EN PRODUCCION (2026-10-26, solo GETs y POST de login)
+
+    Salud y acceso:
+      GET  /health -> 200  {"status":"ok","database":"ok","redis":"ok"}
+      GET  /ready  -> 200
+      GET  /info   -> 200
+      POST /api/v1/auth/login (administrador) -> 200
+      GET  /dashboard -> 200, 140.684 caracteres
+
+    El HTML servido por '/dashboard' contiene el ternario YA CORREGIDO:
+           +       (data.truncado
+             ? '<p class="text-[11px] text-amber-600 mt-1">Se muestran '
+                 + (data.total_listado || 0) + ' de ' + (data.total || 0)
+                 + ' tickets: el listado esta limitado a ' + (data.limite || 0)
+                 + ' filas. Usa "Exportar CSV" para el periodo completo.</p>'
+             : '')
+
+    El mismo HTML servido pasa el validador de sintaxis JavaScript del repo
+    (importado desde 'tests/test_v2003_sintaxis_js_plantillas.py'):
+        OK: el HTML servido en produccion pasa el validador de sintaxis JS
+
+    Criterio del lote V2.002 (resumen == modal), contra produccion:
+      GET /api/v1/metricas/incidencias-recientes
+          ?tipo=incidencia&periodo_dias=30
+          &fecha_desde=2026-07-28&fecha_hasta=2026-10-26&limite=200
+        -> metricas.total_periodo = 18   (rango_explicito = true)
+      GET /api/v1/metricas/detalle-kpi
+          ?kpi=total_periodo&periodo_dias=30&tipo=incidencia
+          &fecha_desde=2026-07-28&fecha_hasta=2026-10-26&limite=200
+        -> total = 18   total_listado = 18   truncado = false
+        -> rango_explicito = true   2026-07-28 -> 2026-10-26
+      VEREDICTO: resumen y modal coinciden en 18 tickets.
+
+  9.4 VERIFICACION EN NAVEGADOR (HTML real de produccion)
+
+    Para poder ejecutar el JavaScript real de produccion sin credenciales en
+    el navegador, se monto un harness local en 127.0.0.1:8765 que sirve el
+    HTML REAL descargado de '/dashboard' de produccion y hace de proxy de
+    '/api/*' contra produccion con la sesion del administrador. Los bloques
+    <script> del HTML servido por el harness y los del HTML de produccion se
+    compararon y son IDENTICOS byte a byte (5 bloques, el mayor de 78.795
+    caracteres).
+
+    Resultado con ese HTML:
+      - consola del navegador: SIN excepciones. Solo el aviso de Tailwind CDN
+        (preexistente) y los mensajes de traza del propio dashboard:
+          '[dashboard] cargarMetricas: periodo=30'
+          '[dashboard] data OK, keys=...'
+          '[dashboard] cargarMetricas: finally ejecutado, spinner oculto'
+      - la pagina deja de quedarse en 'Cargando metricas...' y se pintan los
+        valores reales:
+          TOTAL 931 | NUEVAS (7D) 1 | ABIERTAS 18 | % SLA 96.2%
+          CRIT. SIN ASIGNAR 0 | INCIDENCIAS ABIERTAS 3
+      - se pintan las secciones 'Distribucion por estado', 'Distribucion por
+        prioridad', 'Proximos a vencer SLA', 'Cuenta de Resultado' (pivote con
+        las columnas N/A, NOK, OK, OBS, POST, NOOK, S/D) y 'Lista de
+        Incidencias Recientes';
+      - con el bloque rapido 'Ultimos 90 dias', el badge de la seccion
+        muestra '2026-07-28 -> 2026-10-26 . 18 tickets' y la franja de KPI
+        muestra TOTAL PERIODO 18, VENCIDAS 15, EN RIESGO 72H 1, CRIT/ALTAS 3;
+      - el modal 'Total periodo' abre y muestra:
+            Periodo: 2026-07-28 -> 2026-10-26 . Tipo: incidencia
+            . Total: 18 tickets
+        con la lista de los 18 tickets.
+      - el error 'SyntaxError: Unexpected token ?' ya no aparece.
+
+  9.5 PRUEBAS
+
+    Suite nueva de regresion:  5 passed
+    Suite completa:            169 passed  (164 heredadas + 5 nuevas), 0 failed
+                               722,77 s
+    Comprobacion de que el test tiene dientes: reintroduciendo el defecto
+    original la suite nueva pasa a 3 failed de 5; restaurando la correccion
+    vuelve a 5 passed.
+
+  9.6 PENDIENTES QUE SIGUEN ABIERTOS (del propietario, no de este lote)
+
+    El lote V2.003 no cierra ninguno de los pendientes que ya estaban
+    abiertos en los addenda 8 y 9 del README V2.002:
+
+      - roturar la clave del administrador y no escribir credenciales en
+        ficheros;
+      - auditar si el cambio de contrasena del 2026-10-26 (09:00 a 13:00) fue
+        propio o de un tercero;
+      - roturar el token de proyecto de Railway (expone los secretos de los
+        servicios);
+      - activar autoDeploy en 'worker' y 'beat' con un token de API de
+        usuario de Railway;
+      - definir 'SECRET_KEY' real y un volumen en '/data'; migrar la config
+        del panel antes del 2026-12-01; rotar la contrasena de PostgreSQL;
+      - cerrar el registro publico de usuarios;
+      - borrar manualmente los ficheros 'tmp_*' del area de trabajo (la
+        politica local de borrado no es invocable desde el agente).
+
+================================================================================
+FIN DEL README V2.003
+================================================================================
