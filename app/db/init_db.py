@@ -15,12 +15,13 @@ para evitar cuentas de acceso público en producción.
 import json
 import logging
 import os
-from datetime import datetime
+from typing import List
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
+from app.core.timezone import now_utc
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.models import (
@@ -90,8 +91,24 @@ def init_database():
 
 
 def seed_estados(db: Session):
-    """Crea el flujo estándar ITSM: Nuevo → En curso → En espera → Resuelto → Cerrado."""
-    if db.query(Estado).count() > 0:
+    """Crea el flujo estándar ITSM: Nuevo → En curso → En espera → Resuelto → Cerrado.
+
+    IDEMPOTENTE POR NOMBRE (no "si hay filas, no hago nada").
+
+    Por qué cambió: la migración 4.6 inserta 'Producción OK' en las bases
+    nuevas ANTES de que corra esta siembra. El seed antiguo se saltaba
+    entero en cuanto encontraba UN estado, así que en una base recién
+    creada se quedaba con ese único estado: 'Nuevo', 'En curso', 'En
+    espera', 'Resuelto', 'Cerrado' y 'Cancelado' nunca se creaban y la
+    siembra de transiciones reventaba con ``KeyError: 'Nuevo'``, dejando
+    la base sin flujo de trabajo.
+
+    Salvaguarda: si la base YA tiene transiciones se considera
+    inicializada y NO se toca nada. Así una instalación con su propio
+    flujo (o la de producción) no ve alterados sus estados.
+    """
+    if db.query(TransicionEstado).count() > 0:
+        # La BD ya está inicializada: el flujo puede ser propio. No se toca.
         print("  · Estados ya existen, saltando seed")
         return
 
@@ -104,12 +121,19 @@ def seed_estados(db: Session):
         Estado(nombre="Cancelado",      color="#9ca3af", orden=6, es_inicial=False, es_final=True,  categoria="cerrado",  sla_horas=None, descripcion="Cancelado por el solicitante o duplicado"),
         # Producción OK: estado TERMINAL posterior a Cerrado. Indica que
         # la corrección fue desplegada y verificada en ambiente productivo.
-        Estado(nombre="Producción OK",  color="#0d9488", orden=7, es_inicial=False, es_final=True,  categoria="produccion_ok", sla_horas=None, descripcion="Corrección desplegada y verificada en ambiente productivo"),
+        Estado(nombre="Producción OK",  color="#0d9488", orden=7, es_inicial=False, es_final=True,  categoria="produccion_ok", sla_horas=None, descripcion="Corrección desplegada y verificada en ambiente productivo", es_entrega=True),
     ]
-    for e in estados:
+    # Solo se crean los que faltan: si la migración 4.6 ya insertó
+    # 'Producción OK', no se duplica (el nombre es UNIQUE).
+    existentes = {e.nombre for e in db.query(Estado).all()}
+    faltan = [e for e in estados if e.nombre not in existentes]
+    if not faltan:
+        print("  · Estados ya existen, saltando seed")
+        return
+    for e in faltan:
         db.add(e)
     db.flush()
-    print(f"  ✓ {len(estados)} estados creados")
+    print(f"  ✓ {len(faltan)} estados creados")
 
 
 def seed_transiciones(db: Session):
@@ -145,7 +169,17 @@ def seed_transiciones(db: Session):
         ("Producción OK", "Cerrado", "agente_senior", True,  "Rollback: el deploy en producción tuvo un incidente. Obligatorio documentar el motivo."),
         ("Producción OK", "En curso", "administrador", True, "Reabrir ticket: el fix en producción presenta un bug que requiere trabajo."),
     ]
+    creadas = 0
+    omitidas: List[str] = []
     for origen, destino, rol, comentario, desc in transiciones:
+        # Antes: ``estados[origen]`` reventaba con ``KeyError`` si el
+        # estado no existía (base nueva a la que la migración 4.6 le había
+        # insertado 'Producción OK' antes de la siembra). Ahora la
+        # transición que no puede resolverse se OMITE con aviso visible y
+        # el resto de la siembra continúa.
+        if origen not in estados or destino not in estados:
+            omitidas.append(f"{origen} -> {destino}")
+            continue
         db.add(TransicionEstado(
             estado_origen_id=estados[origen],
             estado_destino_id=estados[destino],
@@ -153,8 +187,14 @@ def seed_transiciones(db: Session):
             requiere_comentario=comentario,
             descripcion=desc,
         ))
+        creadas += 1
     db.flush()
-    print(f"  ✓ {len(transiciones)} transiciones creadas")
+    print(f"  ✓ {creadas} transiciones creadas")
+    if omitidas:
+        print(
+            "  ⚠ %d transición(es) omitidas porque falta su estado: %s"
+            % (len(omitidas), ", ".join(omitidas))
+        )
 
 
 def seed_usuarios(db: Session):
@@ -293,7 +333,7 @@ def seed_tickets_demo(db: Session):
             estado_id=estado.id,
             creador_id=usuarios[creador_un].id,
             asignado_id=usuarios[asignado_un].id if asignado_un else None,
-            fecha_vencimiento_sla=datetime.utcnow() + timedelta(hours=estado.sla_horas or 24),
+            fecha_vencimiento_sla=now_utc() + timedelta(hours=estado.sla_horas or 24),
             sla_cumplido=-1,
         )
         db.add(t)
