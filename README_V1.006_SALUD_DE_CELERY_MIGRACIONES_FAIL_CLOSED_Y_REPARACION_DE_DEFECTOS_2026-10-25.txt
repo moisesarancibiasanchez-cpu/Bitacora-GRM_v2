@@ -53,6 +53,10 @@ Commits del lote:    26cf486  fix(migraciones): poblar el metadata, fail-closed
                               Celery control.ping()
                       04c2f2a  feat(salud): catalogo de tareas del worker en
                               /salud-celery
+                      7be00c0  fix(salud): diagnosticar donde esta la rotura
+                              del latido
+                      2e457d8  docs(credenciales): quitar la credencial por
+                              defecto de la pantalla de login
                       (este commit) docs(release): README V1.006 con el addendum
                               de la verificacion en produccion
 Tipo de publicacion: fast-forward (sin --force)
@@ -419,8 +423,8 @@ Desde la raiz del repositorio:
 
     C:\Python311embed\python.exe -X utf8 -m pytest tests/ -q --tb=line
 
-Resultado esperado: 126 passed (91 de V1.005 + 6 de test_v1005_regressions
-+ 29 de test_v1006_regressions). Tiempos observados: 10 min 48 s.
+Resultado esperado: 128 passed (91 de V1.005 + 6 de test_v1005_regressions
++ 31 de test_v1006_regressions). Tiempos observados: 10 min 40 s.
 
 5.2) Arrancable y esquema (local)
 ---------------------------------
@@ -553,8 +557,18 @@ Lectura esperada del campo `beat`:
 04c2f2a  feat(salud): catalogo de tareas del worker en /salud-celery
          app/main.py
 
+7be00c0  fix(salud): diagnosticar donde esta la rotura del latido
+         app/main.py, tools/verificacion/verificar_produccion_negro.py,
+         tools/verificacion/README.md, tests/test_v1006_regressions.py
+
+2e457d8  docs(credenciales): quitar la credencial por defecto de la pantalla
+         de login
+         itsm_kanban_mvp/app/templates/auth/login.html,
+         itsm_kanban_mvp/README.md,
+         itsm_kanban_mvp/docs/DESCRIPCION_TECNICA_COMPLETA.md
+
 Parche completo del lote:
-    git diff 90a2879..04c2f2a
+    git diff 90a2879..2e457d8
 
 6.2) Ficheros intervenidos por el funcional
 ---------------------------------------------
@@ -609,8 +623,8 @@ tecnica lo aclaran como valor SOLO de desarrollo.
 
 6.4) Evidencia de la validacion
 --------------------------------
-  Suite pytest completa:            126 passed, 0 failed (10 min 48 s)
-  test_v1006_regressions.py:         29 passed
+  Suite pytest completa:            128 passed, 0 failed (10 min 40 s)
+  test_v1006_regressions.py:         31 passed
   test_v1005_regressions.py:          6 passed
   verificar_arranque.py:             16 PASA / 0 FALLA
   verificar_migrations.py:            13 PASA / 0 FALLA
@@ -633,9 +647,11 @@ tecnica lo aclaran como valor SOLO de desarrollo.
   Barrido autenticado (post-deploy):  todas las comprobaciones superadas,
                                       0 respuestas 5xx (111 respuestas 200
                                       en la API, 0 errores)
-  Verificador en negro (post-deploy):  26 comprobaciones, 1 FALLO: el latido
-                                      del beat, porque los servicios worker y
-                                      beat NO se redesplegaron (ver el
+  Verificador en negro (post-deploy):  27 comprobaciones, 2 FALLOS: el worker
+                                      no conoce la tarea del latido y el
+                                      latido no aparece. Los dos son la
+                                      MISMA causa: los servicios worker y
+                                      beat no se han reconstruido (ver el
                                       ADDENDUM 8)
 
 6.5) Hallazgos declarados que NO se corrigieron
