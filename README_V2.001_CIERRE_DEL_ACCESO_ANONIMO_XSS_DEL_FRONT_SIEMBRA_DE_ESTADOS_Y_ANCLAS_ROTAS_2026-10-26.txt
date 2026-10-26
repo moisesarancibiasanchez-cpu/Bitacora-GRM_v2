@@ -1226,6 +1226,38 @@ consulta debe estar disponible para un token de proyecto.
   - La version del viernes vuelve a publicar 'database_url' en /info
     (host y puerto, sin credenciales). V1.006 lo deja de publicar.
 
+8.9  EFECTO COLATERAL DE ALINEAR 'main' CON EL ARBOL DEL VIERNES
+
+  Al alinear 'main' con el arbol exacto del commit del viernes
+  6038fc29, 'main' vuelve a incluir la carpeta 'extract/' (122 ficheros,
+  20,82 MB: markdown e imagenes de una extraccion web). Esa carpeta se
+  elimino de forma intencionada durante el trabajo V1.x (commit
+  24507d1) y se anadio a '.gitignore' con el comentario "salida temporal
+  de extraccion web". El .gitignore del arbol del viernes todavia no
+  contenia esa entrada, de modo que ahora 'main' la reintroduce.
+
+  - No afecta al funcionamiento: la aplicacion sirve sus plantillas y
+    estaticos desde 'app/', y el despliegue de c6eca9b termino en
+    estado SUCCESS. Los ficheros de 'extract/' no se sirven ni se leen
+    en tiempo de ejecucion.
+  - Si el propietario desplegara desde 'main' en el futuro, la imagen
+    incluiria de nuevo esos 20,82 MB y el repositorio volveria a
+    contarlos. Al desplegar desde 'release/v2.001' o 'release/v1.006'
+    desaparecen de nuevo (ya estan ignorados en el .gitignore de esas
+    ramas).
+  - Recomendacion: cuando se despliegue V1.006 o V2.001, la carpeta
+    desaparece por si sola. Si se decide desplegar desde 'main', es
+    preferible usar 'release/v2.001' o 'release/v1.006' en lugar de
+    'main'.
+
+  Nota sobre la historia: el commit del viernes 6038fc29 NO es una rama
+  divergente, es el ANCESTRO COMUN de todo el trabajo V1.001 a V2.001
+  ('git merge-base 6038fc29 release/v2.001' devuelve 6038fc29 y
+  'git merge-base --is-ancestor 6038fc29 release/v2.001' devuelve 0). El
+  delta de codigo entre el arbol desplegado y 'release/v2.001' es de 55
+  ficheros en 'app/' (3.172 lineas anadidas y 784 eliminadas), mas
+  'tools/' y 'tests/'.
+
 ================================================================================
 FIN DEL DOCUMENTO README V2.001
 ================================================================================
