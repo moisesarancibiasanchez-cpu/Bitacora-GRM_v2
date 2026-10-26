@@ -161,7 +161,31 @@ def comprobar_enlaces() -> tuple[list[str], int]:
     for documento in markdown_files():
         texto = documento.read_text(encoding="utf-8", errors="replace")
         for destino, linea in extraer_destinos(texto):
-            if not destino or destino.startswith("#"):
+            if not destino:
+                continue
+            if destino.startswith("#"):
+                # Ancla dentro del MISMO documento.
+                #
+                # Antes estos enlaces se ignoraban por completo, y por eso
+                # los 39 enlaces a '#sec-N' de la guia de onboarding
+                # (que NO definia esas anclas) pasaban inadvertidos: el
+                # contador ENLACES_COMPROBADOS salia en 0 y no habia
+                # ninguna comprobacion que los delatara.
+                fragmento = unquote(destino[1:])
+                if not fragmento:
+                    continue
+                comprobados += 1
+                if fragmento.lower() == "top":
+                    # '#top' es un fragmento reservado por el navegador:
+                    # si no existe un elemento con ese id, el navegador
+                    # desplaza la pagina al principio. No es un enlace roto.
+                    continue
+                if documento not in cache_anclas:
+                    cache_anclas[documento] = anclas_documento(documento)
+                if fragmento not in cache_anclas[documento]:
+                    rotos.append(
+                        f"{documento.relative_to(RAIZ)}:{linea}: ancla inexistente {destino}"
+                    )
                 continue
             if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", destino) or destino.startswith("//"):
                 continue

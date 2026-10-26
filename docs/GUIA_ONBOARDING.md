@@ -46,6 +46,7 @@ Para usuarios finales del sistema. Esta guía explica paso a paso cómo usar Bit
 
 ---
 
+<a id="sec-1"></a>
 ## 01 ¿Qué es Bitácora GRM?
 
 **Bitácora GRM** es una plataforma web de *gestión de incidencias* que combina dos enfoques:
@@ -59,6 +60,7 @@ Todo funciona desde el navegador, sin instalar nada. La URL de acceso te la entr
 
 ---
 
+<a id="sec-2"></a>
 ## 02 Tu primera vez: registrarse e iniciar sesión
 
 ### 2.1. Si tu cuenta ya existe
@@ -87,6 +89,7 @@ Todo funciona desde el navegador, sin instalar nada. La URL de acceso te la entr
 
 ---
 
+<a id="sec-3"></a>
 ## 03 Cambiar tu contraseña
 
 Recomendado hacerlo apenas ingreses por primera vez.
@@ -103,6 +106,7 @@ Si la nueva clave es igual a la actual, el sistema rechaza con un mensaje de err
 
 ---
 
+<a id="sec-4"></a>
 ## 04 Conocer la interfaz principal
 
 ```
@@ -136,6 +140,7 @@ Es la esquina inferior derecha de cada tarjeta:
 
 ---
 
+<a id="sec-5"></a>
 ## 05 Crear una nueva incidencia
 
 1. Haz clic en el botón **"+ Nueva Incidencia"** (esquina superior derecha del tablero).
@@ -156,6 +161,7 @@ Es la esquina inferior derecha de cada tarjeta:
 
 ---
 
+<a id="sec-6"></a>
 ## 06 Ver y editar el detalle de un ticket
 
 1. Haz clic en cualquier parte de la tarjeta (o en el ícono de ojo 👁 en su esquina).
@@ -184,6 +190,7 @@ Es la esquina inferior derecha de cada tarjeta:
 
 ---
 
+<a id="sec-7"></a>
 ## 07 Mover un ticket entre columnas (cambiar su estado)
 
 **Esta es la acción principal del flujo Kanban.**
@@ -219,6 +226,7 @@ Es la esquina inferior derecha de cada tarjeta:
 
 ---
 
+<a id="sec-8"></a>
 ## 08 Filtrar el tablero
 
 El tablero puede tener cientos de tarjetas. Para encontrar lo que buscas:
@@ -240,6 +248,7 @@ Los filtros son **client-side**: aplican de forma instantánea, sin recargar.
 
 ---
 
+<a id="sec-9"></a>
 ## 09 Tickets archivados
 
 Los tickets cerrados (o cancelados) se mueven al archivo:
@@ -254,6 +263,7 @@ Los archivados no ocupan espacio visual en el tablero principal.
 
 ---
 
+<a id="sec-10"></a>
 ## 10 Búsqueda global (atajo ⌘K / Ctrl+K)
 
 1. Haz clic en el cuadro **"Buscar…"** en la barra superior, o presiona `Ctrl`+`K` (Windows/Linux) o `⌘`+`K` (Mac).
@@ -265,6 +275,7 @@ Los archivados no ocupan espacio visual en el tablero principal.
 
 ---
 
+<a id="sec-11"></a>
 ## 11 Roles y permisos
 
 El sistema tiene **5 roles** con permisos crecientes:
@@ -310,6 +321,7 @@ Tu rol aparece como un chip de color en la barra superior, al lado de tu nombre.
 
 ---
 
+<a id="sec-12"></a>
 ## 12 Si eres Administrador: tareas adicionales
 
 ### 12.1. Crear / editar usuarios
@@ -345,6 +357,7 @@ La auditoría está disponible en cada ticket (pestaña **"Trazabilidad"**). Cad
 
 ---
 
+<a id="sec-13"></a>
 ## 13 Colaborar en los comentarios de un ticket
 
 La pestaña **Comentarios** es el canal de trabajo del equipo. No es solo un registro: se puede usar casi como un chat interno.
@@ -376,6 +389,7 @@ Un comentario marcado como **interno** es visible solo para el equipo. **El soli
 
 ---
 
+<a id="sec-14"></a>
 ## 14 Referenciar otros tickets
 
 La pestaña **Referencias** conecta un ticket con otros, para que las dependencias queden explícitas y no solo en tu memoria.
@@ -412,6 +426,7 @@ Para quitar una referencia, haz clic en la **X** a su lado.
 
 ---
 
+<a id="sec-15"></a>
 ## 15 Vistas alternativas del tablero
 
 El mismo conjunto de tickets se puede leer de **siete maneras**. Cambiar de vista no crea ni modifica ningún dato.
@@ -432,6 +447,7 @@ Los **filtros** de la sección 8 se mantienen al cambiar de vista: si estás fil
 
 ---
 
+<a id="sec-16"></a>
 ## 16 Automatizaciones Butler
 
 **Butler** es el motor de automatizaciones. Una regla reacciona a un disparador, comprueba sus condiciones y ejecuta sus acciones.
@@ -477,6 +493,7 @@ Cada ejecución queda guardada indicando la regla, el ticket afectado, si termin
 
 ---
 
+<a id="sec-17"></a>
 ## 17 Datos de pruebas y expedientes de garantía
 
 Los tickets del módulo de garantía llevan datos de pruebas de calidad y un código de expediente.
@@ -512,6 +529,7 @@ Por ejemplo, `GAR_HU128-003`.
 
 ---
 
+<a id="sec-18"></a>
 ## 18 Seguridad y sesiones
 
 *Cabeceras de seguridad de la respuesta HTTP, modelo de sesión y almacenamiento de la contraseña.*
@@ -549,6 +567,7 @@ Cada respuesta del servidor incluye:
 
 ---
 
+<a id="sec-19"></a>
 ## 19 Cerrar sesión
 
 1. Haz clic en **"Salir"** (esquina superior derecha).
@@ -558,6 +577,7 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
+<a id="sec-20"></a>
 ## 20 Atajos de teclado útiles
 
 *Resumen visual de los atajos principales.*
@@ -573,6 +593,7 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
+<a id="sec-21"></a>
 ## 21 Errores frecuentes y cómo resolverlos
 
 | Síntoma | Causa probable | Qué hacer |
@@ -589,6 +610,7 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
+<a id="sec-22"></a>
 ## 22 Buenas prácticas
 
 - **Título claro y específico:** evita "Ayuda" o "No anda"; prefiere "Error 500 al guardar pedido en módulo ventas".
@@ -603,6 +625,7 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
+<a id="sec-23"></a>
 ## 23 Glosario
 
 | Término | Definición |
@@ -623,6 +646,7 @@ La sesión también expira de forma automática después de **8 horas de inactiv
 
 ---
 
+<a id="sec-24"></a>
 ## 24 Soporte y contacto
 
 - **Soporte de primer nivel:** equipo de Mesa de Ayuda de tu organización.
