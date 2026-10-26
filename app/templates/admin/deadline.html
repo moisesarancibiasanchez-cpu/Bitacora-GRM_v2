@@ -164,6 +164,34 @@
 
 {% block extra_js %}
 <script>
+// Render del resultado del trigger.
+//
+// El JSON se inserta con ``textContent`` y NO con ``innerHTML``: el payload
+// incluye el campo ``errores``, que concatena el correo del destinatario
+// (dato controlado por el usuario) y, por tanto, puede contener ``<``, ``>``
+// o comillas. Con ``innerHTML`` eso era un XSS almacenado/reflejado en una
+// página de administración. Construir el DOM con ``createElement`` +
+// ``textContent`` neutraliza el vector sin cambiar el aspecto.
+function renderDeadlineResult(container, tone, titulo, payload) {
+  container.textContent = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'deadline-result' + (tone === 'error' ? ' border-red-500' : '');
+
+  const cabecera = document.createElement('div');
+  cabecera.className = (tone === 'error'
+    ? 'text-red-700 font-bold mb-1'
+    : 'text-emerald-700 font-bold mb-1');
+  cabecera.textContent = titulo;
+
+  const pre = document.createElement('pre');
+  pre.className = 'whitespace-pre-wrap text-xs';
+  pre.textContent = JSON.stringify(payload, null, 2);
+
+  wrap.appendChild(cabecera);
+  wrap.appendChild(pre);
+  container.appendChild(wrap);
+}
+
 document.body.addEventListener('click', async ev => {
   const btn = ev.target.closest('.deadline-trigger-btn');
   if (!btn) return;
@@ -186,22 +214,11 @@ document.body.addEventListener('click', async ev => {
     const box = document.getElementById('deadline-result');
     box.classList.remove('hidden');
     if (data.ok) {
-      box.innerHTML =
-        '<div class="deadline-result">' +
-        '<div class="text-emerald-700 font-bold mb-1">✅ Trigger ejecutado</div>' +
-        '<pre class="whitespace-pre-wrap text-xs">' +
-          JSON.stringify(data.resultados, null, 2) +
-        '</pre>' +
-        '</div>';
+      renderDeadlineResult(box, 'ok', '✅ Trigger ejecutado', data.resultados);
       // Recargar la página después de 2s para refrescar las listas
       setTimeout(() => location.reload(), 2000);
     } else {
-      box.innerHTML =
-        '<div class="deadline-result border-red-500">' +
-        '<div class="text-red-700 font-bold mb-1">❌ Error</div>' +
-        '<pre class="whitespace-pre-wrap text-xs">' +
-          JSON.stringify(data, null, 2) +
-        '</pre></div>';
+      renderDeadlineResult(box, 'error', '❌ Error', data);
     }
   } catch (err) {
     alert('Error: ' + err.message);

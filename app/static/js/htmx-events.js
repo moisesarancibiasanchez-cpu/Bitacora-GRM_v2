@@ -151,7 +151,7 @@
         // al Kanban). Mostrar un toast informativo.
         if (window.showToast) {
           const campos = detail.campos || [];
-          const lista = campos.length ? ` (${campos.join(', ')})` : '';
+          const lista = campos.length ? ` (${escapeHtml(campos.join(', '))})` : '';
           window.showToast('Cambios guardados' + lista, 'success', 2500);
         }
       }
@@ -256,7 +256,7 @@
       if (window.showToast) {
         const archivos = detail.archivos_subidos || 0;
         const items = detail.items_creados || 0;
-        let msg = `Incidencia ${detail.codigo || ''} creada correctamente`;
+        let msg = `Incidencia ${escapeHtml(detail.codigo || '')} creada correctamente`;
         if (archivos) msg += ` · ${archivos} archivo(s)`;
         if (items) msg += ` · ${items} item(s) de checklist`;
         window.showToast(msg, 'success');
@@ -432,7 +432,7 @@
     const rows = items.map(function (p) {
       return (
         '<div class="flex items-center gap-2 p-1.5 bg-indigo-50 border border-indigo-200 rounded">' +
-          '<img src="' + p.url + '" alt="preview" class="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0" />' +
+          '<img src="' + escapeHtml(p.url) + '" alt="preview" class="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0" />' +
           '<span class="text-[11px] text-slate-700 truncate flex-1" title="' + escapeHtml(p.file.name) + '">' + escapeHtml(p.file.name) + '</span>' +
           '<span class="text-[10px] text-slate-400 flex-shrink-0">' + formatBytes(p.file.size) + '</span>' +
           '<button type="button" data-remove-paste="' + p.id + '" class="text-rose-500 hover:text-rose-700 flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded hover:bg-rose-100" title="Quitar">' +

@@ -757,7 +757,7 @@
             <span class="text-xs text-slate-500">${escapeHtml(e.estado_destino_nombre || "")}</span>
             <span class="ml-auto text-xs text-slate-500">
               ${escapeHtml(e.fecha_entrega ? e.fecha_entrega.slice(0,16).replace("T"," ") : "")}
-              ${e.reporte_enviado_en
+              ${escapeHtml(e.reporte_enviado_en
                 ? " · <em>enviado</em>" : " · <em>pendiente</em>"}
             </span>
           </div>`

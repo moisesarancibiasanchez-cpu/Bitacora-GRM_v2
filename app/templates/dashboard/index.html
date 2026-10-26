@@ -697,12 +697,12 @@
       // de este fetch NO debe afectar la carga del resto del dashboard.
       cargarCuentaResultado().catch(err => {
         const cont = safeId('cuenta-resultado-container');
-        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + (err.message || err) + '</div>';
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar tabla pivote: ' + _escapeHtml(err.message || err) + '</div>';
       });
       // Lista de Incidencias Recientes: misma política (falla aislada).
       cargarIncidenciasRecientes().catch(err => {
         const cont = safeId('incidencias-recientes-wrap');
-        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar lista de incidencias: ' + (err.message || err) + '</div>';
+        if (cont) cont.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">Error al cargar lista de incidencias: ' + _escapeHtml(err.message || err) + '</div>';
       });
     } catch (e) {
       console.error('Error cargando métricas:', e);
@@ -814,13 +814,13 @@
           '<div>'
           + '<div class="flex items-center justify-between text-xs mb-1">'
           + '<span class="flex items-center gap-1.5 text-slate-700">'
-          + '<span class="inline-block w-2 h-2 rounded-sm" style="background:' + (e.color || '#94a3b8') + '"></span>'
-          + (e.nombre || '')
+          + '<span class="inline-block w-2 h-2 rounded-sm" style="background:' + _escapeHtml(e.color || '#94a3b8') + '"></span>'
+          + _escapeHtml(e.nombre || '')
           + '</span>'
           + '<span class="font-bold text-slate-800">' + fmt(e.total) + '</span>'
           + '</div>'
           + '<div class="h-2 rounded-full bg-slate-100 overflow-hidden">'
-          + '<div class="h-full" style="width:' + ((e.total / total) * 100).toFixed(1) + '%; background:' + (e.color || '#94a3b8') + '"></div>'
+          + '<div class="h-full" style="width:' + ((e.total / total) * 100).toFixed(1) + '%; background:' + _escapeHtml(e.color || '#94a3b8') + '"></div>'
           + '</div>'
           + '</div>'
         ).join('');
@@ -843,7 +843,7 @@
             + '<div class="flex items-center justify-between text-xs mb-1">'
             + '<span class="flex items-center gap-1.5 text-slate-700 capitalize">'
             + '<span class="inline-block w-2 h-2 rounded-full" style="background:' + color + '"></span>'
-            + (p.prioridad || '')
+            + _escapeHtml(p.prioridad || '')
             + '</span>'
             + '<span class="font-bold text-slate-800">' + fmt(p.total)
             + ' <span class="text-slate-400 font-normal">(' + pct.toFixed(0) + '%)</span></span>'
@@ -889,9 +889,9 @@
       const cls = hrs < 0 ? 'text-red-600 font-bold' : hrs < 12 ? 'text-orange-600 font-semibold' : hrs < 48 ? 'text-amber-600' : 'text-slate-600';
       const txt = hrs < 0 ? ('-' + Math.abs(hrs).toFixed(0) + 'h') : ('+' + hrs.toFixed(0) + 'h');
       return '<tr class="hover:bg-slate-50">'
-        + '<td class="py-1.5 pr-2 font-mono text-slate-600">' + (t.codigo || '') + '</td>'
-        + '<td class="py-1.5 pr-2 truncate max-w-[160px]" title="' + (t.titulo || '') + '">' + (t.titulo || '') + '</td>'
-        + '<td class="py-1.5 pr-2"><span class="prio-' + (t.prioridad || '') + ' px-1 py-0.5 rounded text-[10px] font-semibold">' + (t.prioridad || '').toUpperCase() + '</span></td>'
+        + '<td class="py-1.5 pr-2 font-mono text-slate-600">' + _escapeHtml(t.codigo || '') + '</td>'
+        + '<td class="py-1.5 pr-2 truncate max-w-[160px]" title="' + _escapeHtml(t.titulo || '') + '">' + _escapeHtml(t.titulo || '') + '</td>'
+        + '<td class="py-1.5 pr-2"><span class="prio-' + _escapeHtml(t.prioridad || '') + ' px-1 py-0.5 rounded text-[10px] font-semibold">' + _escapeHtml((t.prioridad || '').toUpperCase()) + '</span></td>'
         + '<td class="py-1.5 text-right ' + cls + '">' + txt + '</td>'
         + '</tr>';
     }).join('');
@@ -990,10 +990,10 @@
       const abiertas = a.abiertas || 0;
       const cerradas = a.cerradas || 0;
       return '<div class="flex items-center gap-3 py-1.5">'
-        + '<span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold shrink-0" style="background:' + colorBg + '; color:' + colorFg + '">' + ini + '</span>'
+        + '<span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold shrink-0" style="background:' + colorBg + '; color:' + colorFg + '">' + _escapeHtml(ini) + '</span>'
         + '<div class="flex-1 min-w-0">'
         + '<div class="flex items-center justify-between text-xs">'
-        + '<span class="font-medium text-slate-800 truncate">' + (a.nombre || '') + '</span>'
+        + '<span class="font-medium text-slate-800 truncate">' + _escapeHtml(a.nombre || '') + '</span>'
         + '<span class="font-bold text-slate-800 ml-2">' + fmt(a.total) + '</span>'
         + '</div>'
         + '<div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">'
@@ -1151,7 +1151,7 @@
         +       '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
         +     '</button>'
         +   '</div>'
-        +   '<p class="text-xs text-slate-600">' + String(err && err.message ? err.message : err) + '</p>'
+        +   '<p class="text-xs text-slate-600">' + _escapeHtml(err && err.message ? err.message : err) + '</p>'
         +   '<div class="mt-4 text-right">'
         +     '<button type="button" data-close-modal="1" class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700">Cerrar</button>'
         +   '</div>'
@@ -1169,21 +1169,21 @@
     const rows = tickets.map(function (t) {
       const priColor = _kpiPrioridadColor(t.prioridad);
       const asignado = t.asignado
-        ? '<span class="text-slate-700">' + t.asignado + '</span>'
+        ? '<span class="text-slate-700">' + _escapeHtml(t.asignado) + '</span>'
         : '<span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">Sin asignar</span>';
       return ''
         + '<tr class="hover:bg-slate-50 transition-colors">'
-        +   '<td class="px-3 py-2 font-mono text-[11px] text-indigo-700 whitespace-nowrap">' + (t.codigo || '—') + '</td>'
-        +   '<td class="px-3 py-2 text-slate-700 max-w-[280px] truncate" title="' + (t.titulo || '') + '">' + (t.titulo || '—') + '</td>'
+        +   '<td class="px-3 py-2 font-mono text-[11px] text-indigo-700 whitespace-nowrap">' + _escapeHtml(t.codigo || '—') + '</td>'
+        +   '<td class="px-3 py-2 text-slate-700 max-w-[280px] truncate" title="' + _escapeHtml(t.titulo || '') + '">' + _escapeHtml(t.titulo || '—') + '</td>'
         +   '<td class="px-3 py-2 whitespace-nowrap">'
         +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
-        +       'style="background:' + (t.estado_color || '#e2e8f0') + '20;color:' + (t.estado_color || '#475569') + '">'
-        +       (t.estado || '—') + '</span>'
+        +       'style="background:' + _escapeHtml(t.estado_color || '#e2e8f0') + '20;color:' + _escapeHtml(t.estado_color || '#475569') + '">'
+        +       _escapeHtml(t.estado || '—') + '</span>'
         +   '</td>'
         +   '<td class="px-3 py-2 whitespace-nowrap">'
         +     '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold" '
         +       'style="background:' + priColor + '20;color:' + priColor + '">'
-        +       (t.prioridad || '—') + '</span>'
+        +       _escapeHtml(t.prioridad || '—') + '</span>'
         +   '</td>'
         +   '<td class="px-3 py-2 text-[11px]">' + asignado + '</td>'
         +   '<td class="px-3 py-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">' + _kpiFmtDate(t.fecha_vencimiento_sla) + '</td>'
@@ -1202,12 +1202,12 @@
       +     '<div>'
       +       '<h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">'
       +         '<span class="inline-block w-1.5 h-5 bg-indigo-500 rounded-sm"></span>'
-      +         (data.titulo || 'Detalle del KPI')
+      +         _escapeHtml(data.titulo || 'Detalle del KPI')
       +       '</h3>'
-      +       '<p class="text-xs text-slate-500 mt-1">' + (data.descripcion || '') + '</p>'
+      +       '<p class="text-xs text-slate-500 mt-1">' + _escapeHtml(data.descripcion || '') + '</p>'
       +       '<p class="text-[11px] text-slate-400 mt-1">'
       +         'Período: <span class="font-mono">' + (data.periodo_dias || '?') + ' días</span>'
-      +         ' · Tipo: <span class="font-mono">' + (data.tipo || '?') + '</span>'
+      +         ' · Tipo: <span class="font-mono">' + _escapeHtml(data.tipo || '?') + '</span>'
       +         ' · Total: <span class="font-mono">' + (data.total || 0) + '</span> tickets'
       +       '</p>'
       +     '</div>'
@@ -1459,7 +1459,7 @@
                +     ' hx-get="' + url + '"'
                +     ' hx-target="#modal-cuenta-resultado-root"'
                +     ' hx-swap="innerHTML"'
-               +     ' title="Ver detalle: ' + f.modulo + ' / ' + c + '"'
+               +     ' title="Ver detalle: ' + _escapeHtml(f.modulo || '') + ' / ' + _escapeHtml(c || '') + '"'
                +     ' class="w-full h-full px-3 py-1.5 font-mono hover:brightness-95 hover:ring-2 hover:ring-inset hover:ring-indigo-400 cursor-pointer transition">'
                +     contenido
                +   '</button>'
@@ -1613,10 +1613,10 @@
   }
   function _estadoBadge(e) {
     if (!e || !e.nombre) return '<span class="text-slate-400 text-[11px]">—</span>';
-    const bg = (e.color || '#94a3b8') + '22';
+    const bg = _escapeHtml(e.color || '#94a3b8') + '22';
     return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"'
-         + ' style="background:' + bg + '; color:' + (e.color || '#475569') + ';">'
-         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + (e.color || '#94a3b8') + '"></span>'
+         + ' style="background:' + bg + '; color:' + _escapeHtml(e.color || '#475569') + ';">'
+         + '<span class="inline-block w-1.5 h-1.5 rounded-full" style="background:' + _escapeHtml(e.color || '#94a3b8') + '"></span>'
          + _escapeHtml(e.nombre)
          + '</span>';
   }
