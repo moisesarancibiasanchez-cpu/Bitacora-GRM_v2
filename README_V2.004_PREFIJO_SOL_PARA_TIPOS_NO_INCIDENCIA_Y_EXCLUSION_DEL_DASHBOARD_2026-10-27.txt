@@ -1052,3 +1052,136 @@ index 472fd23..7b34d6a 100644
  
      # ----------------------------------------------------------------------
      #  Listar y obtener
+
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-10-27)
+================================================================================
+
+  9.1 PUBLICACION
+
+    Commit del lote:  34653e1171cb2ae73fab73ba8f788d0206e35b9d
+    Commit padre:     46da79a357436e11d9d43a659f0a4a68072eded7
+    Rama de trabajo:  release/v2.001 (rama canonica)
+    'main' alineada:  merge --ff-only (46da79a..34653e1), sin reescribir
+                      historia y sin '--force'.
+    Push (PUSH_EXIT=0):
+        46da79a..34653e1  main            -> main
+        46da79a..34653e1  release/v2.001  -> release/v2.001
+
+  9.2 DESPLIEGUE EN RAILWAY
+
+    web    -> autoDeploy desde 'main'   SUCCESS  2026-10-27T19:37:14Z
+              id 3616e389-74c8-4483-b8d9-5ff3a2ef9e89
+    worker -> serviceInstanceDeploy      SUCCESS  2026-10-27T19:37:30Z
+              id d4eeea5f-3047-45fb-99d7-b4d667dfd100
+    beat  -> serviceInstanceDeploy      SUCCESS  2026-10-27T19:37:34Z
+              id 6209cffe-eb57-4f03-9823-ec5137af08e2
+
+    Los tres despliegues declaran en su 'meta':
+        commitHash   = 34653e1171cb2ae73fab73ba8f788d0206e35b9d
+        branch       = main
+
+  9.3 PRUEBAS
+
+    Suite nueva V2.004:                 15 passed
+    Suite V2.002 (modal de KPI):         9 passed
+    Suite completa:                    184 passed (169 + 15), 0 failed
+                                       673,95 s
+    Dientes de la suite: revirtiendo el filtro del dashboard, la suite V2.004
+    pasa a 2 failed de 15 (los dos tests de garantia estructural); restaurado
+    el filtro, vuelve a 15 passed.
+
+  9.4 VERIFICACION EN PRODUCCION (solo GET y POST de login)
+
+    Salud y acceso:
+      GET  /health -> 200  {"status":"ok","database":"ok","redis":"ok"}
+      GET  /ready  -> 200
+      GET  /info   -> 200
+      POST /api/v1/auth/login (administrador) -> 200
+      GET  /dashboard -> 200, 140.684 caracteres
+      El HTML servido NO tiene el ternario roto: el arreglo de V2.003 sigue
+      intacto.
+
+    Listados por tipo (ventana efectiva de 365 dias):
+
+      ANTES                                  DESPUES
+      tipo=incidencia         20      ->     17
+      tipo=resultado_pruebas  915     ->     915
+      tipo=todos              932     ->     932
+      tipo=solicitud          0       ->     0
+      tipo=cambio             0       ->     0
+      tipo=problema           0       ->     0
+
+    Los 3 tickets que se dejan de contar de mas son los historicos con
+    prefijo "INC_" y tipo resultado_pruebas (INC_011, INC_012, INC_013):
+    antes aparecian en las DOS listas del dashboard.
+
+    INDICADORES:
+
+      ANTES      DESPUES
+      totales.total          = 933    ->  933   (sin cambios)
+      incidencias.total      = 21     ->  17
+      incidencias.activas    = 20     ->  17
+      incidencias.nuevas_7d  = 4      ->  2
+      incidencias.backlog_7d = 5      ->  5
+      dashboard-completo incidencias.total = 21 -> 17
+      dashboard-completo riesgo_sla       =  5 ->  5
+
+    NO HAY SOLAPAMIENTO entre las dos listas:
+      codigos presentes a la vez en 'incidencia' y en 'resultado_pruebas':
+      ninguno   (antes: INC_011, INC_012, INC_013)
+
+    INVARIANTE DE V2.002 (resumen == modal), con el rango explicito de 90
+    dias que es el que ve el operador:
+
+      GET /api/v1/metricas/incidencias-recientes
+          ?tipo=incidencia&periodo_dias=30
+          &fecha_desde=2026-07-28&fecha_hasta=2026-10-26&limite=200
+        -> total_periodo = 15   (listados 15)
+           codigos: INC-939, INC-938, INC-937, INC-936, INC-935, INC-009,
+                    INC-010, INC-008, INC-007, INC-006, INC-005, INC-004,
+                    INC-003, INC-002, INC-001
+      GET /api/v1/metricas/detalle-kpi
+          ?kpi=total_periodo&periodo_dias=30&tipo=incidencia
+          &fecha_desde=2026-07-28&fecha_hasta=2026-10-26&limite=200
+        -> total = 15   total_listado = 15   truncado = false
+           rango_explicito = true   2026-07-28 -> 2026-10-26
+      VEREDICTO: resumen (15) == modal (15). El invariante se mantiene.
+
+      Antes del despliegue ese mismo rango devolvia 18 en ambos lados: los 3
+      tickets historicos de tipo resultado_pruebas-sumaban-como-incidencia
+      desaparecen de la lista, que es exactamente lo que se pretendia.
+
+      Tickets con prefijo historico "INC_" en la lista de incidencias:
+      ninguno.
+
+  9.5 LO QUE SIGUE SIN CAMBIAR (para evitar sustos)
+
+    - El total de tickets del sistema (933) y la lista "Todos los tipos"
+      (932) no cambian: ningun ticket se pierde, solo deja de sumar donde no
+      toca.
+    - El bloque "Cuenta de Resultado", el pivote modulo x resultado, no
+      cambia.
+    - "Top agentes", "TICKETS TOTALES" y "ACTIVOS" no cambian (son totales,
+      no de incidencias).
+    - No se ha creado, modificado ni renumerado ningun ticket.
+    - La numeracion de las incidencias (INC-) no cambia.
+
+  9.6 PENDIENTES QUE SIGUEN ABIERTOS (del propietario, no de este lote)
+
+    - roturar la clave del administrador y no escribir credenciales en
+      ficheros;
+    - auditar si el cambio de contrasena del 2026-10-26 (09:00 a 13:00) fue
+      propio o de un tercero;
+    - roturar el token de proyecto de Railway (expone los secretos de los
+      servicios);
+    - activar autoDeploy en 'worker' y 'beat' con un token de API de usuario;
+    - definir 'SECRET_KEY' real y un volumen en '/data'; migrar la config
+      del panel antes del 2026-12-01; rotar la contrasena de PostgreSQL;
+    - cerrar el registro publico de usuarios;
+    - borrar manualmente los ficheros 'tmp_*' del area de trabajo (la
+      politica local de borrado no es invocable desde el agente).
+
+================================================================================
+FIN DEL README V2.004
+================================================================================
