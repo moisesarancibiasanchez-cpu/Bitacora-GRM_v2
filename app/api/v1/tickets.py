@@ -1269,8 +1269,8 @@ def duplicar_ticket(
     from app.models.estado import Estado
     from app.models.auditoria import Auditoria
     from app.models.ticket import TipoIncidencia, Prioridad
+    from app.core.codigo_ticket import generar_codigo_ticket
     from datetime import timedelta
-    from sqlalchemy import func as sqlfunc
 
     original = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not original:
@@ -1282,9 +1282,11 @@ def duplicar_ticket(
         or db.query(Estado).order_by(Estado.orden).first()
     )
 
-    # Generar nuevo codigo correlativo (formato compacto INC-NNN)
-    ultimo = db.query(sqlfunc.max(Ticket.id)).scalar() or 0
-    codigo = f"INC-{(ultimo + 1):03d}"
+    # Generar el nuevo codigo con la MISMA regla que usa la creacion normal
+    # (SSOT en app/core/codigo_ticket.py): la copia conserva el tipo del
+    # original, asi que una copia de una Solicitud/Problema/Cambio recibe
+    # prefijo SOL- y una de Resultado de Pruebas recibe GAR_<HU>_<NNN>.
+    codigo = generar_codigo_ticket(db, original.tipo, original.hu_o_caso_prueba)
 
     # Calcular nueva fecha de SLA
     fecha_sla = None

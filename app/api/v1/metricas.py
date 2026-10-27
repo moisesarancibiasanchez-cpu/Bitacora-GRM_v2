@@ -14,6 +14,7 @@ from sqlalchemy import String, func, case, and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
+from app.core.codigo_ticket import NOMBRES_TIPOS_NO_INCIDENCIA
 from app.core.resultado_pruebas import (
     ACRONIMOS as ACRONIMOS_RESULTADO,
     COLORES as COLORES_RESULTADO,
@@ -74,10 +75,31 @@ def _build_tipo_filter(tipo: str):
         Expresión SQLAlchemy combinable con .filter() / .where().
     """
     if tipo == "incidencia":
-        return or_(
-            func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS["incidencia"],
-            Ticket.codigo.ilike("INC-%"),
-            Ticket.codigo.ilike("INC\\_%", escape="\\"),
+        # Garantía estructural (V2.004): un ticket cuyo tipo NO es incidencia
+        # (Solicitud, Problema, Cambio o Resultado de Pruebas) NUNCA entra en
+        # el bloque de incidencias del dashboard, aunque su código empiece por
+        # "INC-" o "INC_".
+        #
+        # Antes el filtro era solo "tipo = INCIDENCIA OR prefijo INC-". Como el
+        # prefijo lo genera el código y el código se asignaba por tipo, una
+        # Solicitud/Problema/Cambio creado con prefijo "INC-" entraba en la
+        # "Lista de Incidencias Recientes" y en los indicadores de incidencias.
+        #
+        # La cláusula de prefijo se conserva para los tickets históricos cuyo
+        # tipo es NULL (no se puede saber si son incidencia), pero se descarta
+        # siempre que el tipo diga que no es una incidencia.
+        _tipo_txt = func.upper(Ticket.tipo.cast(String))
+        _no_es_no_incidencia = or_(
+            _tipo_txt.is_(None),
+            _tipo_txt.notin_(NOMBRES_TIPOS_NO_INCIDENCIA),
+        )
+        return and_(
+            _no_es_no_incidencia,
+            or_(
+                _tipo_txt == _TIPOS_VALIDOS["incidencia"],
+                Ticket.codigo.ilike("INC-%"),
+                Ticket.codigo.ilike("INC\\_%", escape="\\"),
+            ),
         )
     if tipo in _TIPOS_VALIDOS:
         return func.upper(Ticket.tipo.cast(String)) == _TIPOS_VALIDOS[tipo]

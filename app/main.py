@@ -659,21 +659,25 @@ async def ticket_crear(request: Request):
             prioridad_enum = Prioridad.MEDIA
 
         # === Generación del código del ticket ===
-        # Regla:
-        #   - Tipo "resultado_pruebas" → el código sigue el formato
-        #     ``GAR_<HU>_<NNN>`` donde ``<HU>`` es el contenido del campo
-        #     "HU o Caso de Prueba Asociado" y ``<NNN>`` es un correlativo
-        #     3-dígitos POR HU (cuenta cuántos tickets de tipo
-        #     resultado_pruebas existen ya con esa misma HU).
-        #     Ejemplo: 1er ticket para la HU "SC_5.4" → "GAR_SC_5.4_001".
-        #   - Cualquier otro tipo → se usa el formato correlativo INC-NNN.
+        # La regla vive ÚNICAMENTE en ``app/core/codigo_ticket.py`` (SSOT):
+        #   - tipo "resultado_pruebas" → ``GAR_<HU>_<NNN>`` (correlativo por HU)
+        #   - tipo "solicitud" / "problema" / "cambio" → ``SOL-NNN``
+        #     (familia propia: NO son incidencias y nunca se suman en el
+        #     bloque de incidencias del dashboard)
+        #   - tipo "incidencia" → ``INC-NNN`` (correlativo por id máximo)
         # Se valida que cuando tipo == resultado_pruebas venga el campo
         # hu_o_caso_prueba (es obligatorio en ese caso).
-        from sqlalchemy import func
-        if tipo_enum == TipoIncidencia.RESULTADO_PRUEBAS:
-            if not hu_o_caso_prueba:
-                return HTMLResponse(
-                    '''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
+        from app.core.codigo_ticket import (
+            ConflictoNumeracionError,
+            HuRequeridaError,
+            generar_codigo_ticket,
+        )
+
+        try:
+            codigo = generar_codigo_ticket(db, tipo_enum, hu_o_caso_prueba)
+        except HuRequeridaError:
+            return HTMLResponse(
+                '''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
                       <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
                         <h3 class="text-lg font-semibold text-red-700 mb-2">Falta HU o Caso de Prueba</h3>
                         <p class="text-sm text-slate-600 mb-4">
@@ -685,50 +689,28 @@ async def ticket_crear(request: Request):
                         <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
                       </div>
                     </div>''',
-                    status_code=400,
-                )
-            # Contar tickets previos con la misma HU y tipo=resultado_pruebas
-            # para determinar el siguiente correlativo (001, 002, 003...).
-            count_prev = db.query(func.count(Ticket.id)).filter(
-                Ticket.tipo == TipoIncidencia.RESULTADO_PRUEBAS,
-                Ticket.hu_o_caso_prueba == hu_o_caso_prueba,
-            ).scalar() or 0
-            # Limitar el código al VARCHAR(20) del modelo.
-            #   "GAR_"   = 4 chars fijos
-            #   "_NNN"   = 4 chars fijos
-            #   → quedan 12 chars para la HU; el resto se trunca.
-            hu_trunc = hu_o_caso_prueba[:12]
-            codigo = None
-            # Bucle de reintentos por si hay condición de carrera entre dos
-            # peticiones simultáneas para la misma HU.
-            for offset in range(5):
-                candidato_num = count_prev + 1 + offset
-                candidato = f"GAR_{hu_trunc}_{candidato_num:03d}"
-                existe = db.query(Ticket).filter(
-                    Ticket.codigo == candidato
-                ).first()
-                if not existe:
-                    codigo = candidato
-                    break
-            if not codigo:
-                return HTMLResponse(
-                    f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
+                status_code=400,
+            )
+        except ConflictoNumeracionError:
+            detalle_hu = (
+                '<span class="font-mono px-1 py-0.5 rounded bg-slate-100">%s</span>'
+                % hu_o_caso_prueba
+                if hu_o_caso_prueba else ""
+            )
+            return HTMLResponse(
+                f'''<div class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 modal-backdrop" data-modal="nuevo-ticket-error">
                       <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
                         <h3 class="text-lg font-semibold text-red-700 mb-2">Conflicto de numeración</h3>
                         <p class="text-sm text-slate-600 mb-4">
-                          No se pudo asignar un correlativo libre para la HU
-                          <span class="font-mono px-1 py-0.5 rounded bg-slate-100">{hu_o_caso_prueba}</span>
+                          No se pudo asignar un correlativo libre
+                          {detalle_hu}
                           tras varios intentos. Refresque la página e intente nuevamente.
                         </p>
                         <button data-close-modal class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100">Cerrar</button>
                       </div>
                     </div>''',
-                    status_code=400,
-                )
-        else:
-            # Formato compacto INC-NNN correlativo por id (igual que antes).
-            ultimo = db.query(func.max(Ticket.id)).scalar() or 0
-            codigo = f"INC-{(ultimo + 1):03d}"
+                status_code=400,
+            )
 
         # Parsear fecha de vencimiento (input type="date" => "YYYY-MM-DD")
         fecha_vencimiento_dt = None

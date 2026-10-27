@@ -147,14 +147,27 @@ def _crear_ticket(db_session, estado, creador, codigo, created_at, **kwargs):
 def _contar_incidencias(db_session, desde, hasta):
     """Conteo INDEPENDIENTE de las incidencias en un rango.
 
-    Reproduce la semantica documentada del filtro 'incidencia' (tipo
-    INCIDENCIA o codigo con prefijo INC-) sin usar el helper del
-    aplicativo, para que la comparacion sea una comprobacion real y no una
-    tautologia.
+    Reproduce la semantica documentada del filtro 'incidencia' sin usar el
+    helper del aplicativo, para que la comparacion sea una comprobacion real
+    y no una tautologia.
+
+    Semantica vigente (V2.004): un ticket cuenta como incidencia si su tipo
+    es INCIDENCIA, o si su codigo lleva el prefijo historico INC-/INC_ Y su
+    tipo no es uno de los que NO son incidencia (Solicitud, Problema, Cambio
+    o Resultado de Pruebas). Esa segunda condicion es la garantia
+    estructural de que un ticket de tipo no-incidencia nunca suma en el
+    bloque de incidencias del dashboard, aunque su codigo empiece por INC-.
     """
-    from sqlalchemy import or_
+    from sqlalchemy import and_, or_
 
     from app.models.ticket import Ticket, TipoIncidencia
+
+    tipos_no_incidencia = [
+        TipoIncidencia.SOLICITUD,
+        TipoIncidencia.PROBLEMA,
+        TipoIncidencia.CAMBIO,
+        TipoIncidencia.RESULTADO_PRUEBAS,
+    ]
 
     return (
         db_session.query(Ticket.id)
@@ -162,8 +175,13 @@ def _contar_incidencias(db_session, desde, hasta):
             Ticket.archivado == False,  # noqa: E712
             or_(
                 Ticket.tipo == TipoIncidencia.INCIDENCIA,
-                Ticket.codigo.like("INC-%"),
-                Ticket.codigo.like("INC\\_%", escape="\\"),
+                and_(
+                    Ticket.tipo.notin_(tipos_no_incidencia),
+                    or_(
+                        Ticket.codigo.like("INC-%"),
+                        Ticket.codigo.like("INC\\_%", escape="\\"),
+                    ),
+                ),
             ),
             Ticket.created_at >= desde,
             Ticket.created_at <= hasta,

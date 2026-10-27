@@ -529,14 +529,16 @@ class TicketService:
                     codigo="SIN_ESTADO_INICIAL",
                 )
 
-        # Generar código único
-        codigo = self._generar_codigo_ticket()
+        # Generar código único. El código depende del TIPO (INC-, SOL- o
+        # GAR_<HU>_<NNN>), así que el tipo se resuelve antes.
+        tipo_ticket = datos.get("tipo", "incidencia")
+        codigo = self._generar_codigo_ticket(tipo_ticket, datos.get("hu_o_caso_prueba"))
 
         ticket = Ticket(
             codigo=codigo,
             titulo=titulo,
             descripcion=datos.get("descripcion") or "",
-            tipo=datos.get("tipo", "incidencia"),
+            tipo=tipo_ticket,
             prioridad=datos.get("prioridad", "media"),
             estado_id=estado_asignado.id,
             creador_id=usuario.id,
@@ -661,16 +663,21 @@ class TicketService:
 
         return ticket
 
-    def _generar_codigo_ticket(self) -> str:
-        """Genera un código legible tipo ``INC-123`` (sin prefijo GRM ni año).
+    def _generar_codigo_ticket(self, tipo="incidencia", hu_o_caso_prueba=None) -> str:
+        """Genera el código del ticket con la regla única del proyecto.
 
-        Formato: ``INC-{N:03d}`` donde N es el siguiente correlativo basado
-        en el ID máximo actual de la tabla. Esto reemplaza al antiguo
-        ``GRM-INC-YYYY-NNNNNN`` y alinea con el formato compacto pedido.
+        Delegación en ``app/core/codigo_ticket.py`` (SSOT):
+
+          * ``incidencia``          → ``INC-NNN``
+          * ``solicitud``/``problema``/``cambio`` → ``SOL-NNN``
+          * ``resultado_pruebas``   → ``GAR_<HU>_<NNN>``
+
+        Antes este método generaba SIEMPRE ``INC-NNN`` ignorando el tipo,
+        de modo que una Solicitud, un Problema o un Cambio se creaban con
+        código de incidencia.
         """
-        from sqlalchemy import func
-        max_id = self.db.query(func.max(Ticket.id)).scalar() or 0
-        return f"INC-{(max_id + 1):03d}"
+        from app.core.codigo_ticket import generar_codigo_ticket
+        return generar_codigo_ticket(self.db, tipo, hu_o_caso_prueba)
 
     # ----------------------------------------------------------------------
     #  Listar y obtener

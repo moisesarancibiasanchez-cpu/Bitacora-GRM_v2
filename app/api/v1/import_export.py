@@ -26,6 +26,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
+from app.core.codigo_ticket import generar_codigo_ticket
 from app.db.session import get_db
 from app.models.estado import Estado
 from app.models.ticket import Ticket, TipoIncidencia, Prioridad
@@ -250,11 +251,11 @@ async def importar(
         for e in db.query(Etiqueta).filter(Etiqueta.activo == True).all()  # noqa: E712
     }
 
-    # Generador de código correlativo (mismo formato que el resto del proyecto: INC-XXX).
-    # La numeración se basa en el ID máximo actual de la tabla para no
-    # colisionar con códigos generados por el servicio estándar ni por
-    # imports previos.
-    ultimo = db.query(func.max(Ticket.id)).scalar() or 0
+    # El código de cada ticket importado se genera con la regla única del
+    # proyecto (``app/core/codigo_ticket.py``, SSOT): INC-NNN para
+    # incidencias, SOL-NNN para Solicitud/Problema/Cambio y
+    # GAR_<HU>_<NNN> para Resultado de Pruebas. Por eso el TIPO de la fila
+    # se resuelve antes que el código.
 
     creados = 0
     errores: List[str] = []
@@ -265,15 +266,17 @@ async def importar(
             if not titulo:
                 errores.append(f"Fila {idx}: falta 'titulo'")
                 continue
-            ultimo += 1
-            codigo = f"INC-{ultimo:03d}"
-
-            # Mapear tipo
+            # Mapear tipo (antes del código: el prefijo depende del tipo)
             tipo_str = (fila.get("tipo") or "incidencia").strip().lower()
             try:
                 tipo_enum = TipoIncidencia(tipo_str)
             except ValueError:
                 tipo_enum = TipoIncidencia.INCIDENCIA
+
+            # Código con la regla única del proyecto (SSOT).
+            codigo = generar_codigo_ticket(
+                db, tipo_enum, fila.get("hu_o_caso_prueba")
+            )
 
             # Mapear prioridad
             prio_str = (fila.get("prioridad") or "media").strip().lower()
