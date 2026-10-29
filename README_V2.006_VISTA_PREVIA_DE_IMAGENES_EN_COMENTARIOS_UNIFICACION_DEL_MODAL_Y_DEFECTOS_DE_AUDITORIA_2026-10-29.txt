@@ -2086,3 +2086,125 @@ index 0000000..5a076bd
 +    # abierta.
 +    assert despues == antes + 1, (
 +        "el KPI cambio de %s a %s (se esperaba +1)" % (antes, despues))
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-10-29)
+================================================================================
+
+  9.1 PUBLICACION
+
+    Commit del lote:  9c2ae23211bbe9af31b2825bf77528ecad196a83
+    Commit padre:     354bf20 (addendum 9 del lote V2.005)
+    Rama de trabajo:  release/v2.001 (rama canonica)
+    'main' alineada:  merge --ff-only (354bf20..9c2ae23), sin reescribir
+                      historia y sin '--force'.
+    Push (PUSH_EXIT=0):
+        354bf20..9c2ae23  main            -> main
+        354bf20..9c2ae23  release/v2.001  -> release/v2.001
+
+    Nota: el 'working tree' quedo LIMPIO tras el commit y el arbol de Git no
+    tiene ningun secuenciador pendiente (se limpio el secuenciador de revert
+    huerfano, ver seccion 0.7).
+
+  9.2 DESPLIEGUE EN RAILWAY
+
+    web    -> autoDeploy desde 'main'   SUCCESS  2026-10-29T17:28:48.580Z
+              id 65ff5424-8f7f-409b-9bda-ffabd9477e82
+    worker -> serviceInstanceDeploy      SUCCESS  2026-10-29T17:29:08.150Z
+              id 7aa66485-e7bd-43e0-86e6-c07499d9f25b
+    beat   -> serviceInstanceDeploy      SUCCESS  2026-10-29T17:29:12.385Z
+              id af5889c7-5a8a-40d8-bd8d-f64d6ae2cc78
+
+    Los tres servicios declaran en su 'meta':
+        commitHash   = 9c2ae23211bbe9af31b2825bf77528ecad196a83
+        branch       = main
+
+
+  9.3 PRUEBAS
+
+    Suite nueva V2.006:                  20 passed
+    Suites de regresion V2.002..V2.006:   60 passed
+    Suite completa:                      215 passed (195 + 20), 0 failed
+                                         766,35 s
+    Dientes de la suite nueva (revirtiendo cada arreglo):
+        sin data-preview-image ....... 3 failed
+        sin relaxation del esquema ... 1 failed
+        sin normalizacion de acentos . 1 failed
+        sin exclusion DESESTIMADA ..... 1 failed
+        restaurado ................... 20 passed
+
+  9.4 VERIFICACION EN PRODUCCION (solo GET y POST de login)
+
+    Salud y acceso:
+      GET  /health -> 200  {"status":"ok","database":"ok","redis":"ok"}
+      GET  /ready  -> 200
+      GET  /info   -> 200
+      POST /api/v1/auth/login (administrador) -> 200
+
+    El 500 corregido:
+      GET /api/v1/tickets/6/comentarios -> 200 (124.100 bytes)   [OK]
+      Antes: HTTP 500 "Internal Server Error", 5 de 5 intentos.
+      Ahora: 8 comentarios, con las longitudes de texto
+              [26876, 26482, 24678, 24674, 17607, ...]           [OK]
+      El comentario heredado de 17.607 caracteres se devuelve COMPLETO.
+      (Hay otros tres comentarios aun mas largos: por eso la validacion de
+      lectura tambien era el unico motivo del 500.)
+
+    KPI del dashboard (SIN CAMBIOS respecto a antes del despliegue):
+      totales      = {"total":933,"activos":932,"archivados":1}   [OK]
+      incidencias  = {"total":17,"activas":17,"nuevas_7d":2,
+                      "backlog_7d":5}                            [OK]
+      sla          = {"cumplidos":889,"incumplidos":40,
+                      "pendientes":4,"porcentaje_cumplimiento":95.7}  [OK]
+
+    Modal de detalle:
+      GET /api/v1/tickets/12/detalle-html?tab=comentarios -> 200
+      (135.407 bytes), con la pestana de comentarios presente   [OK]
+      Bloques 'Adjuntos del comentario': 0 (en produccion no hay ningun
+      comentario con adjunto: el barrido de los 933 tickets lo confirma).
+
+    Estaticos desplegados:
+      GET /static/js/image-preview.js -> 200, incluye ADJUNTOS_URL y el
+      guarda de no enganchar dos veces la misma imagen            [OK]
+      GET /static/js/htmx-events.js  -> 200, incluye el enganche de
+      BitacoraImagePreview.attach en reinitModalExtras()           [OK]
+
+    Resto de endpoints clave (todos 200):
+      /api/v1/tickets                                              [OK]
+      /api/v1/metricas/cuenta-resultado?ambiente=QA                [OK]
+      /api/v1/metricas/incidencias-recientes?tipo=todos&...365     [OK]
+      /api/v1/metricas/incidencias-recientes?tipo=incidencia&..365  [OK]
+      /dashboard                                                   [OK]
+
+    RESULTADO DE LA VERIFICACION: TODAS LAS COMPROBACIONES OK
+    (script de verificacion: 21 comprobaciones automaticas, 0 fallos).
+
+
+  9.5 RESUMEN OPERATIVO
+
+    Los tres servicios quedaron desplegados y alineados en el mismo commit
+    (9c2ae23) y el 'working tree' local quedo limpio, sin secuenciador de
+    Git pendiente.
+
+    Con este lote, el detalle del ticket se comporta igual en todas las
+    vistas por las que se abre: la imagen de un comentario se ve dentro del
+    comentario y se abre en la vista previa al pulsarla, la pestana
+    "Adjuntos" solo lista los archivos del ticket, el solicitante no ve
+    los comentarios internos, el listado JSON de comentarios ya no puede
+    devolver 500 y el KPI "Incidencias Abiertas" excluye los estados
+    terminales con o sin tilde.
+
+    PENDIENTE PARA EL PROPIETARIO (requiere escribir en produccion, por eso
+    no se ha hecho desde aqui): en produccion NO existe ningun comentario
+    con imagen adjunta, de modo que el caso reportado no se puede
+    comprobar con los datos actuales. Hay que adjuntar una imagen a un
+    comentario propio y pulsar la miniatura (procedimiento 5.2 del README).
+    El resto de la verificacion se hizo por API y esta toda en verde.
+
+    PENDIENTES DEL PROPIETARIO QUE SIGUEN ABIERTOS (ningun lote los cierra):
+    rotar la clave del administrador y el token de proyecto de Railway,
+    auditar el cambio de contrasena del 2026-10-26, activar autoDeploy en
+    worker/beat, SECRET_KEY real y volumen en /data, rotar la contrasena de
+    PostgreSQL, cerrar el registro publico de usuarios y borrar los tmp_*.
+    Ademas queda como recomendacion autoalojar Tailwind y SortableJS, que
+    hoy dependen del CDN (ver seccion 3 de este README).
+
