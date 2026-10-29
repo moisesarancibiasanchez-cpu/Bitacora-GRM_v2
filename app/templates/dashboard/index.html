@@ -1355,7 +1355,7 @@
   })();
 
   // Acrónimos del LOV: "OK"→OK, "N/A"→N/A, "OK CON OBS."→OBS,
-  // "POSTERGADA"→POST, "DESESTIMADA"→NOOK, "NOK"→NOK, "(en blanco)"→S/D.
+  // "POSTERGADA"→POST, "DESESTIMADA"→DESEST, "NOK"→NOK, "(en blanco)"→S/D.
   const CUENTA_RESULTADO_ACRONIMOS = (function () {
     const el = document.getElementById('cuenta-resultado-acronimos');
     if (!el) return {};
@@ -1447,7 +1447,7 @@
 
     // === Encabezado ===
     // El título de cada columna es el ACRÓNIMO del valor del LOV
-    // (OBS, POST, NOOK, ...) y el color de fondo es el MISMO que el del
+    // (OBS, POST, DESEST, ...) y el color de fondo es el MISMO que el del
     // badge de la tarjeta del Kanban. El texto completo del valor queda
     // en el tooltip (title) para no perder información.
     thead.innerHTML = '<tr class="bg-slate-800 text-white">' +

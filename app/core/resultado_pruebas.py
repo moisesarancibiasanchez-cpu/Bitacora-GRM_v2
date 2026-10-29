@@ -35,20 +35,35 @@ Ambos caminos consumen, por construcción, la misma paleta.
 
 Acrónimos (mapeo 1:1 con las 6 categorías solicitadas)
 -------------------------------------------------------
-===================  =========  =========================
-Valor del LOV        Acrónimo   Categoría solicitada
-===================  =========  =========================
-``OK``               ``OK``     OK
-``N/A``              ``N/A``    N/A
-``OK CON OBS.``      ``OBS``    OBS
-``POSTERGADA``       ``POST``   POST
-``DESESTIMADA``      ``NOOK``   NOOK
-``NOK``              ``NOK``    NOK
-===================  =========  =========================
+===================  ===========  =========================
+Valor del LOV        Acrónimo     Categoría solicitada
+===================  ===========  =========================
+``OK``               ``OK``       OK
+``N/A``              ``N/A``      N/A
+``OK CON OBS.``      ``OBS``      OBS
+``POSTERGADA``       ``POST``     POST
+``DESESTIMADA``      ``DESEST``   DESEST
+``NOK``              ``NOK``      NOK
+===================  ===========  =========================
 
 ``(en blanco)`` es la pseudo-columna que agrupa tickets con
 ``resultado_pruebas`` NULL o vacío en la tabla pivote del dashboard; su
 acrónimo es ``S/D`` (sin dato).
+
+Por qué la columna DESESTIMADA se titula ``DESEST`` (V2.005)
+------------------------------------------------------------
+La columna de casos **DESESTIMADA** se titulaba ``NOOK``, nombre heredado
+de la hoja UAT. Ese título se confundía con el resultado ``NOK`` (no
+conforme), que es una categoría **distinta** y sigue mostrando su propio
+acrónimo ``NOK`` y su propio color (rojo). El acrónimo ``DESEST`` deja
+la columna inequívoca: el título sigue siendo corto, pero ya no puede
+leerse como ``NOK``.
+
+El cambio es **sólo de presentación**: no se toca el valor del LOV
+(``DESESTIMADA``), ni la clave de la paleta, ni el nombre de la columna
+en el pivote, ni los parámetros del drill-down. Por construcción, el
+título de la columna y el badge de la tarjeta del Kanban muestran el
+mismo acrónimo.
 """
 
 from __future__ import annotations
@@ -114,7 +129,7 @@ ACRONIMOS: Dict[str, str] = {
     "N/A": "N/A",
     "OK CON OBS.": "OBS",
     "POSTERGADA": "POST",
-    "DESESTIMADA": "NOOK",
+    "DESESTIMADA": "DESEST",
     "NOK": "NOK",
     SIN_RESULTADO: "S/D",
 }

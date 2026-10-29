@@ -77,10 +77,10 @@ El análisis estático se validó ejecutando el script real del dashboard en un 
 - **Fase 1 — evaluación del script:** OK, sin excepción.
 - **Fase 2 — despacho de `DOMContentLoaded`:** OK, 1 handler ejecutado sin excepción.
 - `CUENTA_RESULTADO_COLORES` y `CUENTA_RESULTADO_ACRONIMOS` quedan **poblados** desde el JSON inyectado por el server (`vacio: false`, 7 claves cada uno).
-- `acronimoResultado()` devuelve `OK`→`OK`, `N/A`→`N/A`, `OK CON OBS.`→`OBS`, `POSTERGADA`→`POST`, `DESESTIMADA`→`NOOK`, `NOK`→`NOK`, `(en blanco)`→`S/D`, y hace *fallback* al valor crudo para entradas desconocidas.
+- `acronimoResultado()` devuelve `OK`→`OK`, `N/A`→`N/A`, `OK CON OBS.`→`OBS`, `POSTERGADA`→`POST`, `DESESTIMADA`→`DESEST`, `NOK`→`NOK`, `(en blanco)`→`S/D`, y hace *fallback* al valor crudo para entradas desconocidas.
 - `_escapeHtml()` escapa correctamente (`<script>` → `&lt;script&gt;`, `&` → `&amp;`).
 - `RESULTADO_COLORES` **no existe** en runtime; `renderCuentaResultado` sí es función y no lanza.
-- El `<thead>` renderizado muestra los acrónimos `N/A, NOK, OK, OBS, POST, NOOK, S/D` con los colores canónicos (`#94a3b8, #dc2626, #16a34a, #eab308, #ea580c, #7c3aed, #cbd5e1`) y los `title` con el valor largo (`'OK CON OBS.'`), confirmando que el encabezado de columnas cambió de valor largo a acrónimo.
+- El `<thead>` renderizado muestra los acrónimos `N/A, NOK, OK, OBS, POST, DESEST, S/D` con los colores canónicos (`#94a3b8, #dc2626, #16a34a, #eab308, #ea580c, #7c3aed, #cbd5e1`) y los `title` con el valor largo (`'OK CON OBS.'`), confirmando que el encabezado de columnas cambió de valor largo a acrónimo.
 
 > **Nota (artefacto del harness, no defecto de la app):** durante la fase 2 se registra `TypeError: Cannot read properties of undefined (reading 'total')` en `render()`. Proviene del *mock* de `fetch` del harness, que devuelve `{}` para `/api/v1/metricas/dashboard-completo` (el único endpoint mockeado es `/api/v1/metricas/cuenta-resultado`); el acceso es `d.totales.total` sobre `d = {}`. Es una limitación del stub, ajena al código modificado, y la propia app lo captura en su `try/catch` alrededor de `render()`.
 
@@ -201,7 +201,7 @@ Renderizando `kanban/partials/tarjeta.html` con el entorno real y un ticket por 
 | `OK` | `#16a34a` | `#ffffff` | `OK` | OK |
 | `OK CON OBS.` | `#eab308` | `#1f2937` | `OBS` | OK |
 | `POSTERGADA` | `#ea580c` | `#ffffff` | `POST` | OK |
-| `DESESTIMADA` | `#7c3aed` | `#ffffff` | `NOOK` | OK |
+| `DESESTIMADA` | `#7c3aed` | `#ffffff` | `DESEST` | OK |
 | `(en blanco)` | `#cbd5e1` | `#475569` | `S/D` | OK |
 
 Los valores vacíos (`None` / `''`) caen en `(en blanco)` con acrónimo `S/D`; un valor fuera del LOV se muestra en estilo neutro (`#e2e8f0`) con el texto crudo truncado; y para un tipo de ticket no aplicable (`solicitud`) con resultado vacío **no se emite badge**. La paleta del badge es idéntica a la inyectada al dashboard.

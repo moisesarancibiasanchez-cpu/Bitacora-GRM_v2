@@ -515,7 +515,7 @@
             </tr>
             <tr>
               <td><code>DESESTIMADA</code></td>
-              <td><strong>NOOK</strong></td>
+              <td><strong>DESEST</strong></td>
               <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#7c3aed;vertical-align:-2px;"></span> <code>#7c3aed</code></td>
               <td>La prueba fue desestimada.</td>
             </tr>
@@ -1295,7 +1295,7 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
       </p>
       <ul>
         <li><strong>Etiqueta de fila:</strong> una por <strong>módulo</strong> (Auditoría, GAR, Validación…). Los tickets sin módulo se agrupan bajo "(en blanco)".</li>
-        <li><strong>Columnas:</strong> una por categoría del LOV. El encabezado muestra el <strong>acrónimo</strong> (OK, N/A, OBS, POST, NOOK, NOK, S/D) con el <strong>color del catálogo</strong> de fondo; al pasar el cursor aparece el valor completo.</li>
+        <li><strong>Columnas:</strong> una por categoría del LOV. El encabezado muestra el <strong>acrónimo</strong> (OK, N/A, OBS, POST, DESEST, NOK, S/D) con el <strong>color del catálogo</strong> de fondo; al pasar el cursor aparece el valor completo.</li>
         <li><strong>Total general:</strong> última columna, con la suma de todos los resultados de esa fila.</li>
         <li><strong>Totales por columna:</strong> el pie de la tabla resume el total de cada categoría y el total general del reporte.</li>
       </ul>
@@ -1308,7 +1308,7 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
         <strong>Un solo catálogo, un solo color:</strong> la tabla del Dashboard y el indicador de la
         tarjeta se alimentan del mismo catálogo, de modo que <strong>un resultado nunca puede verse
         con dos colores distintos</strong>. Por ejemplo, <code>OK CON OBS.</code> es siempre
-        <strong>OBS</strong> en ámbar, y <code>DESESTIMADA</code> es siempre <strong>NOOK</strong> en
+        <strong>OBS</strong> en ámbar, y <code>DESESTIMADA</code> es siempre <strong>DESEST</strong> en
         violeta.
       </div>
       <div class="warn">
@@ -1509,7 +1509,7 @@ GAR_SIN-00042    ← el caso no traía código: se generó uno</pre>
             <tr><td><strong>Prioridad</strong></td><td>Urgencia del ticket (Crítica / Alta / Media / Baja).</td></tr>
             <tr><td><strong>SLA</strong></td><td>Service Level Agreement — tiempo objetivo de resolución. Si vence, el indicador se pone rojo.</td></tr>
             <tr><td><strong>Resultado de pruebas</strong></td><td>Categoría de la lista de valores (LOV) registrada en un ticket: <code>OK</code>, <code>N/A</code>, <code>OK CON OBS.</code>, <code>POSTERGADA</code>, <code>DESESTIMADA</code> o <code>NOK</code>.</td></tr>
-            <tr><td><strong>Indicador de Resultado de Pruebas</strong></td><td>Etiqueta de color en la zona inferior de la tarjeta que muestra el acrónimo del resultado: OK, N/A, OBS, POST, NOOK, NOK o S/D (sin dato).</td></tr>
+            <tr><td><strong>Indicador de Resultado de Pruebas</strong></td><td>Etiqueta de color en la zona inferior de la tarjeta que muestra el acrónimo del resultado: OK, N/A, OBS, POST, DESEST, NOK o S/D (sin dato).</td></tr>
             <tr><td><strong>Cuenta de Resultado</strong></td><td>Tabla del Dashboard que resume los resultados de pruebas por módulo, con los mismos acrónimos y colores que las tarjetas.</td></tr>
             <tr><td><strong>Asignado</strong></td><td>Agente responsable de resolver el ticket.</td></tr>
             <tr><td><strong>Solicitante</strong></td><td>Quien reporta la incidencia.</td></tr>
