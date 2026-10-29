@@ -19,9 +19,16 @@
 
   var IMG_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)(\?.*)?$/i;
 
+  // Las imagenes servidas por el endpoint de adjuntos NO llevan extension en la
+  // URL (/api/v1/adjuntos/{id}/descargar), asi que la deteccion por extension
+  // no las ve. Se reconocen por su forma para que cualquier vista que las
+  // pinte (pestana de comentarios, pestana de adjuntos, modales) sea
+  // previsualizable sin depender de un atributo explicito.
+  var ADJUNTOS_URL = /\/api\/v1\/adjuntos\/\d+\/descargar(\?.*)?$/i;
+
   function isImageSrc(src) {
     if (!src) return false;
-    return IMG_EXT.test(src);
+    return IMG_EXT.test(src) || ADJUNTOS_URL.test(src);
   }
 
   function buildOverlay(src, opts) {
@@ -136,6 +143,10 @@
     var implicitImages = root.querySelectorAll('#modal-root img, [data-bitacora-preview] img');
     implicitImages.forEach(function (img) {
       if (img.dataset.previewBound === '1') return;
+      // Si la imagen ya esta dentro de un ENLACE con data-preview-image, la
+      // regla explicita de arriba ya la cubre: no se engancha dos veces.
+      var contenedor = img.closest('[data-preview-image]');
+      if (contenedor && (contenedor === img || contenedor.tagName === 'A')) return;
       if (!isImageSrc(img.getAttribute('src') || '')) return;
       img.dataset.previewBound = '1';
       img.style.cursor = 'zoom-in';

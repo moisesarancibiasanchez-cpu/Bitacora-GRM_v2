@@ -9,9 +9,11 @@ Los formatos siguen el mismo esquema:
   id, codigo, titulo, descripcion, tipo, prioridad, estado, asignado,
   etiquetas, fecha_vencimiento_sla, sla_cumplido, creado, actualizado
 
-El importador es tolerante: crea tickets nuevos con código tipo
-'INC-XXX' (mismo formato que el servicio estándar) en el estado
-inicial del sistema.
+El importador es tolerante: crea tickets nuevos cuyo código lo genera la
+regla única del proyecto ('app/core/codigo_ticket.py'), es decir, 'INC-XXX'
+para las incidencias, 'SOL-XXX' para Solicitud/Problema/Cambio y
+'GAR_<HU>_<NNN>' para los tickets de Resultado de Pruebas, siempre en el
+estado inicial del sistema.
 """
 import csv
 import io

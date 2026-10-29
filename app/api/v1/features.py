@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_
 
 from app.api.v1.deps import get_current_user, require_role
+from app.services import ticket_modal_service
 from app.db.session import get_db
 from app.models.usuario import Usuario, RolUsuario
 from app.models.ticket import Ticket
@@ -68,8 +69,6 @@ def _render_detalle_modal_response(
     referencias).
     """
     from app.models.estado import Estado
-    from app.models.comentario import Comentario
-    from app.models.adjunto import Adjunto
     from app.models.checklist import Checklist
     from app.models.auditoria import Auditoria
     from app.models.usuario import Usuario
@@ -82,40 +81,14 @@ def _render_detalle_modal_response(
     ticket_id = ticket.id
     db.refresh(ticket)
     estados = db.query(Estado).order_by(Estado.orden).all()
-    # FEATURE — Seguridad: los comentarios INTERNOS solo los ven agentes y
-    # administradores. El SOLICITANTE jamás debe verlos (ni en el modal, ni
-    # en el JSON, ni en la respuesta HTMX).
-    mostrar_internos = user.rol != RolUsuario.SOLICITANTE
-    q_com = db.query(Comentario).filter(Comentario.ticket_id == ticket_id)
-    if not mostrar_internos:
-        q_com = q_com.filter(Comentario.es_interno == False)  # noqa: E712
-    comentarios = q_com.order_by(Comentario.created_at.asc()).all()
-    # FEATURE — Adjuntos: la pestaña "Adjuntos" solo muestra los que cuelgan
-    # del TICKET (comentario_id IS NULL). Los adjuntos de comentario se
-    # renderizan inline dentro de cada comentario en la pestaña "Comentarios".
-    adjuntos = (
-        db.query(Adjunto)
-        .filter(
-            Adjunto.ticket_id == ticket_id,
-            Adjunto.comentario_id.is_(None),
-        )
-        .order_by(Adjunto.created_at.desc())
-        .all()
+    # Comentarios y adjuntos: reglas compartidas con el resto de endpoints
+    # que re-renderizan el modal (SSOT en
+    # app/services/ticket_modal_service.py).
+    comentarios = ticket_modal_service.comentarios_visibles(db, ticket_id, user)
+    adjuntos = ticket_modal_service.adjuntos_del_ticket(db, ticket_id)
+    adjuntos_por_comentario = ticket_modal_service.adjuntos_por_comentario(
+        db, comentarios
     )
-    # Precarga de adjuntos POR comentario en una sola query (N+1 fix).
-    # Esto permite que la plantilla los muestre sin disparar un SELECT por
-    # cada comentario al iterar.
-    com_ids = [c.id for c in comentarios]
-    adjuntos_por_comentario: dict = {}
-    if com_ids:
-        filas = (
-            db.query(Adjunto)
-            .filter(Adjunto.comentario_id.in_(com_ids))
-            .order_by(Adjunto.created_at.asc())
-            .all()
-        )
-        for a in filas:
-            adjuntos_por_comentario.setdefault(a.comentario_id, []).append(a)
     # Mapa de referencias #ID entre comentarios del ticket (forward + inverse).
     _csvc = ComentarioService(db)
     mapa_refs_fwd = _csvc.mapa_referencias(comentarios)

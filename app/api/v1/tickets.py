@@ -19,6 +19,7 @@ from app.db.session import get_db
 from app.models.ticket import Ticket
 from app.models.usuario import Usuario
 from app.models.etiqueta import Etiqueta, ticket_etiquetas
+from app.models.etapa_proyecto import TicketEtapa
 from app.schemas.ticket import (
     TicketCreate, TicketRead, CambioEstadoRequest, CambioEstadoResponse, ErrorResponse,
 )
@@ -26,6 +27,7 @@ from app.services.ticket_service import (
     TicketService, TransicionInvalidaError, PermisoInsuficienteError,
 )
 from app.services.auditoria_service import registrar_auditoria
+from app.services import ticket_modal_service
 
 logger = logging.getLogger(__name__)
 
@@ -355,17 +357,17 @@ def detalle_html(
         return HTMLResponse("<div>Ticket no encontrado</div>", status_code=404)
 
     estados = db.query(Estado).order_by(Estado.orden).all()
-    comentarios = (
-        db.query(Comentario)
-        .filter(Comentario.ticket_id == ticket_id)
-        .order_by(Comentario.created_at.asc())
-        .all()
-    )
-    adjuntos = (
-        db.query(Adjunto)
-        .filter(Adjunto.ticket_id == ticket_id)
-        .order_by(Adjunto.created_at.desc())
-        .all()
+    # Comentarios y adjuntos: reglas compartidas con el resto de endpoints
+    # que re-renderizan el modal (SSOT en
+    # app/services/ticket_modal_service.py):
+    #   * los comentarios INTERNOS no se muestran a los solicitantes,
+    #   * la pestana "Adjuntos" solo muestra los adjuntos del TICKET,
+    #   * los adjuntos de cada comentario se precargan para poder
+    #     pintarlos inline dentro del comentario (pestana "comentarios").
+    comentarios = ticket_modal_service.comentarios_visibles(db, ticket_id, usuario)
+    adjuntos = ticket_modal_service.adjuntos_del_ticket(db, ticket_id)
+    adjuntos_por_comentario = ticket_modal_service.adjuntos_por_comentario(
+        db, comentarios
     )
     checklists = (
         db.query(Checklist)
@@ -422,6 +424,7 @@ def detalle_html(
         estados=estados,
         comentarios=comentarios,
         adjuntos=adjuntos,
+        adjuntos_por_comentario=adjuntos_por_comentario,
         checklists=checklists,
         auditorias=auditorias,
         usuario=usuario,
@@ -626,17 +629,17 @@ async def actualizar_ticket_campo(
     from app.models.etiqueta import Etiqueta
     db.refresh(ticket)
     estados = db.query(Estado).order_by(Estado.orden).all()
-    comentarios = (
-        db.query(Comentario)
-        .filter(Comentario.ticket_id == ticket_id)
-        .order_by(Comentario.created_at.asc())
-        .all()
-    )
-    adjuntos = (
-        db.query(Adjunto)
-        .filter(Adjunto.ticket_id == ticket_id)
-        .order_by(Adjunto.created_at.desc())
-        .all()
+    # Comentarios y adjuntos: reglas compartidas con el resto de endpoints
+    # que re-renderizan el modal (SSOT en
+    # app/services/ticket_modal_service.py):
+    #   * los comentarios INTERNOS no se muestran a los solicitantes,
+    #   * la pestana "Adjuntos" solo muestra los adjuntos del TICKET,
+    #   * los adjuntos de cada comentario se precargan para poder
+    #     pintarlos inline dentro del comentario (pestana "comentarios").
+    comentarios = ticket_modal_service.comentarios_visibles(db, ticket_id, usuario)
+    adjuntos = ticket_modal_service.adjuntos_del_ticket(db, ticket_id)
+    adjuntos_por_comentario = ticket_modal_service.adjuntos_por_comentario(
+        db, comentarios
     )
     checklists = (
         db.query(Checklist)
@@ -675,7 +678,7 @@ async def actualizar_ticket_campo(
     from app.templates.tickets.detalle_modal import render_detalle_modal
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
-        adjuntos=adjuntos, checklists=checklists,
+        adjuntos=adjuntos, adjuntos_por_comentario=adjuntos_por_comentario, checklists=checklists,
         auditorias=auditorias, usuario=usuario,
         ultima_modificacion=ultima_mod,
         active_tab=active_tab,
@@ -872,17 +875,17 @@ async def guardar_ticket_campos(
     # Re-renderizar el modal completo
     db.refresh(ticket)
     estados = db.query(Estado).order_by(Estado.orden).all()
-    comentarios = (
-        db.query(Comentario)
-        .filter(Comentario.ticket_id == ticket_id)
-        .order_by(Comentario.created_at.asc())
-        .all()
-    )
-    adjuntos = (
-        db.query(Adjunto)
-        .filter(Adjunto.ticket_id == ticket_id)
-        .order_by(Adjunto.created_at.desc())
-        .all()
+    # Comentarios y adjuntos: reglas compartidas con el resto de endpoints
+    # que re-renderizan el modal (SSOT en
+    # app/services/ticket_modal_service.py):
+    #   * los comentarios INTERNOS no se muestran a los solicitantes,
+    #   * la pestana "Adjuntos" solo muestra los adjuntos del TICKET,
+    #   * los adjuntos de cada comentario se precargan para poder
+    #     pintarlos inline dentro del comentario (pestana "comentarios").
+    comentarios = ticket_modal_service.comentarios_visibles(db, ticket_id, usuario)
+    adjuntos = ticket_modal_service.adjuntos_del_ticket(db, ticket_id)
+    adjuntos_por_comentario = ticket_modal_service.adjuntos_por_comentario(
+        db, comentarios
     )
     checklists = (
         db.query(Checklist)
@@ -916,7 +919,7 @@ async def guardar_ticket_campos(
 
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
-        adjuntos=adjuntos, checklists=checklists,
+        adjuntos=adjuntos, adjuntos_por_comentario=adjuntos_por_comentario, checklists=checklists,
         auditorias=auditorias, usuario=usuario,
         ultima_modificacion=ultima_mod,
         active_tab=active_tab,
@@ -1063,17 +1066,17 @@ async def actualizar_campo_personalizado(
     from app.models.etiqueta import Etiqueta
     db.refresh(ticket)
     estados = db.query(Estado).order_by(Estado.orden).all()
-    comentarios = (
-        db.query(Comentario)
-        .filter(Comentario.ticket_id == ticket_id)
-        .order_by(Comentario.created_at.asc())
-        .all()
-    )
-    adjuntos = (
-        db.query(Adjunto)
-        .filter(Adjunto.ticket_id == ticket_id)
-        .order_by(Adjunto.created_at.desc())
-        .all()
+    # Comentarios y adjuntos: reglas compartidas con el resto de endpoints
+    # que re-renderizan el modal (SSOT en
+    # app/services/ticket_modal_service.py):
+    #   * los comentarios INTERNOS no se muestran a los solicitantes,
+    #   * la pestana "Adjuntos" solo muestra los adjuntos del TICKET,
+    #   * los adjuntos de cada comentario se precargan para poder
+    #     pintarlos inline dentro del comentario (pestana "comentarios").
+    comentarios = ticket_modal_service.comentarios_visibles(db, ticket_id, usuario)
+    adjuntos = ticket_modal_service.adjuntos_del_ticket(db, ticket_id)
+    adjuntos_por_comentario = ticket_modal_service.adjuntos_por_comentario(
+        db, comentarios
     )
     checklists = (
         db.query(Checklist)
@@ -1106,7 +1109,7 @@ async def actualizar_campo_personalizado(
     from app.templates.tickets.detalle_modal import render_detalle_modal
     html = render_detalle_modal(
         ticket=ticket, estados=estados, comentarios=comentarios,
-        adjuntos=adjuntos, checklists=checklists,
+        adjuntos=adjuntos, adjuntos_por_comentario=adjuntos_por_comentario, checklists=checklists,
         auditorias=auditorias, usuario=usuario,
         ultima_modificacion=ultima_mod,
         active_tab=active_tab,

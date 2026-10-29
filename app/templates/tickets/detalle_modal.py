@@ -711,13 +711,32 @@ DETALLE_TEMPLATE = _ENV.from_string(r"""
                     <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Adjuntos del comentario</div>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {% for a in _com_adj %}
+                        {# Deteccion robusta de imagen y de disponibilidad (misma politica
+                           que la pestana "Adjuntos"): el adjunto puede venir con la propiedad
+                           calculada del modelo o solo con mime_type y nombre. #}
+                        {% set _com_nombre = (a.nombre_original or a.filename or a.nombre or '') %}
+                        {% set _com_mime = (a.mime_type or '') %}
+                        {% set _com_ext = _com_nombre.split('.')[-1].lower() if _com_nombre else '' %}
+                        {% set _com_es_imagen = a.es_imagen if a.es_imagen is defined else (_com_mime.startswith('image/') or _com_ext in ['png','jpg','jpeg','gif','webp','bmp','svg','avif']) %}
+                        {% set _com_disponible = (a.disponible if a.disponible is defined else None) %}
                         <a href="/api/v1/adjuntos/{{ a.id }}/descargar"
                            target="_blank" rel="noopener"
                            class="flex items-center gap-2 p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50">
-                          {% if a.es_imagen %}
-                            <img src="/api/v1/adjuntos/{{ a.id }}/descargar" alt="{{ a.nombre_original }}"
-                                 class="w-10 h-10 object-cover rounded border border-slate-200"
+                          {% if _com_es_imagen and _com_disponible is not sameas false %}
+                            {# data-preview-image activa el lightbox de app/static/js/image-preview.js.
+                               El atributo va en la IMAGEN: al pulsarla se abre la vista previa;
+                               el resto del enlace (nombre, tamano) sigue descargando el archivo. #}
+                            <img src="/api/v1/adjuntos/{{ a.id }}/descargar" alt="{{ _com_nombre }}"
+                                 data-preview-image
+                                 data-preview-title="{{ _com_nombre }}"
+                                 title="Click para vista previa"
+                                 class="w-10 h-10 object-cover rounded border border-slate-200 cursor-zoom-in"
                                  loading="lazy">
+                          {% elif _com_es_imagen %}
+                            <span class="inline-flex items-center justify-center w-10 h-10 rounded border border-amber-200 bg-amber-50 text-amber-500"
+                                  title="Archivo no disponible">
+                              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"></path></svg>
+                            </span>
                           {% else %}
                             <span class="inline-flex items-center justify-center w-10 h-10 rounded bg-slate-100 text-slate-500 text-[10px]">📎</span>
                           {% endif %}

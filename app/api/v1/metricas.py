@@ -285,16 +285,34 @@ def resumen_dashboard(
     #   - Se compara contra `estados.nombre` (NO contra `estados.categoria`,
     #     que en producción NUNCA toma el valor 'produccion_ok'; ver
     #     commit 4bac32d para más detalle).
-    #   - Los valores almacenados en la BD son lowercase y sin acento
-    #     ('produccion ok', 'desestimada'), por lo que `func.lower()` es
-    #     suficiente y portable entre SQLite y PostgreSQL.
+    #   - La comparación es INSENSIBLE A ACENTOS. El nombre canónico del
+    #     estado es 'Producción OK' (con tilde) y lo insertan así la siembra
+    #     (app/db/init_db.py) y la migración 4.6, pero en producción se
+    #     guardó como 'produccion ok' (sin tilde). `func.lower()` NO quita
+    #     acentos, así que comparar contra 'produccion ok' NUNCA excluía el
+    #     estado canónico: en una base nueva, el KPI contaba como "abiertas"
+    #     las incidencias ya desplegadas en producción. Se normaliza el
+    #     nombre con REPLACE (portable entre SQLite y PostgreSQL).
+    #   - 'DESESTIMADA' es un valor de `resultado_pruebas`, no un estado. En
+    #     producción existe además un estado heredado con ese nombre, así que
+    #     se excluyen LAS DOS COSAS: el estado llamado 'DESESTIMADA' y los
+    #     tickets cuyo resultado de pruebas es 'DESESTIMADA'.
+    _nombre_estado_norm = func.lower(Estado.nombre)
+    for _acento, _ascii in (("á", "a"), ("é", "e"), ("í", "i"),
+                            ("ó", "o"), ("ú", "u"), ("ñ", "n")):
+        _nombre_estado_norm = func.replace(_nombre_estado_norm, _acento, _ascii)
+    _resultado_no_desestimada = or_(
+        Ticket.resultado_pruebas.is_(None),
+        func.upper(func.trim(Ticket.resultado_pruebas)) != "DESESTIMADA",
+    )
     backlog_7d = (
         db.query(func.count(Ticket.id))
         .join(Estado, Estado.id == Ticket.estado_id)
         .filter(
             _tipo_inc,
             Ticket.archivado == False,  # noqa: E712
-            func.lower(Estado.nombre).notin_(["produccion ok", "desestimada"]),
+            _nombre_estado_norm.notin_(["produccion ok", "desestimada"]),
+            _resultado_no_desestimada,
         )
         .scalar() or 0
     )

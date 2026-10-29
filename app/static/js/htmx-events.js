@@ -1115,6 +1115,15 @@
     setupComentariosDropzone();
     setupMarkdownEditors();
     mountComentariosFeatures();
+    // Re-enganchar la vista previa de imagenes (lightbox). Es necesario
+    // porque el modal de detalle se inserta con fetch + innerHTML en varios
+    // sitios (Kanban, Gantt, calendario, command palette y dashboard): en esas
+    // vias htmx no emite htmx:afterSwap, asi que el lightbox se quedaba sin
+    // enganchar y la previsualizacion no respondia al pulsar la imagen.
+    if (window.BitacoraImagePreview &&
+        typeof window.BitacoraImagePreview.attach === 'function') {
+      try { window.BitacoraImagePreview.attach(document); } catch (_) { /* noop */ }
+    }
   }
 
   // Re-aplicar handlers cuando HTMX inserta HTML nuevo en el DOM

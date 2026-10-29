@@ -43,10 +43,11 @@ no fuese incidencia.
 Con este módulo, los cuatro caminos consumen la misma regla y el prefijo
 deja de depender del sitio por el que se crea el ticket.
 
-Además el módulo publica ``TIPOS_NO_INCIDENCIA`` y ``es_tipo_no_incidencia``,
-que son los que usa el filtro del dashboard para garantizar
-estructuralmente que un ticket de tipo Solicitud/Problema/Cambio (o de
-tipo Resultado de Pruebas) NUNCA aparece en el bloque de incidencias.
+Además el módulo publica ``NOMBRES_TIPOS_NO_INCIDENCIA`` (los valores que
+realmente se guardan en ``tickets.tipo``) y el helper ``tipos_no_incidencia()``,
+que son los que usa el filtro del dashboard para garantizar estructuralmente
+que un ticket de tipo Solicitud/Problema/Cambio (o de tipo Resultado de
+Pruebas) NUNCA aparece en el bloque de incidencias.
 """
 
 from __future__ import annotations
@@ -152,13 +153,31 @@ def es_tipo_no_incidencia(tipo) -> bool:
 # --------------------------------------------------------------------------
 
 def _generar_codigo_inc(db) -> str:
-    """``INC-NNN``: correlativo basado en el id máximo de la tabla."""
+    """``INC-NNN``: correlativo basado en el id máximo de la tabla.
+
+    Comprueba que el código candidato esté LIBRE antes de devolverlo (igual
+    que las otras dos familias). Sin esa comprobación, un hueco en la
+    numeración (por ejemplo, si se libera el id máximo) producía un
+    ``INC-NNN`` ya existente y el INSERT fallaba por la restricción UNIQUE
+    de ``tickets.codigo``, con un 500 en lugar de un error controlado.
+    """
     from sqlalchemy import func
 
     from app.models.ticket import Ticket
 
     ultimo = db.query(func.max(Ticket.id)).scalar() or 0
-    return f"{PREFIJO_INCIDENCIA}{(ultimo + 1):03d}"
+    for offset in range(MAX_INTENTOS_NUMERACION):
+        numero = ultimo + 1 + offset
+        candidato = f"{PREFIJO_INCIDENCIA}{numero:03d}"
+        existe = (
+            db.query(Ticket).filter(Ticket.codigo == candidato).first()
+        )
+        if not existe:
+            return candidato
+    raise ConflictoNumeracionError(
+        "No se pudo asignar un correlativo libre para la familia %s"
+        % PREFIJO_INCIDENCIA
+    )
 
 
 def _generar_codigo_sol(db) -> str:

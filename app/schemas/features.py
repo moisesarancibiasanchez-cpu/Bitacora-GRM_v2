@@ -120,6 +120,13 @@ class MencionRead(BaseModel):
 
 class ComentarioRead(ComentarioBase):
     model_config = ConfigDict(from_attributes=True)
+    # La LECTURA no aplica el limite de escritura (5.000 caracteres): hay
+    # comentarios legacy en la base de datos mas largos que eso (el ticket 6
+    # tiene uno de 17.607 caracteres) y la validacion de respuesta los
+    # convertia en un HTTP 500 al serializar el listado de comentarios.
+    # El limite de 5.000 sigue vigente al ESCRIBIR (ComentarioCreate y
+    # ComentarioUpdate).
+    texto: str
     id: int
     ticket_id: int
     usuario_id: int
