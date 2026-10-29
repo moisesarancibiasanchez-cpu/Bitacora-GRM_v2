@@ -3,7 +3,7 @@ README V2.005 - RENOMBRE DE LA COLUMNA DE CASOS DESESTIMADA: DE "NOOK" A "DESEST
 Proyecto: Bitacora GRM v2
 Fecha: 2026-10-29
 Rama base: main y release/v2.001 (commit e7806da)
-Estado: CODIGO LISTO Y VERIFICADO EN LOCAL. PENDIENTE DE DESPLEGUE.
+Estado: DESPLEGADO EN PRODUCCION Y VERIFICADO. Ver seccion 9.
 ================================================================================
 
 0. PARCHE EXACTO
@@ -918,3 +918,110 @@ index 0000000..c0afd0b
 +    assert colores[VALOR_LOV] == COLOR_DESESTIMADA
 +    assert VALOR_LOV in lov
 +    assert ACRONIMO_VIEJO not in lov
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-10-29)
+================================================================================
+
+  9.1 PUBLICACION
+
+    Commit del lote:  1b49fe088dce8ad05731f7a18c38ac6032782c9e
+    Commit padre:     e7806da (addendum 9 del lote V2.004)
+    Rama de trabajo:  release/v2.001 (rama canonica)
+    'main' alineada:  merge --ff-only (e7806da..1b49fe0), sin reescribir
+                      historia y sin '--force'.
+    Push (PUSH_EXIT=0):
+        e7806da..1b49fe0  main            -> main
+        e7806da..1b49fe0  release/v2.001  -> release/v2.001
+        release/v1.006 sin cambios (ya estaba en 4d1a603).
+
+  9.2 DESPLIEGUE EN RAILWAY
+
+    web    -> autoDeploy desde 'main'   SUCCESS  2026-10-29T13:04:32.885Z
+              id 1e64d681-670b-44ce-a810-68039bae8ccf
+    worker -> serviceInstanceDeploy      SUCCESS  2026-10-29T13:04:50.963Z
+              id 237fdfb7-39c4-4796-911a-98a441d0c2a1
+    beat   -> serviceInstanceDeploy      SUCCESS  2026-10-29T13:04:54.999Z
+              id a3942ec0-c1f5-43de-8031-1805d639f23d
+
+    Los tres servicios declaran en su 'meta':
+        commitHash   = 1b49fe088dce8ad05731f7a18c38ac6032782c9e
+        branch       = main
+        commitMessage= feat(dashboard): la columna de casos DESESTIMADA se
+                       titula DESEST
+
+  9.3 PRUEBAS
+
+    Suite nueva V2.005:                 11 passed
+    Suite completa:                    195 passed (184 + 11), 0 failed
+                                       714,99 s
+    Dientes de la suite: revirtiendo el acronimo a "NOOK" en el catalogo,
+    la suite V2.005 pasa a 5 failed de 11 (catalogo, ausencia de "NOOK",
+    ficha del resultado, badge de la tarjeta y dashboard extremo a extremo);
+    restaurado el acronimo, vuelve a 11 passed.
+
+  9.4 VERIFICACION EN PRODUCCION (solo GET y POST de login)
+
+    Salud y acceso:
+      GET  /health -> 200  {"status":"ok","database":"ok","redis":"ok"}
+      GET  /ready  -> 200
+      GET  /info   -> 200
+      POST /api/v1/auth/login (administrador) -> 200
+      GET  /dashboard -> 200, 140.690 caracteres
+
+
+    Acronimos inyectados en la plantilla (bloque id="cuenta-resultado-acronimos"):
+      {"(en blanco)":"S/D","DESESTIMADA":"DESEST","N/A":"N/A",
+       "NOK":"NOK","OK":"OK","OK CON OBS.":"OBS",
+       "POSTERGADA":"POST"}
+      -> "DESESTIMADA" se titula "DESEST"        [OK]
+      -> no queda "NOOK" en el mapa de acronimos   [OK]
+      -> ningun acronimo vale "NOOK"               [OK]
+      -> la categoria "NOK" conserva su acronimo   [OK]
+      -> el HTML servido (140.690 caracteres) NO contiene la cadena
+         "NOOK" en ningun punto                    [OK]
+      -> el LOV inyectado sigue siendo
+         ["N/A","NOK","OK","OK CON OBS.","POSTERGADA",
+          "DESESTIMADA","(en blanco)"]            [OK]
+
+
+    Pivote (GET /api/v1/metricas/cuenta-resultado, ambiente QA):
+      columnas            = ["N/A","NOK","OK","OK CON OBS.",
+                             "POSTERGADA","DESESTIMADA","(en blanco)"]
+      totales_por_columna = {"N/A":128,"NOK":4,"OK":701,"OK CON OBS.":4,
+                              "POSTERGADA":54,"DESESTIMADA":21,
+                              "(en blanco)":0}
+      total_general        = 912
+      -> la forma y los numeros son IDENTICOS a los medidos antes del
+         despliegue (misma medicion previa, 2026-10-29)   [OK]
+      -> la columna DESESTIMADA sigue con sus 21 tickets   [OK]
+
+
+    Drill-down (GET /api/v1/metricas/cuenta-resultado/detalle
+                ?modulo=(en blanco)&resultado=DESESTIMADA&ambiente=QA):
+      -> 200, 3.611 caracteres                          [OK]
+      -> el modal del drill-down muestra el acronimo
+         "DESEST"                                       [OK]
+      -> el parametro sigue siendo el VALOR del LOV
+         ("DESESTIMADA"), no el acronimo                [OK]
+
+
+    Valores reales de resultado_pruebas (GET /api/v1/tickets, 933 tickets):
+      'OK' 716 | 'N/A' 130 | 'POSTERGADA' 54 | 'DESESTIMADA' 21 |
+      'NOK' 6 | 'OK CON OBS.' 4 | '' 2
+      -> valores fuera del LOV: ninguno                 [OK]
+      -> ningun ticket con resultado crudo "NOOK"       [OK]
+
+
+    RESULTADO DE LA VERIFICACION: TODAS LAS COMPROBACIONES OK.
+    Script de verificacion con 16 comprobaciones automaticas: 0 fallos.
+
+  9.5 RESUMEN OPERATIVO
+
+    El cambio estaba desplegado y verificado en los tres servicios con el
+    mismo commit (1b49fe0). La columna de casos desestimados se titula
+    "DESEST" en el encabezado de la tabla "Cuenta de Resultado", el badge
+    de las tarjetas del Kanban dice "DESEST" en violeta y el modal de
+    drill-down muestra "DESEST". No ha cambiado ningun numero del
+    reporte, ningun dato, ni el nombre interno de la columna
+    (DESESTIMADA), ni el parametro del drill-down.
+
