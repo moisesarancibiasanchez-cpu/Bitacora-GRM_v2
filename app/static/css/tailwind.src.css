@@ -1,0 +1,10 @@
+/*
+ * Fuente de Tailwind CSS.
+ *
+ * Este fichero NO se sirve: es la entrada de la compilacion que produce
+ * `app/static/css/tailwind.css` (el que se sirve). Ver tailwind.config.js
+ * para el comando exacto de compilacion.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

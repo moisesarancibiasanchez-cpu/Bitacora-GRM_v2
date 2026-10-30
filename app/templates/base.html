@@ -4,25 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Bitácora GRM{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS COMPILADO Y AUTOALOJADO.
+       Antes se cargaba desde https://cdn.tailwindcss.com (la version "Play",
+       que compila las clases EN EL NAVEGADOR). Eso hacia depender de una red
+       externa: si el CDN tardaba o estaba bloqueado, la pagina se quedaba
+       sin estilos (tarjetas gigantes, maquetacion rota y Kanban sin
+       drag & drop). Ahora el CSS se compila antes de publicar y se sirve
+       desde el propio servidor, como ya se hacia con HTMX.
+       Ver tailwind.config.js para el comando de recompilacion. -->
+  <link rel="stylesheet" href="/static/css/tailwind.css">
   <!-- HTMX autoalojado: elimina dependencia de unpkg.com y de SRI hash que
        puede fallar en Railway por CSP o bloqueos de CDN. -->
   <script src="/static/js/htmx.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <!-- SortableJS autoalojado (v1.15.2): lo usa el Kanban para el arrastre de
+       tarjetas. Antes venía de cdn.jsdelivr.net. -->
+  <script src="/static/js/sortable.min.js"></script>
   <link rel="stylesheet" href="/static/css/styles.css">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/fonts.css">
   {# Bloque para que las páginas hijas inyecten CSS adicional sin
      tener que duplicar el <head>. Necesario para que el scroll del
      Planner (y de cualquier vista con CSS propio) se renderice. #}
