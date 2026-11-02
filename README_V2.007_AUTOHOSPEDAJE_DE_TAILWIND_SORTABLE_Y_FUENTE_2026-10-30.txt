@@ -4,7 +4,7 @@ Y FUENTE INTER (LA APLICACION DEJA DE DEPENDER DE CUALQUIER CDN)
 Proyecto: Bitacora GRM v2
 Fecha: 2026-10-30
 Rama base: main y release/v2.001 (commit adfb1c1)
-Estado: CODIGO LISTO Y VERIFICADO EN LOCAL. PENDIENTE DE DESPLEGUE.
+Estado: DESPLEGADO Y VERIFICADO EN PRODUCCION (2026-10-30). Commit 4b2193f.
 ================================================================================
 
   NOTA SOBRE LA NUMERACION: este documento continua la serie V2 del
@@ -879,3 +879,131 @@ index 0000000..50e7073
 +                if any(d in u for d in CDN_PROHIBIDOS)]
 +    assert not externas, "la pagina servida pide recursos externos: %s" % externas
 +    assert '/static/css/tailwind.css' in html
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-10-30)
+================================================================================
+
+  9.1 PUBLICACION
+
+    Commit del lote:  4b2193f2147eca6e54f6da7288f2df241c450511
+    Commit padre:     adfb1c1 (addendum 9 del lote V2.006)
+    Rama de trabajo:  release/v2.001 (rama canonica)
+    'main' alineada:  merge --ff-only (adfb1c1..4b2193f), sin reescribir
+                      historia y sin '--force'.
+    Push (PUSH_EXIT=0):
+        adfb1c1..4b2193f  main            -> main
+        adfb1c1..4b2193f  release/v2.001  -> release/v2.001
+
+    El 'working tree' quedo LIMPIO tras el commit (10 ficheros, 1.203
+    lineas anadidas y 15 eliminadas).
+
+  9.2 DESPLIEGUE EN RAILWAY
+
+    Servicio 'web'    (id 775efae4-375f-4731-8027-680e78bd6a68)
+        deployment id = fb849792-5a2c-4f08-80ab-5c9b0f6a8710
+        status       = SUCCESS
+        createdAt    = 2026-10-30T21:16:13.554Z
+        commitHash   = 4b2193f2147eca6e54f6da7288f2df241c450511
+        branch       = main   (autoDeploy: se redespliego solo al hacer
+                               el push a 'main')
+
+    Servicio 'worker' (id 51e22b0c-1f46-411f-b24a-a976107690f0)
+        deployment id = bb2a9239-ada7-4b59-beab-4b9da8f634fd
+        status       = SUCCESS
+        createdAt    = 2026-10-30T21:16:44.565Z
+        commitHash   = 4b2193f2147eca6e54f6da7288f2df241c450511
+
+    Servicio 'beat'   (id 1c16b13c-4533-40c9-b63e-43b00cb14041)
+        deployment id = 661bc1f4-dda9-4265-a04a-aefdd88c9602
+        status       = SUCCESS
+        createdAt    = 2026-10-30T21:16:48.677Z
+        commitHash   = 4b2193f2147eca6e54f6da7288f2df241c450511
+
+    Los TRES servicios quedaron en el MISMO commit (4b2193f). 'web' se
+    redespliego solo por autoDeploy al publicar en 'main'; 'worker' y 'beat'
+    se desplegaron a mano con ese mismo commit, para no dejar los servicios
+    desalineados (los dos no tienen autoDeploy: ver seccion 4).
+
+  9.3 PRUEBAS
+
+    Suite nueva V2.007:                   12 passed
+    Suite completa:                       227 passed (215 + 12), 0 failed
+                                          726,80 s (12:06)
+
+  9.4 VERIFICACION EN PRODUCCION (solo GET y POST de login)
+
+    Comprobaciones automatizadas (solo GET y POST de login): 35, 0 fallos.
+
+    1) SALUD Y LOGIN
+         GET  /health .................... 200  {"status":"ok",...}
+         GET  /ready ..................... 200  {"status":"ready",...}
+         GET  /info ...................... 200
+         POST /api/v1/auth/login ......... 200
+
+    2) EL HTML YA NO PIDE NADA A UN CDN
+         GET /auth/login .... 200 (25.871 B)    0 recursos externos
+         GET /dashboard ..... 200 (141.020 B)   0 recursos externos
+         GET /kanban ........ 200 (4.256.149 B) 0 recursos externos
+         GET /tickets ....... 200 (640.011 B)   0 recursos externos
+         -> la pagina de acceso carga /static/css/tailwind.css,
+            /static/js/sortable.min.js y /static/css/fonts.css
+
+    3) LOS RECURSOS AUTOALOJADOS SE SIRVEN
+         GET /static/css/tailwind.css ........... 200  56.063 B  text/css
+              - contiene las utilidades basicas (.flex, .hidden)
+              - contiene la clase arbitraria 'py-[1px]' del badge de
+                Resultado de Pruebas (app/core/resultado_pruebas.py)
+              - define la familia sans con Inter
+              - incluye el preflight (box-sizing:border-box)
+         GET /static/js/sortable.min.js ............ 200  44.581 B  text/javascript
+              - es SortableJS 1.15.2
+         GET /static/css/fonts.css ................. 200   1.123 B
+              - apunta al woff2 local
+         GET /static/fonts/inter-latin.woff2 ...... 200  48.256 B  font/woff2
+         GET /static/fonts/inter-latin-ext.woff2 .. 200  85.068 B  font/woff2
+              - los dos son woff2 validos (magic wOF2)
+         GET /static/css/styles.css ............... 200   2.324 B  (sin cambios)
+         GET /static/js/htmx.min.js .............. 200  48.101 B  (sin cambios)
+
+    4) ENDPOINTS CLAVE (todos 200)
+         GET /dashboard .............................. 200  141.499 B
+         GET /kanban ................................. 200  4.276.417 B
+         GET /tickets ................................ 200  641.248 B
+         GET /api/v1/metricas/dashboard-completo ..... 200    5.234 B
+         GET /api/v1/metricas/cuenta-resultado
+             ?ambiente=QA ............................. 200    2.087 B
+         GET /api/v1/tickets/6/comentarios ............. 200  124.100 B
+
+    5) SIN REGRESIONES (lotes V2.005 y V2.006)
+         la cuenta de resultado sigue trayendo DESESTIMADA ......... OK
+         la palabra NOOK no aparece en la cuenta de resultado ....... OK
+         el mapa de acronimos traduce DESESTIMADA a DESEST .......... OK
+         KPI 'Incidencias Abiertas' (incidencias.backlog_7d) = 5 .... OK
+         bloque incidencias: total 17, activas 17, nuevas_7d 2,
+         backlog_7d 5 ............................................. OK
+
+    NOTA SOBRE EL SLA: el dia de esta verificacion (2026-10-31) el
+    cumplimiento de SLA es 95,9 % (887 cumplidos / 38 incumplidos /
+    8 pendientes). Los 95,7 % del 2026-10-30 son la misma metrica medida un
+    dia antes: la diferencia es el movimiento normal de los tickets, NO un
+    efecto de este lote (este lote no toca la logica).
+
+  9.5 RESUMEN OPERATIVO
+
+    - El sintoma reportado (pagina sin estilos y Kanban sin drag & drop)
+      esta resuelto: la aplicacion ya no hace NINGUNA peticion a un CDN
+      externo, y se comprobo en las cuatro paginas principales.
+    - La causa era la DEPENDENCIA, no el CDN: ahora los tres recursos
+      (Tailwind compilado, SortableJS e Inter) se sirven desde el propio
+      servidor, asi que una red degradada ya no puede dejar la interfaz
+      sin maquetar.
+    - Sin cambios en la logica, sin cambios en el HTML de la aplicacion,
+      sin dependencias nuevas, sin migraciones y sin tocar los datos.
+    - Regresion verificada: KPIs intactos (Incidencias Abiertas = 5),
+      columna DESEST intacta y el listado JSON de comentarios del ticket 6
+      sigue en 200 (lote V2.006).
+    - PENDIENTE DE QA VISUAL DEL PROPIETARIO (procedimiento 5.2 de este
+      documento): abrir /kanban en el navegador y confirmar la
+      maquetacion, el drag & drop, la fuente Inter y la ausencia de
+      peticiones externas en la pestana Network. No se ha hecho ninguna
+      escritura en produccion: el lote es exclusivamente de presentacion.
