@@ -19,6 +19,7 @@ from app.core.resultado_pruebas import (
     ACRONIMOS as ACRONIMOS_RESULTADO,
     COLORES as COLORES_RESULTADO,
     COLOR_FALLBACK as COLOR_FALLBACK_RESULTADO,
+    RESULTADOS_CONOCIDOS as RESULTADOS_CONOCIDOS_RESULTADO,
     SIN_RESULTADO as SIN_RESULTADO,
     normalizar_resultado as _normalizar_resultado,
 )
@@ -172,11 +173,12 @@ def _resolver_rango_temporal(periodo_dias, fecha_desde, fecha_hasta, ahora):
 # Réplica del rango A64:H81 de la hoja REPORTE del Excel UAT.
 #
 # NOTA: Incluye TODOS los valores del LOV de ``resultado_pruebas``
-# (N/A, NOK, OK, OK CON OBS., POSTERGADA, DESESTIMADA) más la
-# categoría derivada "(en blanco)" para valores NULL/vacíos. Si
-# el LOV crece en el futuro, basta con agregar el nuevo valor aquí
-# y darlo de alta en ``sql_columnas`` más abajo para que el pivot
-# lo refleje sin perder tickets.
+# (N/A, NOK, OK, OK CON OBS., POSTERGADA, DESESTIMADA, BLOQUEADO PARA
+# EJECUTAR) más la categoría derivada "(en blanco)" para valores
+# NULL/vacíos. Si el LOV crece en el futuro, basta con agregar el nuevo
+# valor en ``app/core/resultado_pruebas.py`` (SSOT) y darlo de alta en
+# ``sql_columnas`` más abajo para que el pivot lo refleje sin perder
+# tickets.
 _RESULTADOS_PIVOTE = (
     "N/A",
     "NOK",
@@ -184,6 +186,7 @@ _RESULTADOS_PIVOTE = (
     "OK CON OBS.",
     "POSTERGADA",
     "DESESTIMADA",
+    "BLOQUEADO PARA EJECUTAR",
     "",  # (en blanco) — sin resultado
 )
 
@@ -704,7 +707,7 @@ def cuenta_resultado(
     con la forma exacta esperada por el componente del dashboard:
       {
         "ambiente": "QA",
-        "columnas": ["N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "DESESTIMADA", "(en blanco)"],
+        "columnas": ["N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "DESESTIMADA", "BLOQUEADO PARA EJECUTAR", "(en blanco)"],
         "filas": [
           {"modulo": "Auditoría", "valores": {"N/A": 1, "NOK": 0, ...}, "total": 9},
           ...
@@ -718,10 +721,12 @@ def cuenta_resultado(
     # Columnas dinámicas: mismas que el front (incluye "(en blanco)" para
     # agrupar NULL/vacíos en resultado_pruebas). DESESTIMADA se incluye
     # explícitamente para que esos tickets NO queden excluidos del pivot.
-    columnas_front = [
-        "N/A", "NOK", "OK", "OK CON OBS.", "POSTERGADA", "DESESTIMADA",
-        "(en blanco)",
-    ]
+    #
+    # La lista se DERIVA del catálogo (app/core/resultado_pruebas.py), que es
+    # la única fuente de verdad del LOV, y no se redeclara aquí: así el pivote
+    # y el front (que consume CUENTA_RESULTADO_LOV, inyectada desde el mismo
+    # catálogo) no pueden desalinearse al crecer el LOV (V2.008).
+    columnas_front = list(RESULTADOS_CONOCIDOS_RESULTADO)
 
     def _eq_ci(*literales):
         """SQL case-insensitive y tolerante a espacios."""
@@ -742,6 +747,13 @@ def cuenta_resultado(
             "POSTERGADA A GARANTIA", "POSTERGADO",
         )),
         ("DESESTIMADA", _eq_ci("DESESTIMADA", "DESESTIMADO")),
+        # Categoria propia (V2.008). Acepta las variantes de entrada que
+        # normaliza el catálogo: la canónica, la variante sin tilde, la
+        # variante con punto final y la forma abreviada.
+        ("BLOQUEADO PARA EJECUTAR", _eq_ci(
+            "BLOQUEADO PARA EJECUTAR", "BLOQUEADO PARA EJECUCION",
+            "BLOQUEADO PARA EJECUTAR.", "BLOQUEADO",
+        )),
         ("(en blanco)", Ticket.resultado_pruebas.is_(None) | (func.trim(Ticket.resultado_pruebas) == "")),
     ]
 
@@ -925,6 +937,13 @@ def cuenta_resultado_detalle(
         ])
     elif resultado_filtro.upper() == "DESESTIMADA":
         resultado_cond = resultado_norm.in_(["DESESTIMADA", "DESESTIMADO"])
+    elif resultado_filtro.upper() == "BLOQUEADO PARA EJECUTAR":
+        # Categoria propia (V2.008): se aceptan las mismas variantes que
+        # normaliza el catalogo (app/core/resultado_pruebas.py).
+        resultado_cond = resultado_norm.in_([
+            "BLOQUEADO PARA EJECUTAR", "BLOQUEADO PARA EJECUCION",
+            "BLOQUEADO PARA EJECUTAR.", "BLOQUEADO",
+        ])
     else:
         resultado_cond = func.upper(func.trim(Ticket.resultado_pruebas)) == resultado_filtro.upper()
 

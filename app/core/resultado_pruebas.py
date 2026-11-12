@@ -33,18 +33,19 @@ Resultado* deben usar los mismos colores". Con este módulo:
 
 Ambos caminos consumen, por construcción, la misma paleta.
 
-Acrónimos (mapeo 1:1 con las 6 categorías solicitadas)
--------------------------------------------------------
-===================  ===========  =========================
-Valor del LOV        Acrónimo     Categoría solicitada
-===================  ===========  =========================
-``OK``               ``OK``       OK
-``N/A``              ``N/A``      N/A
-``OK CON OBS.``      ``OBS``      OBS
-``POSTERGADA``       ``POST``     POST
-``DESESTIMADA``      ``DESEST``   DESEST
-``NOK``              ``NOK``      NOK
-===================  ===========  =========================
+Acrónimos (mapeo 1:1 con las 7 categorías solicitadas)
+---------------------------------------------------------
+=============================  ===========  =========================
+Valor del LOV                 Acrónimo     Categoría solicitada
+=============================  ===========  =========================
+``OK``                        ``OK``       OK
+``N/A``                       ``N/A``      N/A
+``OK CON OBS.``               ``OBS``      OBS
+``POSTERGADA``                ``POST``     POST
+``DESESTIMADA``               ``DESEST``   DESEST
+``NOK``                       ``NOK``      NOK
+``BLOQUEADO PARA EJECUTAR``   ``BLOQ``     BLOQ
+=============================  ===========  =========================
 
 ``(en blanco)`` es la pseudo-columna que agrupa tickets con
 ``resultado_pruebas`` NULL o vacío en la tabla pivote del dashboard; su
@@ -64,6 +65,38 @@ El cambio es **sólo de presentación**: no se toca el valor del LOV
 en el pivote, ni los parámetros del drill-down. Por construcción, el
 título de la columna y el badge de la tarjeta del Kanban muestran el
 mismo acrónimo.
+
+Por qué existe la categoría BLOQUEADO PARA EJECUTAR (V2.008)
+-------------------------------------------------------------
+El consolidado UAT traía el valor de origen ``BLOQUEADO PARA EJECUTAR``
+(hoja CONSOLIDADO UAT, columna L "Resultado"), que **no** era un valor del
+LOV: hasta V2.007 se colapsaba a ``DESESTIMADA`` antes de tocar la base
+(``tools/uat_mapping.py`` y ``app/services/uat_import.py``), por considerarlo
+"≈ mismo significado operativo".
+
+A partir de V2.008 es una **categoría de primer nivel** del LOV:
+
+* ``BLOQUEADO PARA EJECUTAR`` → acrónimo ``BLOQ``, color propio
+  (``#0891b2``, cian 600) que no reutiliza ninguno de los otros siete.
+* **No** cuenta como aprobación: el porcentaje de aprobados del pie del
+  dashboard (OK + OK CON OBS.) no cambia y **no** se toca la lógica de
+  ``fecha_cumplida`` / ``fecha_completado``.
+  Ojo con el alcance real de esa lógica: en el flujo vivo de la aplicación
+  esas fechas las dispara el **estado** del ticket (``TicketService.
+  cambiar_estado`` marca ``produccion ok`` → ``fecha_completado`` /
+  ``fecha_cumplida``), no el valor del LOV. El único punto donde
+  ``resultado_pruebas == 'OK'`` gobierna esas fechas es el importador UAT
+  (``app/services/uat_import.py``). Ninguno de los dos caminos se modifica
+  en V2.008: la categoría nueva no dispara ninguna fecha.
+* No se renombra ni se elimina ``DESESTIMADA``: siguen siendo categorías
+  distintas.
+* Entra al pivote "Cuenta de Resultado" como columna propia, con el mismo
+  orden en el pivote y en el front (la columna sólo se dibuja si tiene al
+  menos un ticket, como todas las demás).
+
+Los alias de entrada (``_ALIASES``) aceptan la forma canónica, la variante
+sin tilde (``BLOQUEADO PARA EJECUCION``), la variante con punto final y la
+forma abreviada ``BLOQUEADO``.
 """
 
 from __future__ import annotations
@@ -85,6 +118,7 @@ RESULTADOS_LOV: tuple = (
     "OK CON OBS.",
     "POSTERGADA",
     "DESESTIMADA",
+    "BLOQUEADO PARA EJECUTAR",
 )
 
 #: Pseudo-columna del dashboard que agrupa NULL / vacío / desconocidos.
@@ -107,6 +141,7 @@ RESULTADOS_LOV_FORMULARIO: tuple = (
     "POSTERGADA",
     "DESESTIMADA",
     "NOK",
+    "BLOQUEADO PARA EJECUTAR",
 )
 
 #: Invariante del catálogo: los dos órdenes deben describir exactamente el
@@ -131,6 +166,7 @@ ACRONIMOS: Dict[str, str] = {
     "POSTERGADA": "POST",
     "DESESTIMADA": "DESEST",
     "NOK": "NOK",
+    "BLOQUEADO PARA EJECUTAR": "BLOQ",
     SIN_RESULTADO: "S/D",
 }
 
@@ -153,6 +189,10 @@ COLORES: Dict[str, Dict[str, str]] = {
     "OK CON OBS.": {"bg": "#eab308", "text": "#1f2937", "cellText": "#1f2937"},
     "POSTERGADA":  {"bg": "#ea580c", "text": "#ffffff", "cellText": "#1f2937"},
     "DESESTIMADA": {"bg": "#7c3aed", "text": "#ffffff", "cellText": "#1f2937"},
+    # Cian 600. Color propio de la categoria: no reutiliza ninguno de los
+    # otros seis (V2.008).
+    "BLOQUEADO PARA EJECUTAR": {"bg": "#0891b2", "text": "#ffffff",
+                                 "cellText": "#1f2937"},
     SIN_RESULTADO: {"bg": "#cbd5e1", "text": "#475569", "cellText": "#1f2937"},
 }
 
@@ -190,6 +230,19 @@ _ALIASES: Dict[str, str] = {
     "postergado": "POSTERGADA",
     "desestimada": "DESESTIMADA",
     "desestimado": "DESESTIMADA",
+    # Categoria BLOQUEADO PARA EJECUTAR (V2.008). Se declaran de forma
+    # explicita (y no solo por el fallback "compacto" de
+    # ``normalizar_resultado``) para que el comportamiento sea legible y no
+    # dependa del orden de insercion de este diccionario.
+    "bloqueado para ejecutar": "BLOQUEADO PARA EJECUTAR",
+    "bloqueado para ejecucion": "BLOQUEADO PARA EJECUTAR",
+    "bloqueado para ejecutar.": "BLOQUEADO PARA EJECUTAR",
+    "bloqueado": "BLOQUEADO PARA EJECUTAR",
+    # El acronimo que se muestra en el badge tambien se acepta como entrada
+    # (venia haciendolo el importador UAT, que resolvia "BLOQ" por
+    # similitud). Se declara aqui para que el catalogo y los importadores
+    # UAT compartan una sola lista de alias.
+    "bloq": "BLOQUEADO PARA EJECUTAR",
     "(en blanco)": SIN_RESULTADO,
     "": SIN_RESULTADO,
 }

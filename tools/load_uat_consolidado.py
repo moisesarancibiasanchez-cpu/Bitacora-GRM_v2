@@ -141,8 +141,19 @@ def normalize_resultado(v: Any) -> Optional[str]:
     s_up = s.upper()
     if "POSTERGADA" in s_up or "POSTERG" in s_up:
         return "POSTERGADA"
-    if "BLOQUEADO" in s_up or "BLOQ" in s_up:
-        return "DESESTIMADA"
+    # "BLOQUEADO PARA EJECUTAR" es una categoria PROPIA del LOV desde
+    # V2.008: antes se colapsaba a DESESTIMADA. Se reconoce con una lista
+    # EXPLICITA de variantes (no con un "in" difuso) para que una
+    # abreviatura como "BLOQ" no capture valores ajenos. Sin este cambio, la
+    # siguiente carga UAT volveria a colapsar el valor.
+    if s_up in (
+        "BLOQUEADO PARA EJECUTAR",
+        "BLOQUEADO PARA EJECUCION",
+        "BLOQUEADO PARA EJECUTAR.",
+        "BLOQUEADO",
+        "BLOQ",
+    ):
+        return "BLOQUEADO PARA EJECUTAR"
     mapping = {
         "OK": "OK",
         "NOK": "NOK",
@@ -151,6 +162,7 @@ def normalize_resultado(v: Any) -> Optional[str]:
         "OK CON OBS": "OK CON OBS.",
         "OK CON OBSERVACIONES": "OK CON OBS.",
         "DESESTIMADA": "DESESTIMADA",
+        "BLOQUEADO PARA EJECUTAR": "BLOQUEADO PARA EJECUTAR",
     }
     return mapping.get(s_up) or mapping.get(s) or s
 

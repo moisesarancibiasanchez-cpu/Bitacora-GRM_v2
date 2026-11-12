@@ -196,7 +196,8 @@ class Ticket(Base, TimestampMixin):
     # Nota u observación libre del agente o solicitante
     nota_observacion = Column(Text, nullable=True)
     # Resultado de pruebas
-    # (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)
+    # (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK,
+    #       BLOQUEADO PARA EJECUTAR)
     resultado_pruebas = Column(String(40), nullable=True, index=True)
 
     # === QA Tester asignado ===

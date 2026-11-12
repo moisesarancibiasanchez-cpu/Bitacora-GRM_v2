@@ -142,8 +142,19 @@ def normalize_resultado(v: Any) -> Optional[str]:
     s_up = s.upper()
     if "POSTERGADA" in s_up or "POSTERG" in s_up:
         return "POSTERGADA"
-    if "BLOQUEADO" in s_up or "BLOQ" in s_up:
-        return "DESESTIMADA"
+    # "BLOQUEADO PARA EJECUTAR" es una categoria PROPIA del LOV desde
+    # V2.008: antes se colapsaba a DESESTIMADA por considerarlo "≈ mismo
+    # significado operativo". El reconocimiento se hace con una lista
+    # EXPLICITA de variantes y no con un "in" difuso, para que una
+    # abreviatura como "BLOQ" no capture valores ajenos.
+    if s_up in (
+        "BLOQUEADO PARA EJECUTAR",
+        "BLOQUEADO PARA EJECUCION",
+        "BLOQUEADO PARA EJECUTAR.",
+        "BLOQUEADO",
+        "BLOQ",
+    ):
+        return "BLOQUEADO PARA EJECUTAR"
     mapping = {
         "OK": "OK",
         "NOK": "NOK",
@@ -152,6 +163,7 @@ def normalize_resultado(v: Any) -> Optional[str]:
         "OK CON OBS": "OK CON OBS.",
         "OK CON OBSERVACIONES": "OK CON OBS.",
         "DESESTIMADA": "DESESTIMADA",
+        "BLOQUEADO PARA EJECUTAR": "BLOQUEADO PARA EJECUTAR",
     }
     return mapping.get(s_up) or mapping.get(s) or s
 
@@ -272,13 +284,27 @@ def lookup_tablero_default(db: Session) -> Optional[int]:
 #   OK CON OBS.  → APROBADO QA
 #   POSTERGADA   → BackLog
 #   NOK          → Analisis/Bloqueado
+#   BLOQUEADO PARA EJECUTAR → Bloqueado!   (V2.008)
 #   (en blanco)  → BackLog   (default = estado inicial)
+#
+# NOTA (V2.008) sobre "BLOQUEADO PARA EJECUTAR": la especificación original
+# pedía mapearlo a "Analisis/Bloqueado", pero ese estado **no existe** en el
+# despliegue (verificado por GET /api/v1/estados en producción: los estados
+# reales son BackLog, Analisis, Bloqueado!, En desarrollo, Entregado, UAT-QA,
+# APROBADO QA, Despliegue PROD, produccion ok y DESESTIMADA). Insertar un
+# estado nuevo habría creado una columna casi duplicada del Kanban al lado
+# de "Bloqueado!", que ya significa exactamente lo mismo. Se mapea al estado
+# EXISTENTE "Bloqueado!" para no alterar el esquema ni el tablero en
+# producción. La discrepancia preexistente de "NOK" → "Analisis/Bloqueado"
+# (que cae silenciosamente al estado inicial) NO se modifica en este lote:
+# queda documentada como pendiente de decisión de negocio.
 RESULTADO_A_ESTADO_NOMBRE = {
     "N/A":         "Cancelado",
     "OK":          "produccion ok",
     "OK CON OBS.": "APROBADO QA",
     "POSTERGADA":  "BackLog",
     "NOK":         "Analisis/Bloqueado",
+    "BLOQUEADO PARA EJECUTAR": "Bloqueado!",
 }
 
 

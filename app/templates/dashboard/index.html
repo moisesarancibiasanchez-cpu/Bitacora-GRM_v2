@@ -247,6 +247,7 @@
         <p id="cuenta-resultado-footer"
            class="hidden mt-2 text-[10px] text-slate-400 italic">
           POSTERGADA = normalización del valor original "POSTERGADA A GARANTÍA" (migración UAT).
+          BLOQUEADO PARA EJECUTAR = categoría propia del LOV (V2.008, acrónimo BLOQ); ya no se colapsa a DESESTIMADA.
         </p>
         {# ------------------------------------------------------------
            Paleta y acrónimos de "Resultado de Pruebas" inyectados desde
@@ -1355,7 +1356,8 @@
   })();
 
   // Acrónimos del LOV: "OK"→OK, "N/A"→N/A, "OK CON OBS."→OBS,
-  // "POSTERGADA"→POST, "DESESTIMADA"→DESEST, "NOK"→NOK, "(en blanco)"→S/D.
+  // "POSTERGADA"→POST, "DESESTIMADA"→DESEST, "NOK"→NOK,
+  // "BLOQUEADO PARA EJECUTAR"→BLOQ, "(en blanco)"→S/D.
   const CUENTA_RESULTADO_ACRONIMOS = (function () {
     const el = document.getElementById('cuenta-resultado-acronimos');
     if (!el) return {};

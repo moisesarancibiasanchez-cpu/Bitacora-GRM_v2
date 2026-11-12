@@ -267,6 +267,13 @@ class TicketService:
             #      Solo se aplica cuando REALMENTE hubo cambio de estado
             #      para no pisar valores editados manualmente cuando el
             #      usuario reordena dentro de la misma columna.
+            #
+            #      V2.008: esta regla pisa TAMBIÉN la categoría "BLOQUEADO
+            #      PARA EJECUTAR" (y a cualquier otro valor distinto de
+            #      DESESTIMADA). Es intencionado: si la prueba estaba
+            #      bloqueada y el ticket se cancela o se desestima, el
+            #      resultado pasa a DESESTIMADA, porque la prueba no se
+            #      ejecutó. No se exceptúa la categoría nueva.
             nombre_destino_norm = _norm(estado_destino.nombre)
             if nombre_destino_norm in ("cancelado", "desestimada", "desestimado"):
                 if ticket.resultado_pruebas != "DESESTIMADA":

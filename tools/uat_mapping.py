@@ -129,7 +129,9 @@ derivado funcione.
 Reglas de normalización de `resultado_pruebas`:
    "POSTERGADA A GARANTÍA"   → "POSTERGADA"
    "OK CON OBS."            → "OK CON OBS."   (sin cambios)
-   "BLOQUEADO PARA EJECUTAR"→ "DESESTIMADA"   (≈ mismo significado operativo)
+   "BLOQUEADO PARA EJECUTAR"→ "BLOQUEADO PARA EJECUTAR"  (V2.008: ya no
+                              se colapsa a "DESESTIMADA"; es una categoría
+                              propia del LOV con acrónimo "BLOQ")
    "OK" / "NOK" / "N/A"     → sin cambios
    "" o None                → None
 
@@ -142,6 +144,15 @@ está presente.
 # ============================================================================
 # 5. CARDINALIDADES Y TOTALES ESPERADOS
 # ============================================================================
+# V2.008 — "BLOQUEADO PARA EJECUTAR" es ahora categoría propia del LOV, pero
+# el consolidado de referencia NO trae filas con ese valor: la suma de
+# "por_columna" (130 + 10 + 635 + 18 + 84 + 0 = 877) ya es igual a
+# "total_general" (877), y no hay columna DESESTIMADA ni BLOQUEADO en los
+# totales por módulo. Es decir, en el archivo de origen esos valores ya
+# venirían colapsados o no existirían, y el conteo real por módulo/columna
+# solo podría obtenerse reprocesando el Excel origen. Si una carga futura
+# trae filas con ese valor, la clave correspondiente debe añadirse aquí con
+# el conteo real (no con ceros), junto con la tupla del módulo afectado.
 TOTALES_ESPERADOS = {
     "total_general":     877,
     "por_columna": {

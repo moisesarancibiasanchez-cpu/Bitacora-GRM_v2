@@ -191,7 +191,10 @@ class TicketBase(BaseModel):
     )
     resultado_pruebas: Optional[str] = Field(
         default=None, max_length=40,
-        description="Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA, DESESTIMADA, NOK)",
+        description=(
+            "Resultado de pruebas (LOV: OK, N/A, OK CON OBS., POSTERGADA, "
+            "DESESTIMADA, NOK, BLOQUEADO PARA EJECUTAR)"
+        ),
     )
     # QA Tester asignado al ticket. Se almacena como texto canónico
     # ``"Nombre <email>"`` para garantizar trazabilidad.
