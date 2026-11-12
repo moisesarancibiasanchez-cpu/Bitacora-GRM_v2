@@ -26,6 +26,19 @@ psycopg2-binary==2.9.10       # PostgreSQL (producción)
 # === Async / Background tasks ===
 celery==5.4.0
 redis==5.2.0
+# `kombu` es una dependencia TRANSITIVA de `celery` y hasta V2.008 no estaba
+# fijada, de modo que pipPodia resolver cualquier 5.x en cada reconstruccion
+# de la imagen. El 2026-11-03 se publico `kombu 5.7.0`, que exige
+# `redis>=6.4.0` (su extra "redis" lo declara, pero `celery` no pide ese extra,
+# asi que el resolutor NO detecta el conflicto con el `redis==5.2.0` fijado).
+# El worker crashea entonces al arrancar con:
+#     kombu.exceptions.VersionMismatch: Redis transport requires redis-py
+#     versions 6.1.0 or later. You have 5.2.0
+# Se fija `kombu==5.6.2`, que es la version que resolvia el despliegue del
+# 2026-11-02 (con la que el worker arrancaba bien) y cuyo pin de redis es
+# `redis!=4.5.5,!=5.0.2,<6.5,>=4.5.2`: compatible con `redis==5.2.0` y con
+# `celery==5.4.0` (que exige `kombu>=5.3.4,<6.0`).
+kombu==5.6.2
 
 # === Seguridad ===
 bcrypt==4.0.1                 # `app/core/security.py` hashea con `bcrypt` directamente
