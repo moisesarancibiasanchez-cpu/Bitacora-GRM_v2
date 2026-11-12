@@ -4,7 +4,7 @@ RESULTADO DE PRUEBAS (FIN DEL COLAPSO A "DESESTIMADA")
 Proyecto: Bitacora GRM v2
 Fecha: 2026-11-12
 Rama base: main y release/v2.001 (commit 68478c5)
-Estado: CODIGO LISTO Y VERIFICADO EN LOCAL. PENDIENTE DE DESPLEGUE.
+Estado: DESPLEGADO Y VERIFICADO EN PRODUCCION (2026-11-12). Commits 63d3d99 y cc3ebed.
 ================================================================================
 
 0. PARCHE EXACTO
@@ -1512,3 +1512,254 @@ index 1bcd9d7..e356d03 100644
  TOTALES_ESPERADOS = {
      "total_general":     877,
      "por_columna": {
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (2026-11-12)
+================================================================================
+
+  9.1 PUBLICACION
+
+    Commit del lote:  63d3d99708d1e758b5535ab2d4a5af880fdbebdf
+    Commit del fix:   cc3ebed065e27ec4dd84f24244fc053f63d6a642
+    Rama de trabajo:  release/v2.001 (rama canonica)
+    'main' alineada:  merge --ff-only (68478c5..63d3d99 y 63d3d99..cc3ebed),
+                      sin reescribir historia y sin '--force'.
+    Push (PUSH_EXIT=0):
+        68478c5..63d3d99  main            -> main
+        68478c5..63d3d99  release/v2.001  -> release/v2.001
+        63d3d99..cc3ebed  main            -> main
+        63d3d99..cc3ebed  release/v2.001  -> release/v2.001
+
+    El 'working tree' quedo LIMPIO tras los commits. El apendice A de este
+    documento recoge el diff del commit 63d3d99 (10 ficheros del lote). El
+    commit cc3ebed es el pin de dependencias y se describe en 9.2.
+
+    Este propio commit de DOCUMENTACION no cambia el codigo: solo anade
+    estas lineas al README. Por eso el commit con el CODIGO desplegado del
+    lote sigue siendo cc3ebed en los tres servicios. Al publicarlo, 'web'
+    se vuelve a desplegar solo por autoDeploy (mismo codigo, otro SHA) y
+    'worker' y 'beat' siguen en cc3ebed porque no tienen autoDeploy (ver
+    seccion 4). Ningun servicio queda desalineado en CODIGO.
+
+  9.2 INCIDENTE EN EL DESPLIEGUE: EL WORKER NO ARRANCABA
+
+    Al desplegar el worker con el commit del lote (63d3d99) el despliegue
+    quedo en estado CRASHED (deployment 962e9f41-1549-4d13-a3b2-38f18a04a9cf,
+    createdAt 2026-11-12T18:11:53.746Z). Logs:
+
+        [2026-11-12 18:13:05,378: CRITICAL/MainProcess] Unrecoverable error:
+            VersionMismatch('Redis transport requires redis-py versions 6.1.0
+            or later. You have 5.2.0')
+        kombu.exceptions.VersionMismatch: Redis transport requires redis-py
+            versions 6.1.0 or later. You have 5.2.0
+
+    CAUSA RAIZ (NO es un defecto del lote V2.008):
+
+    V2.008 no toca 'requirements.txt', ni el arranque del worker, ni Celery.
+    El fallo es una DEPENDENCIA TRANSITIVA SIN FIJAR:
+
+      * 'celery==5.4.0' esta fijado, pero 'kombu' NO estaba en
+        'requirements.txt': es una transitiva de celery y pip resolvia
+        cualquier 5.x en cada reconstruccion de la imagen.
+      * El 2026-11-02 (build del despliegue V2.007) pip resolvio
+        'kombu 5.6.2', cuyo pin de redis es
+        'redis!=4.5.5,!=5.0.2,<6.5,>=4.5.2': compatible con el
+        'redis==5.2.0' fijado. El worker arranco bien.
+      * El 2026-11-03 se publico 'kombu 5.7.0', que exige 'redis>=6.4.0'.
+        Su pin de redis va en el EXTRA 'redis', que 'celery' no pide, asi
+        que el resolutor de pip NO detecta el conflicto con el
+        'redis==5.2.0' fijado e instala kombu 5.7.0 sin avisar.
+      * Al reconstruir la imagen hoy, el worker arranca con
+        'kombu 5.7.0' + 'redis 5.2.0' y kombu aborta en tiempo de ejecucion
+        con el VersionMismatch de arriba.
+
+    CONFIRMACION EXPERIMENTAL (resolucion real de pip en seco, sin instalar):
+
+        sin el pin:  celery 5.4.0 | redis 5.2.0 | kombu 5.7.0  -> INCOMPATIBLE
+        con el pin:  celery 5.4.0 | redis 5.2.0 | kombu 5.6.2  -> compatible
+
+    El despliegue del 2026-11-02 figuraba en SUCCESS, de modo que el worker
+    estaba vivo antes. Este incidente NO lo introdujo el lote V2.008 (que no
+    toca requirements.txt ni Celery): lo ha expuesto el redespliegue, que es
+    cuando se reconstruye la imagen y se resuelve 'kombu' por ultima vez.
+
+    CORRECCION (commit cc3ebed, unica linea en 'requirements.txt'):
+
+        kombu==5.6.2
+
+    Se fija la transitiva que ya estaba instalada: no se ANADE ninguna
+    dependencia nueva al conjunto, solo se deja de flotar. 'kombu 5.6.2' es
+    la version que resolvia el despliegue del 2026-11-02 (la que arrancaba),
+    su pin de redis acepta el 'redis==5.2.0' fijado y cumple el requisito de
+    'celery==5.4.0' ('kombu>=5.3.4,<6.0').
+
+    ALCANCE DEL CAMBIO: 1 linea en 'requirements.txt' (mas su comentario
+    explicativo). No toca el codigo de la aplicacion, ni la base de datos,
+    ni los estados, ni los KPIs. Reversible con un solo commit. No se anade
+    ninguna dependencia y no se sube ninguna version.
+
+  9.3 DESPLIEGUE FINAL EN RAILWAY
+
+    Servicio 'web'    (id 775efae4-375f-4731-8027-680e78bd6a68)
+        deployment id = cdda419f-5c97-46ee-827e-900d00fb32bd
+        status       = SUCCESS
+        createdAt    = 2026-11-12T18:26:10.681Z
+        commitHash   = cc3ebed065e27ec4dd84f24244fc053f63d6a642
+        branch       = main   (autoDeploy: se redespliego solo al hacer
+                               el push a 'main')
+
+    Servicio 'worker' (id 51e22b0c-1f46-411f-b24a-a976107690f0)
+        deployment id = 645bc9d7-5137-4123-90c1-1729b3a68df9
+        status       = SUCCESS
+        createdAt    = 2026-11-12T18:26:51.365Z
+        commitHash   = cc3ebed065e27ec4dd84f24244fc053f63d6a642
+
+    Servicio 'beat'   (id 1c16b13c-4533-40c9-b63e-43b00cb14041)
+        deployment id = 4285e5a4-8ff3-4328-9e67-1aeb297dc9cb
+        status       = SUCCESS
+        createdAt    = 2026-11-12T18:26:55.360Z
+        commitHash   = cc3ebed065e27ec4dd84f24244fc053f63d6a642
+
+    Los TRES servicios quedaron en el MISMO commit (cc3ebed). 'web' se
+    redespliego solo por autoDeploy al publicar en 'main'; 'worker' y 'beat'
+    se desplegaron a mano con ese mismo commit, para no dejar los servicios
+    desalineados (los dos no tienen autoDeploy: ver seccion 4).
+
+    ARRANQUE REAL DEL WORKER (logs del despliegue 645bc9d7):
+        [2026-11-12 18:27:44,622: INFO/MainProcess] Connected to
+            redis://default:**@redis.railway.internal:6379/1
+        [2026-11-12 18:27:45,656: INFO/MainProcess] celery@789373c4ebf3 ready.
+    El worker NO solo se desplego: conecto con Redis y quedo 'ready'.
+
+  9.4 PRUEBAS
+
+    Suite nueva V2.008:                   35 passed
+    Suite V2.008 + V2.005 + V2.004:       61 passed (70,43 s)
+    Suite completa:                       262 passed (227 + 35), 0 failed
+                                          799,47 s (13:19)
+
+  9.5 VERIFICACION EN PRODUCCION (solo GET y POST de login)
+
+    Comprobaciones automatizadas (solo GET y POST de login): 44, 0 fallos.
+
+    1) SALUD Y LOGIN
+         GET  /health .................... 200  {"status":"ok",...}
+         GET  /ready ..................... 200  {"status":"ready",...}
+         POST /api/v1/auth/login ......... 200
+
+    2) EL PIVOTE EXPONE LA CATEGORIA NUEVA
+         GET /api/v1/metricas/cuenta-resultado?ambiente=QA -> 200
+         columnas:
+             ['N/A', 'NOK', 'OK', 'OK CON OBS.', 'POSTERGADA', 'DESESTIMADA',
+              'BLOQUEADO PARA EJECUTAR', '(en blanco)']
+         totales_por_columna:
+             {'N/A': 128, 'NOK': 4, 'OK': 714, 'OK CON OBS.': 3,
+              'POSTERGADA': 41, 'DESESTIMADA': 22,
+              'BLOQUEADO PARA EJECUTAR': 0, '(en blanco)': 0}
+         total_general: 912
+         - la columna 'BLOQUEADO PARA EJECUTAR' existe ................ OK
+         - 'totales_por_columna' trae la clave nueva .................. OK
+         - hay una clave por columna (8) .............................. OK
+         - la suma de los totales cuadra con total_general (912) ........ OK
+         - el total de cada fila cuadra con sus valores ................. OK
+
+    3) EL DASHBOARD USA EL CATALOGO (PALETA Y ACRONIMO)
+         GET /dashboard -> 200
+         el LOV inyectado coincide con el del pivote ................... OK
+         paleta['BLOQUEADO PARA EJECUTAR']:
+             {'bg': '#0891b2', 'cellText': '#1f2937', 'text': '#ffffff'} OK
+         el acronimo inyectado es 'BLOQ' ............................... OK
+         sin regresion: DESESTIMADA -> 'DESEST' ....................... OK
+         sin regresion: NOK conserva su propio acronimo 'NOK' ......... OK
+         el pie de aprobados sigue siendo
+             (totales['OK'] || 0) + (totales['OK CON OBS.'] || 0) ...... OK
+             (la categoria nueva NO entra en el numerador de aprobados)
+         listas del LOV en el HTML: 1 (solo la inyectada por el
+             servidor; ninguna redeclarada a mano en la plantilla) ..... OK
+
+    4) EL DRILL-DOWN DE LA CATEGORIA NUEVA NO FALLA
+         GET /api/v1/metricas/cuenta-resultado/detalle
+             ?modulo=Auditoria&resultado=BLOQUEADO PARA EJECUTAR
+             -> 200 (3.626 B) ......................................... OK
+
+    5) ESTADOS: SIN CAMBIOS EN EL ESQUEMA
+         GET /api/v1/estados -> 200, siguen siendo 10:
+             ['BackLog', 'Analisis', 'Bloqueado!', 'En desarrollo',
+              'Entregado', 'UAT-QA', 'APROBADO QA', 'Despliegue PROD',
+              'produccion ok', 'DESESTIMADA'] ......................... OK
+         el estado existente 'Bloqueado!' sigue disponible ............. OK
+         NO se creo el estado 'Analisis/Bloqueado' (desviacion 1) ...... OK
+
+    6) SIN REGRESIONES DE V2.007 (RECURSOS AUTOALOJADOS)
+         GET /static/css/tailwind.css ........... 200   56.063 B
+         GET /static/js/sortable.min.js ........... 200   44.581 B
+         GET /static/css/fonts.css .............. 200    1.123 B
+         GET /static/fonts/inter-latin.woff2 ..... 200   48.256 B
+         GET /static/css/styles.css .............. 200    2.324 B
+         GET /static/js/htmx.min.js .............. 200   48.101 B
+         /auth/login, /dashboard, /kanban y /tickets: 0 peticiones a un
+             CDN externo .............................................. OK
+
+    7) KPIs SIN REGRESION
+         GET /api/v1/metricas/dashboard-completo -> 200
+         bloque incidencias:
+             {'total': 18, 'activas': 18, 'nuevas_7d': 0, 'backlog_7d': 6}
+         el KPI 'Incidencias Abiertas' (incidencias.backlog_7d) es 6 ... OK
+         NOTA: en la verificacion del lote V2.007 (2026-10-30) ese bloque
+         era total 17 / activas 17 / backlog_7d 5. El +1 es el movimiento
+         normal de tickets de estos 13 dias, NO una regresion: el KPI no
+         filtra por el valor del LOV (una prueba bloqueada sigue contando
+         como incidencia abierta) y este lote no toca esa logica.
+
+    8) RESTO DE ENDPOINTS (todos 200)
+         GET /kanban .............................. 200  4.280.290 B
+         GET /tickets ............................. 200    641.249 B
+         GET /api/v1/tickets ...................... 200  2.058.026 B
+         GET /api/v1/metricas/resumen ............. 200      1.401 B
+
+  9.6 RESUMEN OPERATIVO
+
+    - La categoria 'BLOQUEADO PARA EJECUTAR' esta DESPLEGADA y es una
+      columna real del pivote 'Cuenta de Resultado', con su color propio
+      (#0891b2) y su acronimo (BLOQ) servidos por el MISMO catalogo que
+      alimenta el badge de las tarjetas del Kanban.
+    - En produccion la columna sale todavia a 0 porque ningun ticket tiene
+      ese valor: hasta V2.007 el importador UAT lo colapsaba a
+      'DESESTIMADA' antes de tocar la base. Los tickets ya cargados son
+      indistinguibles de un DESESTIMADA y NO se han retroalimentado: no se
+      ha escrito nada en la base de datos de produccion.
+    - El numero de aprobados NO cambia: el pie sigue sumando OK + OK CON
+      OBS. y la categoria nueva no entra en el numerador.
+    - Se ha corregido ademas un incidente colateral (el worker con kombu
+      5.7.0) que queda VERIFICADO: el worker vuelve a estar 'ready' y
+      conectado a Redis. Ese incidente era de dependencias sin fijar, NO del
+      lote, y se evita en el futuro fijando la transitiva.
+    - Sin migraciones de base de datos, sin backfill, sin estados nuevos,
+      sin dependencias nuevas y sin escrituras en produccion.
+    - PENDIENTE DE QA VISUAL DEL PROPIETARIO (procedimiento 5.3 de este
+      documento): crear un ticket propio con resultado 'BLOQUEADO PARA
+      EJECUTAR' y comprobar el badge BLOQ cian en /kanban, la columna BLOQ
+      del dashboard con el mismo 'getComputedStyle().backgroundColor', que
+      el pie de aprobados no cambia de numerador, que el selector ofrece la
+      opcion marcada y que el KPI 'Incidencias Abiertas' no baja. No se ha
+      hecho ninguna escritura en produccion: el lote es de catalogo.
+
+  9.7 PENDIENTES
+
+    - Cerrar la desviacion 1 con negocio: hoy la categoria nueva usa el
+      estado existente 'Bloqueado!'. Si negocio prefiere el estado
+      'Analisis/Bloqueado' (que NO existe en produccion), hay que darlo de
+      alta en la tabla de estados; es un cambio de una linea y una
+      migracion idempotente.
+    - Decidir el NOK roto: 'RESULTADO_A_ESTADO_NOMBRE["NOK"] =
+      "Analisis/Bloqueado"' no resuelve en el despliegue y cae de forma
+      silenciosa al estado inicial (BackLog). Queda DOCUMENTADO, no
+      corregido: no lo ha corregido ningun lote.
+    - Fijar tambien 'amqp' y 'vine' en 'requirements.txt' si se quiere
+      cerrar del todo la clase de problemas de transitivas sin fijar (las
+      tres estan hoy en amqp 5.4.2 y vine 5.1.0, compatibles).
+    - Pendientes de seguridad que ningun lote cierra: rotar la clave del
+      administrador y el token de proyecto de Railway, auditar el cambio de
+      contrasena del 2026-10-26, cerrar el registro publico de usuarios,
+      poner un volumen real en /data con un SECRET_KEY persistente, rotar la
+      contrasena de PostgreSQL y borrar los ~50 ficheros 'tmp_*' del
+      arbol de trabajo.
