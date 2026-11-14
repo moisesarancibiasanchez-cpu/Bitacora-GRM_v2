@@ -78,6 +78,10 @@ class Estado(Base, TimestampMixin):
             "transiciona a este estado, se registra para el reporte diario."
         ),
     )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     transiciones_salida = relationship(
@@ -123,6 +127,10 @@ class TransicionEstado(Base):
     # Comentario obligatorio (ej. "Cerrado: requiere motivo")
     requiere_comentario = Column(Boolean, default=False, nullable=False)
     descripcion = Column(String(200), nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     estado_origen = relationship(

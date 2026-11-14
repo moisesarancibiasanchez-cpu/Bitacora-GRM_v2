@@ -159,6 +159,76 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
 }
 
 
+# ============================================================================ #
+# V2.009 — AISLAMIENTO POR PROYECTO (ventana aditiva)
+# ============================================================================ #
+# La columna ``proyecto_id`` se anade a las tablas de negocio para poder
+# aislar los datos por proyecto (multi-tenancy) sin depender de la jerarquia
+# Espacio -> Tablero -> Ticket, que no se aplicaba en las consultas de
+# tickets.
+#
+# Es ADITIVO en el sentido estricto del lote:
+#   * la columna es NULLABLE (el paso a NOT NULL es de la ventana V3, el corte);
+#   * no se borra ni se renombra ninguna columna, indice o restriccion;
+#   * el backfill solo RELLENA la columna nueva con el proyecto "Legacy" (id 1),
+#     de modo que los datos existentes son los mismos de siempre;
+#   * el filtro ORM y las politicas RLS quedan INERTES hasta que se active
+#     ``AISLAMIENTO_PROYECTO_ACTIVO`` (ventana V3).
+#
+# Las tablas de asociacion (espacio_miembros, ticket_etiquetas,
+# ticket_miembros) NO llevan ``proyecto_id``: son tablas puente y su
+# aislamiento se deriva del de las tablas a las que apuntan (espacios, tickets,
+# etiquetas), que si llevan la columna.
+_TIPO_PROYECTO_ID = (
+    "INTEGER REFERENCES proyectos(id) ON DELETE SET NULL",
+    "INTEGER REFERENCES proyectos(id) ON DELETE SET NULL",
+)
+
+#: Tablas de negocio que pertenecen a un proyecto (las 34 clases con la
+#: columna nueva). ``usuarios`` NO aparece: los usuarios son globales.
+TABLAS_CON_PROYECTO: List[str] = [
+    "adjuntos",
+    "auditorias",
+    "botones_tarjeta",
+    "campos_personalizados",
+    "catalogo_items",
+    "catalogo_tipos",
+    "checklist_items",
+    "checklists",
+    "comandos_programados",
+    "comentarios",
+    "ejecuciones_automatizacion",
+    "ejecuciones_boton",
+    "ejecuciones_comando",
+    "espacios",
+    "estados",
+    "etapas_proyecto",
+    "etiquetas",
+    "historial_estados",
+    "menciones_usuario",
+    "notificaciones",
+    "permisos_tablero",
+    "reacciones",
+    "reglas_automatizacion",
+    "reporte_destinatarios",
+    "reporte_entregas_diarias",
+    "reporte_plantilla",
+    "tableros",
+    "ticket_dependencias",
+    "ticket_etapas",
+    "ticket_referencias",
+    "tickets",
+    "transiciones_estado",
+    "valores_campo",
+    "watches",
+]
+
+# Anade ``proyecto_id`` a cada tabla del proyecto, conservando el resto de
+# columnas declaradas para esas mismas tablas.
+for _tabla_proyecto in TABLAS_CON_PROYECTO:
+    COLUMNS_TO_ADD.setdefault(_tabla_proyecto, {})["proyecto_id"] = _TIPO_PROYECTO_ID
+
+
 # Índices que deben existir (idempotentes: IF NOT EXISTS funciona en ambos)
 INDEXES: List[Tuple[str, str]] = [
     ("ix_estados_tablero_id",  "CREATE INDEX IF NOT EXISTS ix_estados_tablero_id ON estados(tablero_id)"),
@@ -189,12 +259,43 @@ INDEXES: List[Tuple[str, str]] = [
     ("ix_adjuntos_comentario", "CREATE INDEX IF NOT EXISTS ix_adjuntos_comentario_id ON adjuntos(comentario_id)"),
 ]
 
+# V2.009 — Índice de ``proyecto_id`` en cada tabla del proyecto. El índice NO
+# lo crea el ``ALTER TABLE ADD COLUMN`` (en PostgreSQL los índices se crean
+# aparte), asi que se declaran aqui. Sin el, el filtro por proyecto y el
+# conteo por proyecto tendrian que recorrer la tabla entera.
+INDEXES.extend(
+    (
+        "ix_%s_proyecto_id" % tabla,
+        "CREATE INDEX IF NOT EXISTS ix_%s_proyecto_id ON %s(proyecto_id)" % (tabla, tabla),
+    )
+    for tabla in TABLAS_CON_PROYECTO
+)
+
 # Tablas que deben existir (si el modelo está presente, ``create_all``
 # las crea automáticamente al ejecutar ``apply_migrations``). Este set
 # sirve para verificar manualmente o para tooling externo.
 TABLES_REQUIRED: List[str] = [
     "ticket_dependencias",
     "ticket_referencias",
+]
+
+# === V2.009 — Nulabilidad que el modelo declara y la BD puede no tener ======
+# Estas columnas son NULLABLE en el modelo, pero una version anterior de la
+# base de datos pudo crearlas como NOT NULL. El caso real es
+# ``auditorias.usuario_id``: el servicio ``app.services.deadline_notifier``
+# inserta auditorias de eventos del sistema con ``usuario_id = NULL`` y, si
+# la columna sigue siendo NOT NULL, el INSERT falla con IntegrityError.
+#
+# Hasta V2.008 la relajacion de esa nulabilidad DEPENDIA de ejecutar a mano
+# ``python -m scripts.migrar_auditoria_usuario_id_nullable``: si nadie lo
+# ejecutaba en el despliegue, los triggers de SLA dejaban de registrar
+# auditoria. Ahora la operacion es una migracion idempotente que se aplica en
+# cada arranque.
+#
+# Relajar la nulabilidad es ADITIVO: no cambia ningun dato, solo permite que
+# el valor sea NULL.
+COLUMNAS_A_NULLABLE: List[Tuple[str, str]] = [
+    ("auditorias", "usuario_id"),
 ]
 
 
@@ -257,7 +358,7 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
     # incluye también las migraciones de datos, que no impiden servir.
     stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0,
              "schema_errors": 0, "tables_created": 0, "data_migrated": 0,
-             "index_errors": 0}
+             "index_errors": 0, "rls": {}}
 
     # 1) Asegurar que todas las tablas existen (no-op si ya están).
     #    Necesario porque algunas columnas tienen FKs a tablas nuevas (tableros,
@@ -316,6 +417,24 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
                 logger.warning(
                     "[migrations] Índice %s NO se pudo crear: %s", name, e,
                 )
+
+    # 3-bis) Row Level Security (V2.009). Inerte por defecto: solo se aplica
+    #        si el flag ``RLS_HABILITADO`` esta a True, cosa que ocurre en la
+    #        ventana V3 (el corte). Con el rol owner de siempre y sin FORCE,
+    #        las politicas existirian pero no restringen nada.
+    try:
+        from app.core.config import settings as _settings
+
+        if _settings.RLS_HABILITADO:
+            from app.db.rls import aplicar_politicas_rls
+
+            stats["rls"] = aplicar_politicas_rls(eng, TABLAS_CON_PROYECTO)
+            logger.info("[migrations] RLS aplicado: %s", stats["rls"])
+        else:
+            stats["rls"] = {"politicas": 0, "habilitadas": 0, "forzadas": 0, "errores": 0}
+    except Exception as e:
+        stats["errors"] += 1
+        logger.warning("[migrations] RLS no se pudo aplicar: %s", e)
 
     # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
     #    y de valores permitidos. Se ejecutan en una TRANSACCIÓN SEPARADA
@@ -939,7 +1058,219 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
             "[migrations] data: marcar estados es_entrega falló (aislado): %s", e,
         )
 
+    # 4.x) V2.009 — Proyecto "Legacy" y backfill de ``proyecto_id``.
+    #
+    # Aditivo e idempotente:
+    #   1) crea la fila del proyecto "Legacy" (id 1) si no existe;
+    #   2) rellena ``proyecto_id = 1`` en todas las filas que lo tengan a NULL
+    #      (o sea, todas las anteriores a este lote);
+    #   3) da de alta al administrador como miembro del proyecto Legacy.
+    #
+    # Tras el backfill, todas las filas existentes pertenecen al proyecto
+    # "Legacy", que es exactamente el conjunto de datos que habia antes: no
+    # se pierde ni se modifica ningun dato de negocio, solo se anade la
+    # pertenencia a un proyecto. El paso a NOT NULL (y la creacion del rol
+    # sin privilegios de owner) son de la ventana V3 (el corte).
+    total += _aplicar_proyecto_legacy(conn, is_pg)
+
     return total
+
+
+#: Id del proyecto "Legacy" (el que contiene los datos preexistentes).
+PROYECTO_LEGACY_ID = 1
+
+#: Nombre del proyecto "Legacy".
+NOMBRE_PROYECTO_LEGACY = "Legacy"
+
+
+def _etiquetas_rol_usuario(conn, is_pg: bool) -> List[str]:
+    """
+    Devuelve las etiquetas REALES con las que la base de datos persiste el
+    rol de los usuarios.
+
+    Por que hace falta (V2.009)
+    -------------------------
+    ``usuarios.rol`` es un ENUM de PostgreSQL y SQLAlchemy persiste el
+    **NOMBRE** del miembro del enum de Python (``RolUsuario.ADMINISTRADOR``),
+    no su VALOR (``"administrador"``). Comparar la columna contra el literal
+    ``'administrador'`` hace que PostgreSQL intente convertir ese texto a
+    etiqueta del enum y falle con::
+
+        invalid input value for enum rolusuario: "administrador"
+
+    Ese error tumbaba el paso 3 de la migracion del proyecto Legacy. En vez de
+    adivinar la etiqueta, se leen las que la base de datos usa de verdad: los
+    valores distintos almacenados en la columna y, en PostgreSQL, el catalogo
+    ``pg_enum``.
+    """
+    etiquetas: List[str] = []
+
+    # 1) Valores realmente almacenados (funciona en ambos motores).
+    sql = (
+        "SELECT DISTINCT rol::text FROM usuarios WHERE rol IS NOT NULL"
+        if is_pg else
+        "SELECT DISTINCT rol FROM usuarios WHERE rol IS NOT NULL"
+    )
+    try:
+        for fila in conn.execute(text(sql)).fetchall():
+            if fila and fila[0] is not None:
+                etiqueta = str(fila[0])
+                if etiqueta not in etiquetas:
+                    etiquetas.append(etiqueta)
+    except Exception:  # pragma: no cover - la tabla puede no existir aun
+        pass
+
+    # 2) En PostgreSQL, el catalogo de etiquetas del tipo enum.
+    if is_pg:
+        try:
+            for fila in conn.execute(text(
+                "SELECT e.enumlabel FROM pg_type t "
+                "JOIN pg_enum e ON e.enumtypid = t.oid "
+                "JOIN pg_attribute a ON a.atttypid = t.oid "
+                "JOIN pg_class c ON c.oid = a.attrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relname = 'usuarios' AND a.attname = 'rol' "
+                "AND n.nspname = current_schema() "
+                "ORDER BY e.enumsortorder"
+            )).fetchall():
+                if fila and fila[0]:
+                    etiqueta = str(fila[0])
+                    if etiqueta not in etiquetas:
+                        etiquetas.append(etiqueta)
+        except Exception:  # pragma: no cover - depende del catalogo de PG
+            pass
+
+    return etiquetas
+
+
+def _resolver_etiqueta_admin(conn, is_pg: bool) -> str:
+    """
+    Devuelve la etiqueta con la que el motor almacena el rol de administrador.
+
+    Prioridad: coincidencia exacta -> etiqueta que contenga "ADMIN" -> el
+    NOMBRE del miembro del enum de Python (que es lo que SQLAlchemy persiste
+    por defecto en PostgreSQL y en SQLite).
+    """
+    etiquetas = _etiquetas_rol_usuario(conn, is_pg)
+
+    for etiqueta in etiquetas:
+        if etiqueta.strip().upper() == "ADMINISTRADOR":
+            return etiqueta
+
+    for etiqueta in etiquetas:
+        if "ADMIN" in etiqueta.strip().upper():
+            return etiqueta
+
+    try:
+        from app.models.usuario import RolUsuario
+        return RolUsuario.ADMINISTRADOR.name
+    except Exception:  # pragma: no cover
+        return "ADMINISTRADOR"
+
+
+def _aplicar_proyecto_legacy(conn, is_pg: bool) -> int:
+    """
+    Crea el proyecto "Legacy" y asigna a el todas las filas de negocio que
+    todavia no tienen ``proyecto_id``.
+
+    Es idempotente: se puede ejecutar en cada arranque. Devuelve el numero de
+    filas actualizadas.
+
+    Atomicidad (V2.009)
+    --------------------
+    Cada paso va en su PROPIO savepoint. Antes de V2.009 los tres pasos
+    compartian un unico ``begin_nested()``: si el ultimo fallaba, PostgreSQL
+    revertia el SAVEPOINT entero y con el el backfill completo (8.500 filas),
+    dejando ``proyecto_id`` a NULL en todas las tablas. Ahora un fallo puntual
+    (por ejemplo, que un enum no acepte la etiqueta buscada) solo revierte su
+    propio paso: el resto de la migracion se aplica igual.
+    """
+    actualizadas = 0
+
+    # 1) Fila del proyecto "Legacy" (savepoint propio).
+    try:
+        with conn.begin_nested():
+            if is_pg:
+                conn.execute(text(
+                    "INSERT INTO proyectos (id, nombre, descripcion, plan, color, activo, "
+                    "created_at, updated_at) "
+                    "VALUES (:id, :nombre, :descripcion, NULL, '#6b7280', TRUE, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ), {"id": PROYECTO_LEGACY_ID, "nombre": NOMBRE_PROYECTO_LEGACY,
+                    "descripcion": "Proyecto historico: contiene los datos "
+                                   "preexistentes al aislamiento por proyecto."})
+            else:
+                conn.execute(text(
+                    "INSERT INTO proyectos (id, nombre, descripcion, plan, color, activo, "
+                    "created_at, updated_at) "
+                    "SELECT :id, :nombre, :descripcion, NULL, '#6b7280', 1, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                    "WHERE NOT EXISTS (SELECT 1 FROM proyectos WHERE id = :id)"
+                ), {"id": PROYECTO_LEGACY_ID, "nombre": NOMBRE_PROYECTO_LEGACY,
+                    "descripcion": "Proyecto historico: contiene los datos "
+                                   "preexistentes al aislamiento por proyecto."})
+    except Exception as e:
+        # Sin la fila del proyecto no se puede hacer el backfill: la columna
+        # ``proyecto_id`` tiene clave foranea a ``proyectos.id``.
+        logger.warning(
+            "[migrations] data: no se pudo crear el proyecto Legacy: %s", e,
+        )
+        return actualizadas
+
+    # 2) Backfill: cada tabla en su PROPIO savepoint, para que un fallo
+    #    puntual en una tabla no revierta las anteriores.
+    for tabla in TABLAS_CON_PROYECTO:
+        try:
+            with conn.begin_nested():
+                res = conn.execute(text(
+                    "UPDATE %s SET proyecto_id = :pid WHERE proyecto_id IS NULL" % tabla
+                ), {"pid": PROYECTO_LEGACY_ID})
+                n = res.rowcount if hasattr(res, "rowcount") else 0
+            if n:
+                actualizadas += n
+                logger.info(
+                    "[migrations] data: %d filas de %s asignadas al proyecto Legacy",
+                    n, tabla,
+                )
+        except Exception as e:
+            logger.warning(
+                "[migrations] data: backfill de %s fallo (aislado): %s", tabla, e,
+            )
+
+    # 3) El administrador es miembro del proyecto Legacy (savepoint propio).
+    try:
+        with conn.begin_nested():
+            etiqueta = _resolver_etiqueta_admin(conn, is_pg)
+            # El rol se filtra EN PYTHON, no en SQL: pasar un literal a una
+            # columna ENUM obliga a PostgreSQL a convertirlo a etiqueta y
+            # falla si no coincide exactamente. Leyendo el valor almacenado
+            # no hay ninguna conversion que pueda fallar.
+            filas = conn.execute(text("SELECT id, rol FROM usuarios")).fetchall()
+            admines = [
+                fila[0] for fila in filas
+                if fila[1] is not None and "ADMIN" in str(fila[1]).strip().upper()
+            ]
+            ts = datetime.now(timezone.utc).isoformat()
+            for usuario_id in admines:
+                conn.execute(text(
+                    "INSERT INTO proyecto_usuarios (proyecto_id, usuario_id, rol, created_at) "
+                    "SELECT :pid, :uid, :rol, :ts WHERE NOT EXISTS ("
+                    "SELECT 1 FROM proyecto_usuarios "
+                    "WHERE proyecto_id = :pid AND usuario_id = :uid)"
+                ), {"pid": PROYECTO_LEGACY_ID, "uid": usuario_id,
+                    "rol": etiqueta.strip().lower(), "ts": ts})
+        if admines:
+            logger.info(
+                "[migrations] data: %d administrador(es) añadidos al proyecto Legacy",
+                len(admines),
+            )
+    except Exception as e:
+        logger.warning(
+            "[migrations] data: membresia del administrador en Legacy fallo (aislado): %s", e,
+        )
+
+    return actualizadas
 
 
 def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
@@ -956,6 +1287,59 @@ def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
             out.append(f"{table}: faltan {', '.join(missing)}")
         else:
             out.append(f"{table}: OK ({len(existing)} columnas)")
+    return out
+
+
+def comparar_esquema_completo(eng: Optional[Engine] = None) -> List[str]:
+    """
+    Compara el metadata de SQLAlchemy con el esquema REAL de la base de datos.
+
+    Por qué hace falta (V2.009)
+    -------------------------
+    ``report_schema_drift()`` solo mira las tablas de ``COLUMNS_TO_ADD`` (tres
+    hasta V2.008). Eso hacia que el guardián de arranque fuera **fail-closed
+    solo a medias**: si el modelo declaraba una columna que la base de datos
+    no tenia, y esa columna no estaba en ``COLUMNS_TO_ADD``, nadie se enteraba
+    y la aplicacion respondia 500 al usarla. En V2.009 el guardián compara
+    TODAS las tablas del metadata.
+
+    Qué devuelve
+    ------------
+    Una línea por tabla con la deriva. El formato distingue las dos señales:
+    * ``<tabla>: faltan <columna>`` -> la tabla existe pero le faltan columnas
+      que el modelo declara. Es la señal que debe abortar el arranque.
+    * ``<tabla>: la tabla no existe en la base de datos`` -> el modelo declara
+      una tabla que no esta creada.
+    * ``<tabla>: OK`` -> la tabla esta alineada.
+
+    Las tablas que existen en la base de datos pero NO en el modelo no se
+    reportan: son datos historicos que la aplicacion ya no usa y borrarlas es
+    una decision operativa, no una migracion.
+    """
+    eng = eng or _get_default_engine()
+    _asegurar_modelos_importados()
+    try:
+        insp = inspect(eng)
+        tablas_bd = set(insp.get_table_names())
+    except Exception as exc:  # pragma: no cover
+        logger.warning("[migrations] no se pudo inspeccionar el esquema: %s", exc)
+        return []
+
+    out: List[str] = []
+    for nombre, tabla in Base.metadata.tables.items():
+        if nombre not in tablas_bd:
+            out.append(f"{nombre}: la tabla no existe en la base de datos")
+            continue
+        try:
+            columnas_bd = {c["name"] for c in insp.get_columns(nombre)}
+        except Exception as exc:  # pragma: no cover
+            out.append(f"{nombre}: no se pudieron leer sus columnas ({exc})")
+            continue
+        faltan = [c.name for c in tabla.c if c.name not in columnas_bd]
+        if faltan:
+            out.append(f"{nombre}: faltan {', '.join(faltan)}")
+        else:
+            out.append(f"{nombre}: OK")
     return out
 
 
@@ -999,6 +1383,29 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
         return 0
 
     faltan = [l for l in lineas if "faltan" in l]
+
+    # V2.009 — Guardián estricto: compara TODO el metadata con el esquema real.
+    # Hasta V2.008 solo se comparaban las tablas de ``COLUMNS_TO_ADD``, de modo
+    # que una columna que el modelo declarase y la base de datos no tuviera
+    # pasaba desapercibida. Se activa con ``ESQUEMA_ESTRICTO`` porque un
+    # guardián fail-closed sobre el esquema completo puede tumbar los tres
+    # servicios si la base de datos arrastra una deriva heredada; por eso
+    # primero se mide (endpoint ``/api/v1/migraciones/esquema``) y despues se
+    # enciende.
+    deriva_completa: List[str] = []
+    try:
+        from app.core.config import settings as _settings
+
+        if _settings.ESQUEMA_ESTRICTO:
+            deriva_completa = [
+                l for l in comparar_esquema_completo(eng)
+                if "faltan" in l or "no existe" in l
+            ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[migrations] no se pudo ejecutar la comparación estricta de esquema: %s", exc,
+        )
+
     errores = int(stats.get("errors", 0) or 0)
     errores_esquema = int(stats.get("schema_errors", 0) or 0)
     logger.info(
@@ -1015,6 +1422,11 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
         )
     if faltan:
         logger.error("[migrations] DERIVA DE ESQUEMA: %s", "; ".join(faltan))
+    if deriva_completa:
+        logger.error(
+            "[migrations] DERIVA DE ESQUEMA (comparación estricta del metadata): %s",
+            "; ".join(deriva_completa),
+        )
     if errores_esquema:
         logger.error(
             "[migrations] %s error(es) de esquema al aplicar las migraciones",
@@ -1025,7 +1437,7 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
             "[migrations] %s error(es) en las migraciones de DATAS. El esquema "
             "queda alineado, se continua el arranque.", errores,
         )
-    return 1 if (faltan or errores_esquema) else 0
+    return 1 if (faltan or errores_esquema or deriva_completa) else 0
 
 
 if __name__ == "__main__":

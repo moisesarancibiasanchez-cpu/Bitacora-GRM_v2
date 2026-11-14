@@ -9,6 +9,7 @@ Todas las migraciones son seguras de re-ejecutar.
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import require_admin
@@ -94,6 +95,189 @@ def preview_migracion_gar(
         "serian_actualizados": total - ya_en_destino,
         "distribucion_actual": por_tipo,
     }
+
+
+@router.get("/esquema")
+def diagnostico_esquema(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Compara el metadata de SQLAlchemy con el esquema real de la base de datos.
+
+    Diagnóstico de SOLO LECTURA: no aplica migraciones ni modifica nada.
+
+    Devuelve tres bloques:
+
+    * ``columnas_sincronizadas``: el estado de ``COLUMNS_TO_ADD`` (las
+      columnas que las migraciones deben añadir si faltan).
+    * ``comparacion_completa``: una línea por tabla del modelo, con las
+      columnas que faltan en la base de datos.
+    * ``deriva``: solo las tablas con deriva real (las que NO están OK).
+
+    Sirve para medir la deriva antes de encender el guardián estricto
+    (``ESQUEMA_ESTRICTO``): un guardián fail-closed sobre el esquema completo
+    puede tumbar los tres servicios si la base de datos arrastra una deriva
+    heredada, así que primero se mide.
+
+    Returns
+    -------
+    dict
+        ``ok`` (bool), ``deriva`` (list[str]), ``comparacion_completa``
+        (list[str]), ``columnas_sincronizadas`` (list[str]),
+        ``tablas_modelo`` (int) y ``tablas_base_datos`` (int).
+    """
+    from sqlalchemy import inspect
+
+    from app.db.migrations import (
+        comparar_esquema_completo,
+        report_schema_drift,
+    )
+
+    eng = db.get_bind()
+    comparacion = comparar_esquema_completo(eng)
+    deriva = [l for l in comparacion if "faltan" in l or "no existe" in l]
+    try:
+        tablas_bd = len(inspect(eng).get_table_names())
+    except Exception:  # pragma: no cover
+        tablas_bd = -1
+
+    return {
+        "ok": not deriva,
+        "deriva": deriva,
+        "comparacion_completa": comparacion,
+        "columnas_sincronizadas": report_schema_drift(eng),
+        "tablas_modelo": len(comparacion),
+        "tablas_base_datos": tablas_bd,
+    }
+
+
+# ----------------------------------------------------------------------- #
+# Clon de la base de datos (validacion de migraciones)
+# ----------------------------------------------------------------------- #
+class ClonRequest(BaseModel):
+    nombre: str = Field(
+        default="railway_clon_v2009",
+        max_length=63,
+        description="Nombre de la base de datos del clon (solo letras, digitos y _)",
+    )
+    copiar_datos: bool = Field(
+        default=True,
+        description="Si False, solo se replica el esquema (util para validar DDL)",
+    )
+
+
+@router.post("/clonar")
+def clonar_base_datos(
+    datos: ClonRequest,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Crea un CLON de la base de datos en el mismo servidor PostgreSQL.
+
+    Sirve para validar migraciones y cambios de esquema contra una copia de
+    los datos reales, sin tocar la base de datos de produccion.
+
+    - El clon se crea con el nombre indicado (``railway_clon_*`` por defecto).
+    - Se replica el esquema desde el metadata de los modelos y se copian los
+      datos fila a fila en orden de dependencias; las secuencias quedan
+      alineadas con el maximo copiado.
+    - Se devuelve la URL de conexion del clon (admin-only).
+
+    Se revierte con ``DELETE /api/v1/migraciones/clonar/{nombre}``.
+    """
+    from app.core.config import settings
+    from app.services.clone_service import ErrorClonado, clonar_base_datos as clonar
+
+    try:
+        resultado = clonar(
+            settings.get_database_url(),
+            datos.nombre,
+            copiar_datos=datos.copiar_datos,
+        )
+    except ErrorClonado as exc:
+        logger.warning("[migracion/clon] no se pudo clonar: %s", exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[migracion/clon] error inesperado al clonar")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al clonar la base de datos: {exc}",
+        )
+    logger.info("[migracion/clon] clon creado: %s", resultado.get("nombre"))
+    return resultado
+
+
+@router.delete("/clonar/{nombre}")
+def borrar_clon(
+    nombre: str,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Borra la base de datos del clon (operacion de reversion)."""
+    from app.core.config import settings
+    from app.services.clone_service import ErrorClonado, borrar_clon as borrar
+
+    try:
+        return borrar(settings.get_database_url(), nombre)
+    except ErrorClonado as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[migracion/clon] error inesperado al borrar el clon")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al borrar el clon: {exc}",
+        )
+
+
+@router.get("/clones")
+def listar_clones(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Lista las bases de datos de clon que existen en el servidor."""
+    from app.core.config import settings
+    from app.services.clone_service import ErrorClonado, listar_clones as listar
+
+    try:
+        return {"clones": listar(settings.get_database_url())}
+    except ErrorClonado as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get("/clonar/{nombre}/verificar")
+def verificar_clon(
+    nombre: str,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Compara el clon con la base de datos de origen (SOLO LECTURA).
+
+    Validacion de la ventana V2: comprueba que el clon es una copia fiel
+    (mismas tablas, mismas columnas, mismo numero de filas) y que el
+    backfill del aislamiento por proyecto quedo aplicado dentro del clon
+    (ninguna fila de negocio con ``proyecto_id`` a NULL, proyecto "Legacy"
+    existente y con miembros).
+
+    No escribe nada ni en el origen ni en el clon.
+
+    Returns
+    -------
+    dict
+        ``ok`` (bool) y el detalle de la comparacion.
+    """
+    from app.core.config import settings
+    from app.services.clone_service import ErrorClonado, verificar_clon as verificar
+
+    try:
+        return verificar(settings.get_database_url(), nombre)
+    except ErrorClonado as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[migracion/clon] error inesperado al verificar el clon")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al verificar el clon: {exc}",
+        )
 
 
 # ----------------------------------------------------------------------- #

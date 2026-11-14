@@ -125,6 +125,36 @@ class Settings(BaseSettings):
     # ``settings.AUTO_INIT_DB`` en lugar de os.getenv (no se modifica aquí).
     AUTO_INIT_DB: bool = False
 
+    # === Aislamiento por proyecto (multi-tenancy) ===
+    # V2.009 deja PREPARADA la capa de aislamiento por proyecto (columna
+    # ``proyecto_id`` en las tablas de negocio, filtro ORM con
+    # ``with_loader_criteria`` y politicas RLS), pero la mantiene INERTE:
+    # mientras el flag sea False, ``app/core/proyecto.py`` devuelve siempre
+    # ``None`` como proyecto activo, no se aplica ningun criterio y el
+    # comportamiento observable es identico al de V2.008.
+    #
+    # Encender este flag es la ventana V3 (el corte): antes hay que validar
+    # el clon (ventana V2). No se enciende en V2.009.
+    AISLAMIENTO_PROYECTO_ACTIVO: bool = False
+
+    # RLS_HABILITADO=true aplica las politicas de Row Level Security sobre las
+    # tablas con ``proyecto_id``. Por defecto NO se aplican (V2.009). Se
+    # habilitan junto con el rol de aplicacion sin privilegios de owner en la
+    # ventana V3: hasta entonces, con el rol owner de siempre, RLS seria
+    # inerte y ademas podria tumbar el arranque si el rol no fuese owner.
+    RLS_HABILITADO: bool = False
+
+    # ESQUEMA_ESTRICTO=true hace que el guardián de arranque compare TODO el
+    # metadata de SQLAlchemy con el esquema real de la base de datos, y no solo
+    # las tres tablas de ``COLUMNS_TO_ADD``. Es fail-closed: si falta una
+    # columna que el modelo declara, el arranque se aborta en vez de servir
+    # con un esquema viejo y responder 500 al usarla.
+    #
+    # Se mide antes de encenderlo (endpoint ``/api/v1/migraciones/esquema``):
+    # un guardián estricto sobre el esquema completo puede tumbar los tres
+    # servicios si la base de datos arrastra una deriva heredada.
+    ESQUEMA_ESTRICTO: bool = False
+
     # Configuración individual (usada para construir DATABASE_URL si no se define)
     POSTGRES_USER: str = "grm"
     POSTGRES_PASSWORD: str = "grm"

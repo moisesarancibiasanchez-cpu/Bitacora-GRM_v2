@@ -105,10 +105,13 @@ check(
     r.status_code == 200 and "TST-0001" in r.text and "Título original" in r.text,
     f"status={r.status_code} contiene_codigo={'TST-0001' in r.text}",
 )
+# El marcador se extrae a una variable: un f-string no puede contener un
+# backslash en su parte de expresion antes de Python 3.12 (PEP 701).
+ticket_id_marker = f'id="ticket-{ticket_id}"'
 check(
     "GET /card-html -> contiene id=\"ticket-N\"",
-    f'id="ticket-{ticket_id}"' in r.text,
-    f"id_match={'id=\"ticket-' + str(ticket_id) + '\"' in r.text}",
+    ticket_id_marker in r.text,
+    f"id_match={ticket_id_marker in r.text}",
 )
 
 # --------------------------------------------------------------------
@@ -264,15 +267,19 @@ check(
 # --------------------------------------------------------------------
 # (Esto valida que el JS listener pueda encontrar/identificar la tarjeta
 #  correctamente con la información más reciente del board.)
+# Los marcadores se extraen a variables: un f-string no puede contener un
+# backslash en su parte de expresion antes de Python 3.12 (PEP 701).
+data_prioridad_marker = 'data-prioridad="critica"'
 check(
     "Card tiene data-prioridad='critica'",
-    'data-prioridad="critica"' in r.text,
-    f"data_match={'data-prioridad=\"critica\"' in r.text}",
+    data_prioridad_marker in r.text,
+    f"data_match={data_prioridad_marker in r.text}",
 )
+data_ticket_id_marker = f'data-ticket-id="{ticket_id}"'
 check(
     "Card tiene data-ticket-id correcto",
-    f'data-ticket-id="{ticket_id}"' in r.text,
-    f"data_match={'data-ticket-id=\"' + str(ticket_id) + '\"' in r.text}",
+    data_ticket_id_marker in r.text,
+    f"data_match={data_ticket_id_marker in r.text}",
 )
 
 # --------------------------------------------------------------------

@@ -118,6 +118,10 @@ class TicketDependencia(Base):
     )
     lag_dias = Column(Integer, default=0, nullable=False)
     nota = Column(Text, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones: ambos lados apuntan al modelo Ticket. ``backref`` no se
     # usa para evitar ciclos en la importación (los tickets importan

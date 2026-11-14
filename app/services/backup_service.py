@@ -6,7 +6,8 @@ Soporta dos motores:
 - **PostgreSQL** (producción): usa el binario `pg_dump` si está disponible
   en el PATH.  Hace dump en formato ``plain`` (SQL) y lo comprime con gzip.
   Si ``pg_dump`` no está instalado, cae a un fallback con ``psycopg2`` que
-  ejecuta ``COPY ... TO STDOUT`` por tabla.
+  reconstruye el dump desde ``pg_catalog`` (DDL + datos + índices +
+  constraints + secuencias) en un formato **restaurable**.
 
 - **SQLite** (desarrollo/demo): usa la API nativa ``sqlite3.Connection.backup()``
   que crea un snapshot consistente en otra conexión.
@@ -308,7 +309,34 @@ class BackupService:
         return self._backup_postgresql_python(db_url, target)
 
     def _backup_postgresql_python(self, db_url: str, target: Path) -> int:
-        """Fallback psycopg2: genera SQL manualmente."""
+        """Fallback psycopg2: genera un dump SQL COMPLETO y restaurable.
+
+        En producción ``pg_dump`` no está disponible en la imagen del
+        contenedor, así que el dump se reconstruye a mano.  Un fichero con
+        sólo ``INSERT`` **no se puede restaurar** (no hay tablas donde
+        insertar) y además pierde las tablas sin filas, por lo que aquí se
+        emite un dump completo y en un orden válido para ``psql``:
+
+            1. Cabecera + ``SET`` (client_encoding, standard_conforming_strings,
+               search_path).
+            2. ``CREATE TYPE`` (enums) y ``CREATE SEQUENCE`` (columnas serial).
+            3. ``CREATE TABLE`` de TODAS las tablas (también las vacías).
+            4. ``INSERT`` con los datos de las tablas que tienen filas.
+            5. ``ALTER TABLE ... ADD CONSTRAINT`` (PRIMARY KEY / UNIQUE / CHECK).
+            6. ``CREATE INDEX`` de los índices no ligados a un constraint.
+            7. ``ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`` (al final:
+               las PK/UNIQUE ya existen, así que no hay problemas de orden
+               ni con dependencias circulares entre tablas).
+            8. ``setval`` de las secuencias, para que los ``id`` autogenerados
+               no choquen con los datos restaurados.
+
+        El DDL se reconstruye desde ``pg_catalog`` (la BD real), NO desde el
+        metadata de SQLAlchemy: para un backup la fuente de verdad es la BD.
+
+        Returns:
+            Número de bytes del payload SIN comprimir (lo que espera el
+            llamante para la metadata).
+        """
         try:
             import psycopg2  # type: ignore
             import psycopg2.extensions  # type: ignore
@@ -317,46 +345,414 @@ class BackupService:
                 "pg_dump no disponible y psycopg2 no instalado"
             ) from e
 
-        conn = psycopg2.connect(db_url)
+        # psycopg2 no entiende el esquema SQLAlchemy "postgresql+psycopg2://"
+        dsn = db_url.replace("postgresql+psycopg2://", "postgresql://")
+        dsn = dsn.replace("postgres+psycopg2://", "postgresql://")
+
+        conn = psycopg2.connect(dsn)
+        conn.set_client_encoding("UTF8")
         conn.set_session(readonly=True, autocommit=True)
         try:
             cur = conn.cursor()
+
+            def qi(name: str) -> str:
+                """Identificador de PostgreSQL entrecomillado."""
+                return '"' + str(name).replace('"', '""') + '"'
+
+            def lit(v: Any) -> str:
+                """Literal SQL de PostgreSQL para un valor Python."""
+                if v is None:
+                    return "NULL"
+                if isinstance(v, bool):
+                    return "TRUE" if v else "FALSE"
+                if isinstance(v, int):
+                    return str(v)
+                if isinstance(v, float):
+                    if v != v:
+                        return "'NaN'"
+                    if v == float("inf"):
+                        return "'Infinity'"
+                    if v == float("-inf"):
+                        return "'-Infinity'"
+                    return repr(v)
+                if isinstance(v, (bytes, bytearray, memoryview)):
+                    # formato hex de bytea: un solo backslash -> '\x0a1b'
+                    return "'\\x" + bytes(v).hex() + "'"
+                if isinstance(v, datetime):
+                    return "'" + v.isoformat(sep=" ") + "'"
+                if isinstance(v, (list, tuple)):
+                    if not v:
+                        return "'{}'"
+                    return "ARRAY[" + ", ".join(lit(x) for x in v) + "]"
+                if isinstance(v, dict):
+                    return "'" + json.dumps(
+                        v, ensure_ascii=False).replace("'", "''") + "'"
+                return "'" + str(v).replace("'", "''") + "'"
+
+            schema = "public"
+            qschema = qi(schema)
+
+            # ------------------------------------------------------------
+            # Metadatos reales de la BD (pg_catalog)
+            # ------------------------------------------------------------
+            cur.execute("SELECT version(), current_database(), current_user")
+            pg_version, db_name, db_user = cur.fetchone()
+            cur.execute("SELECT current_setting('server_version_num')")
+            server_version = cur.fetchone()[0]
+
             cur.execute("""
-                SELECT table_name FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-                ORDER BY table_name
+                SELECT c.relname
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+                 ORDER BY c.relname
             """)
-            tables = [r[0] for r in cur.fetchall()]
-            lines: List[str] = []
-            lines.append("-- Bitácora GRM backup (psycopg2 fallback)")
-            lines.append(f"-- Generado: {datetime.now(timezone.utc).isoformat()}")
-            lines.append("")
+            tables: List[str] = [r[0] for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT c.relname, a.attname,
+                       format_type(a.atttypid, a.atttypmod),
+                       a.attnotnull, pg_get_expr(d.adbin, d.adrelid),
+                       a.attidentity, a.attgenerated
+                  FROM pg_attribute a
+                  JOIN pg_class c ON c.oid = a.attrelid
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  LEFT JOIN pg_attrdef d
+                         ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+                 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+                   AND a.attnum > 0 AND NOT a.attisdropped
+                 ORDER BY c.relname, a.attnum
+            """)
+            cols_by_table: Dict[str, List[Dict[str, Any]]] = {}
+            for tname, cname, ctype, notnull, defexpr, identity, generated \
+                    in cur.fetchall():
+                cols_by_table.setdefault(tname, []).append({
+                    "name": cname,
+                    "type": ctype,
+                    "notnull": bool(notnull),
+                    "default": defexpr,
+                    "identity": identity or "",
+                    "generated": generated or "",
+                })
+
+            # Enums (tipos que usa el modelo: p.ej. rol de usuario)
+            cur.execute("""
+                SELECT t.typname, e.enumlabel
+                  FROM pg_type t
+                  JOIN pg_enum e ON e.enumtypid = t.oid
+                  JOIN pg_namespace n ON n.oid = t.typnamespace
+                 WHERE n.nspname = 'public'
+                 ORDER BY t.typname, e.enumsortorder
+            """)
+            enum_labels: Dict[str, List[str]] = {}
+            for tname, label in cur.fetchall():
+                enum_labels.setdefault(tname, []).append(label)
+
+            # Constraints (PK / UNIQUE / CHECK / EXCLUDE / FK)
+            cur.execute("""
+                SELECT t.relname, c.conname, c.contype,
+                       pg_get_constraintdef(c.oid)
+                  FROM pg_constraint c
+                  JOIN pg_class t ON t.oid = c.conrelid
+                  JOIN pg_namespace n ON n.oid = t.relnamespace
+                 WHERE n.nspname = 'public'
+                   AND c.contype IN ('p', 'u', 'c', 'x', 'f')
+                 ORDER BY t.relname, c.conname
+            """)
+            constraints = cur.fetchall()
+
+            # Índices que NO respaldan un constraint (los de PK/UNIQUE los
+            # crea el propio ADD CONSTRAINT)
+            cur.execute("""
+                SELECT t.relname, pg_get_indexdef(x.indexrelid)
+                  FROM pg_index x
+                  JOIN pg_class i ON i.oid = x.indexrelid
+                  JOIN pg_class t ON t.oid = x.indrelid
+                  JOIN pg_namespace n ON n.oid = t.relnamespace
+                  LEFT JOIN pg_constraint c ON c.conindid = i.oid
+                 WHERE n.nspname = 'public' AND c.oid IS NULL
+                   AND NOT x.indisprimary
+                 ORDER BY t.relname, i.relname
+            """)
+            indexes = cur.fetchall()
+
+            # Secuencias y su columna propietaria
+            cur.execute("""
+                SELECT sequencename, data_type, start_value, min_value,
+                       max_value, increment_by, cycle, cache_size, last_value
+                  FROM pg_sequences
+                 WHERE schemaname = 'public'
+                 ORDER BY sequencename
+            """)
+            seq_by_name: Dict[str, Dict[str, Any]] = {
+                r[0]: {
+                    "data_type": r[1], "start": r[2], "min": r[3], "max": r[4],
+                    "inc": r[5], "cycle": bool(r[6]), "cache": r[7],
+                    "last": r[8],
+                }
+                for r in cur.fetchall()
+            }
+
+            cur.execute("""
+                SELECT c.relname, t.relname, a.attname, a.attidentity
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  JOIN pg_depend d ON d.objid = c.oid
+                                 AND d.deptype IN ('a', 'i')
+                  JOIN pg_class t ON t.oid = d.refobjid
+                  JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                  JOIN pg_attribute a ON a.attrelid = d.refobjid
+                                     AND a.attnum = d.refobjsubid
+                 WHERE c.relkind = 'S' AND n.nspname = 'public'
+                   AND tn.nspname = 'public'
+                 ORDER BY c.relname
+            """)
+            # (seq, tabla, columna, identidad)
+            seq_owner = cur.fetchall()
+
+            # Objetos que el fallback NO puede reproducir (vistas, vistas
+            # materializadas, funciones, particiones): se avisa por log.
+            cur.execute("""
+                SELECT c.relkind, count(*)
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'public'
+                   AND (c.relkind IN ('v', 'm', 'f') OR c.relispartition)
+                 GROUP BY c.relkind ORDER BY c.relkind
+            """)
+            uncovered = cur.fetchall()
+            if uncovered:
+                logger.warning(
+                    "[BACKUP] Objetos no incluidos en el dump (vistas/matviews/"
+                    "funciones/particiones): %s", uncovered,
+                )
+
+            # Tablas con ROW LEVEL SECURITY: el dump no reproduce las
+            # políticas, y si el rol no es el dueño la lectura puede venir
+            # filtrada.  Se avisa para que quede constancia.
+            cur.execute("""
+                SELECT c.relname
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'public' AND c.relrowsecurity
+                 ORDER BY c.relname
+            """)
+            rls_tables = [r[0] for r in cur.fetchall()]
+            if rls_tables:
+                logger.warning(
+                    "[BACKUP] Tablas con ROW LEVEL SECURITY (el dump no "
+                    "reproduce las políticas): %s", rls_tables,
+                )
+
+            # ------------------------------------------------------------
+            # Emisión del dump
+            # ------------------------------------------------------------
+            header: List[str] = []
+            types_s: List[str] = []
+            seqs_s: List[str] = []
+            tables_s: List[str] = []
+            data_s: List[str] = []
+            constr_s: List[str] = []
+            index_s: List[str] = []
+            fk_s: List[str] = []
+            seq_end_s: List[str] = []
+
+            # (2a) Tipos ENUM: las columnas tipadas los necesitan antes.
+            if enum_labels:
+                types_s.append("-- ENUM types")
+                for tname, labels in enum_labels.items():
+                    vals = ", ".join(lit(x) for x in labels)
+                    types_s.append(
+                        f"CREATE TYPE {qschema}.{qi(tname)} AS ENUM ({vals});"
+                    )
+                types_s.append("")
+
+            # (2b) Secuencias: las columnas SERIAL las referencian por
+            # nextval('seq'::regclass) y la secuencia debe existir ANTES
+            # del CREATE TABLE.  Las de las columnas IDENTITY las crea el
+            # propio CREATE TABLE, así que se excluyen.
+            identity_seqs = {s[0] for s in seq_owner if s[3]}
+            if seq_by_name:
+                seqs_s.append("-- Sequences")
+                for sname, sdata in seq_by_name.items():
+                    if sname in identity_seqs:
+                        continue
+                    seqs_s.append(
+                        f"CREATE SEQUENCE IF NOT EXISTS {qschema}.{qi(sname)} "
+                        f"AS {sdata['data_type']} "
+                        f"START WITH {sdata['start']} "
+                        f"INCREMENT BY {sdata['inc']} "
+                        f"MINVALUE {sdata['min']} MAXVALUE {sdata['max']} "
+                        f"CACHE {sdata['cache']} "
+                        f"{'CYCLE' if sdata['cycle'] else 'NO CYCLE'};"
+                    )
+                seqs_s.append("")
+
+            # (3) CREATE TABLE de TODAS las tablas (incluidas las vacías).
+            tables_s.append("-- Esquema (CREATE TABLE)")
             for t in tables:
-                cur.execute(f'SELECT * FROM "{t}"')
-                cols = [d[0] for d in cur.description]
+                cols = cols_by_table.get(t, [])
+                if not cols:
+                    logger.warning(
+                        "[BACKUP] Tabla '%s' sin columnas visibles; se omite", t,
+                    )
+                    continue
+                defs: List[str] = []
+                for c in cols:
+                    d = f"{qi(c['name'])} {c['type']}"
+                    if c["generated"]:
+                        d += f" GENERATED ALWAYS AS ({c['default']}) STORED"
+                    elif c["identity"]:
+                        d += (
+                            " GENERATED ALWAYS AS IDENTITY"
+                            if c["identity"] == "a"
+                            else " GENERATED BY DEFAULT AS IDENTITY"
+                        )
+                    elif c["default"]:
+                        d += f" DEFAULT {c['default']}"
+                    if c["notnull"]:
+                        d += " NOT NULL"
+                    defs.append("    " + d)
+                tables_s.append(f"CREATE TABLE {qschema}.{qi(t)} (")
+                tables_s.append(",\n".join(defs))
+                tables_s.append(");")
+                tables_s.append("")
+
+            # (4) Datos: INSERT sólo para las tablas que tienen filas.
+            data_s.append("-- Datos")
+            tables_with_data = 0
+            for t in tables:
+                all_cols = cols_by_table.get(t, [])
+                cols = [c for c in all_cols if not c["generated"]]
+                if not cols:
+                    continue
+                col_list = ", ".join(qi(c["name"]) for c in cols)
+                cur.execute(
+                    f"SELECT {col_list} FROM {qschema}.{qi(t)}"
+                )
                 rows = cur.fetchall()
                 if not rows:
                     continue
-                col_list = ", ".join(f'"{c}"' for c in cols)
-                lines.append(f"-- Table: {t} ({len(rows)} filas)")
+                tables_with_data += 1
+                # Las columnas IDENTITY ALWAYS no admiten valor explícito
+                # sin OVERRIDING SYSTEM VALUE.
+                overriding = ""
+                if any(c["identity"] == "a" for c in all_cols):
+                    overriding = " OVERRIDING SYSTEM VALUE"
+                data_s.append(f"-- {t}: {len(rows)} filas")
                 for row in rows:
-                    vals = []
-                    for v in row:
-                        if v is None:
-                            vals.append("NULL")
-                        elif isinstance(v, (int, float)):
-                            vals.append(str(v))
-                        elif isinstance(v, bool):
-                            vals.append("TRUE" if v else "FALSE")
-                        elif isinstance(v, (bytes, memoryview)):
-                            vals.append(f"'\\\\x{v.hex()}'")
-                        else:
-                            s = str(v).replace("'", "''")
-                            vals.append(f"'{s}'")
-                    lines.append(
-                        f"INSERT INTO \"{t}\" ({col_list}) VALUES ({', '.join(vals)});"
+                    vals = ", ".join(lit(v) for v in row)
+                    data_s.append(
+                        f"INSERT INTO {qschema}.{qi(t)} ({col_list})"
+                        f"{overriding} VALUES ({vals});"
                     )
-                lines.append("")
+                data_s.append("")
+
+            # (5) PK / UNIQUE / CHECK / EXCLUDE (antes de las FK).
+            constr_s.append("-- Constraints (PRIMARY KEY / UNIQUE / CHECK)")
+            for tname, cname, ctype, cdef in constraints:
+                if ctype == "f":
+                    continue
+                constr_s.append(
+                    f"ALTER TABLE {qschema}.{qi(tname)} "
+                    f"ADD CONSTRAINT {qi(cname)} {cdef};"
+                )
+            constr_s.append("")
+
+            # (6) Índices sueltos.
+            if indexes:
+                index_s.append("-- Índices")
+                for tname, idef in indexes:
+                    index_s.append(idef + ";")
+                index_s.append("")
+
+            # (7) Claves foráneas AL FINAL: las PK/UNIQUE ya existen y por
+            # tanto no hay dependencias circulares que bloqueen el restore.
+            fk_s.append("-- Claves foráneas (al final, tras PK/UNIQUE/índices)")
+            for tname, cname, ctype, cdef in constraints:
+                if ctype != "f":
+                    continue
+                fk_s.append(
+                    f"ALTER TABLE {qschema}.{qi(tname)} "
+                    f"ADD CONSTRAINT {qi(cname)} {cdef};"
+                )
+            fk_s.append("")
+
+            # (8) Secuencias: setval al final para que los id autogenerados
+            # continuen donde los dejó la tabla y no choquen.
+            seq_end_s.append("-- Secuencias (setval)")
+            for sname, tname, cname, ident in seq_owner:
+                if not ident:
+                    # Las secuencias de columnas IDENTITY ya están
+                    # vinculadas a su columna: "OWNED BY" sobre ellas es
+                    # un error ("cannot change ownership of identity
+                    # sequence"); las SERIAL sí lo necesitan.
+                    seq_end_s.append(
+                        f"ALTER SEQUENCE {qschema}.{qi(sname)} "
+                        f"OWNED BY {qschema}.{qi(tname)}.{qi(cname)};"
+                    )
+                last = seq_by_name.get(sname, {}).get("last")
+                max_expr = (
+                    f"COALESCE((SELECT MAX({qi(cname)}) "
+                    f"FROM {qschema}.{qi(tname)}), 0)"
+                )
+                if last is not None:
+                    # Se conserva la posición real de la secuencia (igual
+                    # que pg_dump) sin quedar por debajo del MAX(id)
+                    # restaurado: los id autogenerados no chocan.
+                    value_expr = f"GREATEST({last}, {max_expr}, 1)"
+                    called = "true"
+                else:
+                    value_expr = f"GREATEST({max_expr}, 1)"
+                    called = f"EXISTS (SELECT 1 FROM {qschema}.{qi(tname)})"
+                seq_end_s.append(
+                    f"SELECT setval('{qschema}.{qi(sname)}'::regclass, "
+                    f"{value_expr}, {called});"
+                )
+            for sname, sdata in seq_by_name.items():
+                if sname in identity_seqs or sname in {s[0] for s in seq_owner}:
+                    continue
+                last = sdata["last"]
+                seq_end_s.append(
+                    f"SELECT setval('{qschema}.{qi(sname)}'::regclass, "
+                    f"{last if last is not None else sdata['start']}, "
+                    f"{'true' if last is not None else 'false'});"
+                )
+            seq_end_s.append("")
+
+            header.append(
+                "-- Bitácora GRM - backup PostgreSQL "
+                "(fallback psycopg2: dump RESTAURABLE)"
+            )
+            header.append(
+                f"-- Generado: {datetime.now(timezone.utc).isoformat()}"
+            )
+            header.append(f"-- Servidor: {pg_version}")
+            header.append(f"-- server_version_num: {server_version}")
+            header.append(f"-- Base de datos: {db_name} (usuario: {db_user})")
+            header.append(
+                f"-- Tablas: {len(tables)} (con datos: {tables_with_data})"
+            )
+            header.append(
+                "-- El DDL se reconstruye desde pg_catalog (la BD real)."
+            )
+            header.append("")
+            header.append("SET client_encoding = 'UTF8';")
+            header.append("SET standard_conforming_strings = on;")
+            header.append(f"SET search_path = {schema};")
+            header.append("")
+
+            lines: List[str] = []
+            lines.extend(header)
+            lines.extend(types_s)
+            lines.extend(seqs_s)
+            lines.extend(tables_s)
+            lines.extend(data_s)
+            lines.extend(constr_s)
+            lines.extend(index_s)
+            lines.extend(fk_s)
+            lines.extend(seq_end_s)
+
             payload = "\n".join(lines).encode("utf-8")
             with target.open("wb") as gz_f:
                 with gzip.GzipFile(fileobj=gz_f, mode="wb", compresslevel=6) as gz:

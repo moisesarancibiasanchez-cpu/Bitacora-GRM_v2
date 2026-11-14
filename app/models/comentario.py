@@ -29,6 +29,10 @@ class Comentario(Base, TimestampMixin):
     # Si fue edición, guarda el original
     editado = Column(Boolean, default=False, nullable=False)
     texto_original = Column(Text, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     ticket = relationship("Ticket", back_populates="comentarios")
     usuario = relationship("Usuario")
@@ -107,6 +111,10 @@ class MencionUsuario(Base):
     )
     # Si ya se le notificó
     notificado = Column(Integer, default=0, nullable=False)  # 0=False, 1=True
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     comentario = relationship("Comentario", back_populates="menciones")
     usuario = relationship("Usuario")

@@ -20,6 +20,10 @@ class Checklist(Base, TimestampMixin):
     titulo = Column(String(200), nullable=False)
     orden = Column(Integer, default=0, nullable=False)
     posicion = Column(Integer, default=0, nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     items = relationship(
         "ChecklistItem",
@@ -62,6 +66,10 @@ class ChecklistItem(Base):
         nullable=True
     )
     fecha_vencimiento = Column(String(50), nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     checklist = relationship("Checklist", back_populates="items")
     asignado = relationship("Usuario")

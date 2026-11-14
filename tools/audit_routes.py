@@ -1,20 +1,26 @@
 """Audit - Recolecta rutas declaradas y muestra inventario."""
 import re
 import os
+import sys
+
+# La consola de Windows usa cp1252 por defecto: sin esto, la salida con
+# acentos provoca UnicodeEncodeError.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 routes_api = set()
 for root, _, files in os.walk('app/api'):
     for f in files:
         if f.endswith('.py'):
             p = os.path.join(root, f)
-            content = open(p).read()
+            content = open(p, encoding='utf-8').read()
             for m in re.finditer(
                 r'@router\.(?:get|post|patch|put|delete|head|options)\(\s*["\']([^"\']+)["\']',
                 content,
             ):
                 routes_api.add(m.group(1))
 
-content = open('app/main.py').read()
+content = open('app/main.py', encoding='utf-8').read()
 routes_main = set()
 for m in re.finditer(
     r'@app\.(?:get|post|patch|put|delete|head|options)\(\s*["\']([^"\']+)["\']',

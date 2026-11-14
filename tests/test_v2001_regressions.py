@@ -372,6 +372,11 @@ def test_el_arranque_completo_sobre_una_base_nueva_no_falla(tmp_path):
     proceso = subprocess.run(
         [sys.executable, "-X", "utf8", "-c", script],
         capture_output=True, text=True, timeout=600,
+        # V2.009: sin `encoding` la salida UTF-8 del subproceso se decodifica
+        # con el locale del sistema (cp1252 en Windows) y el test falla con
+        # "argument of type 'NoneType' is not iterable". El subproceso se
+        # lanza SIEMPRE con `-X utf8`, asi que se decodifica como UTF-8.
+        encoding="utf-8", errors="replace",
         cwd=str(RAIZ),
     )
 

@@ -56,6 +56,10 @@ class EtapaProyecto(Base, TimestampMixin):
     orden = Column(Integer, nullable=False, index=True)
     color = Column(String(7), nullable=False, default="#6366f1")
     activo = Column(Integer, nullable=False, default=1)  # 1=sí, 0=no
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relación inversa: las asignaciones de esta etapa a tickets
     ticket_etapas = relationship(
@@ -119,6 +123,10 @@ class TicketEtapa(Base, TimestampMixin):
 
     # Nota libre (qué hizo falta en esta etapa, link a PR, build, etc.)
     notas = Column(Text, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     etapa = relationship("EtapaProyecto", back_populates="ticket_etapas")

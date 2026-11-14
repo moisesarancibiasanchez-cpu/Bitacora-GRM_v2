@@ -64,6 +64,10 @@ class Adjunto(Base, TimestampMixin):
     # subida nueva). En SQLite se persiste como ``BLOB`` y en PostgreSQL como
     # ``BYTEA`` (columna ``oid`` evitada para mantener updates por registro).
     contenido = Column(LargeBinary, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     ticket = relationship("Ticket", back_populates="adjuntos", foreign_keys=[ticket_id])
     usuario = relationship("Usuario")

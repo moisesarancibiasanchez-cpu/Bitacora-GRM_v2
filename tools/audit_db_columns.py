@@ -7,6 +7,11 @@ os.environ.setdefault('SECRET_KEY', 'k')
 os.environ.setdefault('AUTO_INIT_DB', 'true')
 sys.path.insert(0, '.')
 
+# La consola de Windows usa cp1252 por defecto: sin esto, los caracteres de
+# caja del informe ('┌─', '└─') provocan UnicodeEncodeError al imprimirse.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 from app.db.base import Base
 from app.models import *  # importa todos los modelos
 

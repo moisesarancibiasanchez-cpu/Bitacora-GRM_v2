@@ -11,6 +11,11 @@ import re
 import sys
 from jinja2 import Environment, TemplateSyntaxError
 
+# La consola de Windows usa cp1252 por defecto: sin esto, la salida con
+# acentos provoca UnicodeEncodeError.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 BASE_IDS = {
     # Ids provistos por base.html / app.js que cualquier template puede targetear
@@ -37,7 +42,7 @@ ok_count = 0
 def scan_template(path):
     global ok_count
     try:
-        src = open(path).read()
+        src = open(path, encoding="utf-8").read()
         env.parse(src)
     except TemplateSyntaxError as e:
         problems.append(("SYNTAX", path, f"linea {e.lineno}: {e.message}"))

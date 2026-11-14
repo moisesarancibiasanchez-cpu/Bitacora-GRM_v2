@@ -9,6 +9,8 @@ from app.models.checklist import Checklist, ChecklistItem
 from app.models.comentario import Comentario, MencionUsuario
 from app.models.adjunto import Adjunto
 from app.models.automacion import ReglaAutomatizacion, EjecucionAutomatizacion
+# === Multi-tenancy por proyecto (V2.009) ===
+from app.models.proyecto import Proyecto, proyecto_usuarios, PROYECTO_LEGACY_ID, NOMBRE_PROYECTO_LEGACY
 # === Nuevos modelos estilo Trello ===
 from app.models.espacio import Espacio, Tablero, PermisoTablero, espacio_miembros
 from app.models.watch import Watch, Reaccion, Notificacion
@@ -59,4 +61,6 @@ __all__ = [
     "ReportePlantilla",
     "ReporteDestinatario",
     "ReporteEntregaDiaria",
+    # Multi-tenancy por proyecto (V2.009)
+    "Proyecto", "proyecto_usuarios", "PROYECTO_LEGACY_ID", "NOMBRE_PROYECTO_LEGACY",
 ]

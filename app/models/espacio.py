@@ -45,6 +45,10 @@ class Espacio(Base, TimestampMixin):
     # Configuración visual (color, logo)
     color = Column(String(20), default="#6366f1", nullable=False)
     icono = Column(String(40), default="espacio", nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     propietario = relationship("Usuario", foreign_keys=[propietario_id])
@@ -100,6 +104,10 @@ class Tablero(Base, TimestampMixin):
     archivado = Column(Boolean, default=False, nullable=False, index=True)
     # URL pública para tableros públicos
     slug_publico = Column(String(60), nullable=True, unique=True, index=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     espacio = relationship("Espacio", back_populates="tableros")
@@ -174,6 +182,10 @@ class PermisoTablero(Base, TimestampMixin):
     invitado_por_id = Column(
         Integer, ForeignKey("usuarios.id", ondelete="SET NULL"),
         nullable=True
+    )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     tablero = relationship("Tablero", back_populates="permisos")

@@ -35,6 +35,10 @@ class Watch(Base, TimestampMixin):
     activo = Column(Boolean, default=True, nullable=False)
     # Canal preferido de notificación: 'web' | 'email' | 'push' | 'all'
     canal = Column(String(20), default="all", nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones polimórficas condicionales (no FK para soportar múltiples tipos)
     usuario = relationship("Usuario", backref="watches")
@@ -63,6 +67,10 @@ class Reaccion(Base, TimestampMixin):
     objeto_id = Column(Integer, nullable=False, index=True)
     # Emoji Unicode (👍 ❤️ 🎉 😄 🤔 👀 🚀 etc.)
     emoji = Column(String(16), nullable=False, index=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     usuario = relationship("Usuario")
 
@@ -102,6 +110,10 @@ class Notificacion(Base, TimestampMixin):
     origen_usuario_id = Column(
         Integer, ForeignKey("usuarios.id", ondelete="SET NULL"),
         nullable=True
+    )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     usuario = relationship("Usuario", foreign_keys=[usuario_id])

@@ -21,6 +21,10 @@ class CatalogoTipo(Base, TimestampMixin):
     # Esquema simplificado: lista de campos {"key", "label", "tipo", "requerido"}
     esquema = Column(JSON, nullable=False, default=list)
     activo = Column(Boolean, default=True, nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     items = relationship(
@@ -50,6 +54,10 @@ class CatalogoItem(Base, TimestampMixin):
     descripcion = Column(Text, nullable=True)
     datos = Column(JSON, nullable=False, default=dict)
     activo = Column(Boolean, default=True, nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     catalogo_tipo = relationship("CatalogoTipo", back_populates="items")
 

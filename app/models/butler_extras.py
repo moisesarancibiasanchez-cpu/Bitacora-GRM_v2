@@ -49,6 +49,10 @@ class BotonTarjeta(Base, TimestampMixin):
         Integer, ForeignKey("usuarios.id", ondelete="SET NULL"),
         nullable=True
     )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     tablero = relationship("Tablero", backref="botones")
     creador = relationship("Usuario")
@@ -81,6 +85,10 @@ class EjecucionBoton(Base, TimestampMixin):
     )
     exito = Column(Boolean, default=True, nullable=False)
     detalle = Column(Text, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     boton = relationship("BotonTarjeta", back_populates="ejecuciones")
 
@@ -126,6 +134,10 @@ class ComandoProgramado(Base, TimestampMixin):
         Integer, ForeignKey("usuarios.id", ondelete="SET NULL"),
         nullable=True
     )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     tablero = relationship("Tablero", back_populates="comandos_programados")
     creador = relationship("Usuario")
@@ -152,6 +164,10 @@ class EjecucionComando(Base, TimestampMixin):
     detalle = Column(Text, nullable=True)
     tickets_afectados = Column(Integer, default=0, nullable=False)
     duracion_ms = Column(Integer, default=0, nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     comando = relationship("ComandoProgramado", back_populates="ejecuciones")
 

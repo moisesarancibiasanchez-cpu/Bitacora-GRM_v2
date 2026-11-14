@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship
 import enum
 
 from app.db.base import Base, TimestampMixin
+from app.models.proyecto import proyecto_usuarios
 
 
 class RolUsuario(str, enum.Enum):
@@ -43,6 +44,14 @@ class Usuario(Base, TimestampMixin):
         foreign_keys="Ticket.asignado_id",
     )
     auditorias = relationship("Auditoria", back_populates="usuario")
+    # Proyectos a los que pertenece el usuario (many-to-many por la tabla
+    # puente ``proyecto_usuarios``). Los usuarios son GLOBALES: no llevan
+    # columna ``proyecto_id``; su pertenencia a proyectos es esta relacion.
+    proyectos = relationship(
+        "Proyecto",
+        secondary=proyecto_usuarios,
+        back_populates="usuarios",
+    )
 
     def tiene_permiso_para(self, accion: str) -> bool:
         """Verifica si el rol del usuario permite una acción dada."""

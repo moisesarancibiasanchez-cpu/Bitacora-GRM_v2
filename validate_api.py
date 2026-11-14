@@ -103,6 +103,11 @@ def has_auth_dep(route) -> bool:
 
 
 def main():
+    # La consola de Windows usa cp1252 por defecto: sin esto, la salida con
+    # acentos provoca UnicodeEncodeError.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     os.environ.setdefault("DATABASE_URL", "sqlite:///./_validate_api.db")
     os.environ.setdefault("SECRET_KEY", "validate-only-secret-key-12345678901234567890")
     os.environ.setdefault("ALLOW_XUSER_HEADER", "false")
@@ -152,7 +157,7 @@ def main():
         for f in files:
             if not f.endswith((".html", ".py")):
                 continue
-            src = open(os.path.join(root, f)).read()
+            src = open(os.path.join(root, f), encoding="utf-8").read()
             for m in re.finditer(r'hx-(get|post|put|delete|patch)="([^"]+)"', src):
                 url = m.group(2)
                 if not url.startswith("/") or "{" in url:

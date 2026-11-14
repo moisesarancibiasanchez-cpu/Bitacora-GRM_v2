@@ -1,0 +1,73 @@
+# Workflow de CI del proyecto Bitacora GRM v2.
+# Existe porque un bug de JavaScript llego a produccion sin que nada lo
+# detectara: aqui se ejecuta la suite completa de tests en cada push y en
+# cada pull request, de modo que un fallo BLOQUEA el merge.
+
+name: CI
+
+# La clave "on" va entrecomillada a proposito: en YAML 1.1 (PyYAML) el token
+# sin comillas `on` se resuelve como el booleano `true` y rompe cualquier
+# validador que lea el workflow por clave. GitHub Actions lo interpreta igual.
+"on":
+  push:
+    branches:
+      - main
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+
+# Un unico run por referencia: al hacer push al mismo PR se cancela el run
+# anterior, que ya esta obsoleto.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Suite de tests (Python 3.12)
+    runs-on: ubuntu-latest
+    # La suite completa tarda 12-15 minutos en local.
+    timeout-minutes: 45
+    env:
+      # El codigo y las plantillas estan en UTF-8 con tildes. Se fuerza el modo
+      # UTF-8 de Python para que la decodificacion de la salida de los
+      # subprocesos que lanza la suite NO dependa del locale de la imagen del
+      # runner: con cp1252 (locale por defecto de Windows) el test
+      # `test_el_arranque_completo_sobre_una_base_nueva_no_falla` falla al
+      # decodificar la salida UTF-8 del subproceso.
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # `pytest` NO esta en requirements.txt (vive en requirements-dev.txt),
+          # asi que se instala aqui como dependencia de desarrollo del CI, fijada
+          # a la misma version que declara el repositorio.
+          pip install pytest==9.1.1 pytest-cov
+
+      - name: Ejecutar la suite de tests
+        # No hace falta Postgres ni Redis: `tests/conftest.py` fuerza una base
+        # SQLite temporal bajo `tests/tmp/` y fija el entorno ANTES de importar
+        # la app, asi que aqui no se define `DATABASE_URL`.
+        run: python -m pytest tests/ -q --tb=short --junitxml=pytest-report.xml
+
+      - name: Subir el informe de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          if-no-files-found: warn

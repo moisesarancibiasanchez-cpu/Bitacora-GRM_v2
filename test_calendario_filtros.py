@@ -345,25 +345,31 @@ for sig in js_signatures:
     check(f"JS contiene '{sig}'", sig in html, f"presente={sig in html}")
 
 # Catálogos renderizados en los <select>
+# Las expresiones con backslash se extraen a variables: un f-string no puede
+# contener un backslash en su parte de expresion antes de Python 3.12 (PEP 701).
+presenta_estados = all(f'value="{eid}"' in html for eid in [ID_ESTADO_NUEVO, ID_ESTADO_PROGRESO, ID_ESTADO_CERRADO])
 check(
     "Select de estado contiene los 3 estados creados",
-    all(f'value="{eid}"' in html for eid in [ID_ESTADO_NUEVO, ID_ESTADO_PROGRESO, ID_ESTADO_CERRADO]),
-    f"presente={all(f'value=\"{eid}\"' in html for eid in [ID_ESTADO_NUEVO, ID_ESTADO_PROGRESO, ID_ESTADO_CERRADO])}",
+    presenta_estados,
+    f"presente={presenta_estados}",
 )
+presenta_sin_asignar = '<option value="-1"' in html
 check(
     "Select de asignado contiene '— Sin asignar —'",
-    '<option value="-1"' in html,
-    f"presente={'<option value=\"-1\"' in html}",
+    presenta_sin_asignar,
+    f"presente={presenta_sin_asignar}",
 )
+presenta_usuarios = all(f'value="{uid}"' in html for uid in [ID_ADMIN, ID_AGENT, ID_AGENT2])
 check(
     "Select de asignado contiene los 3 usuarios",
-    all(f'value="{uid}"' in html for uid in [ID_ADMIN, ID_AGENT, ID_AGENT2]),
-    f"presente={all(f'value=\"{uid}\"' in html for uid in [ID_ADMIN, ID_AGENT, ID_AGENT2])}",
+    presenta_usuarios,
+    f"presente={presenta_usuarios}",
 )
+presenta_etiquetas = all(f'value="{eid}"' in html for eid in [ID_ETQ_BUG, ID_ETQ_MEJORA])
 check(
     "Select de etiqueta contiene las 2 etiquetas creadas",
-    all(f'value="{eid}"' in html for eid in [ID_ETQ_BUG, ID_ETQ_MEJORA]),
-    f"presente={all(f'value=\"{eid}\"' in html for eid in [ID_ETQ_BUG, ID_ETQ_MEJORA])}",
+    presenta_etiquetas,
+    f"presente={presenta_etiquetas}",
 )
 
 

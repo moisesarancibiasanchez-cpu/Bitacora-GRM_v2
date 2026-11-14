@@ -39,6 +39,10 @@ class Etiqueta(Base, TimestampMixin):
     categoria = Column(String(40), default="general", nullable=False, index=True)
     descripcion = Column(Text, nullable=True)
     activo = Column(Boolean, default=True, nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relación many-to-many
     tickets = relationship(

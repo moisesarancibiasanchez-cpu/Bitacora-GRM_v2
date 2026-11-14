@@ -1,7 +1,13 @@
 """Audit broken links - respeta prefijos per-router."""
 import os
 import re
+import sys
 from collections import defaultdict
+
+# La consola de Windows usa cp1252 por defecto: sin esto, la salida con
+# acentos provoca UnicodeEncodeError.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 GLOBAL_PREFIX = '/api/v1'
 
@@ -14,7 +20,7 @@ for root, _, files in os.walk('app/api'):
         if not f.endswith('.py'):
             continue
         p = os.path.join(root, f)
-        content = open(p).read()
+        content = open(p, encoding='utf-8').read()
 
         # prefijos del archivo
         prefixes = []
@@ -34,7 +40,7 @@ for p, routes in api_routes_by_file.items():
 main_set = set()
 for m in re.finditer(
     r'@app\.(?:get|post|patch|put|delete)\(\s*["\']([^"\']+)["\']',
-    open('app/main.py').read(),
+    open('app/main.py', encoding='utf-8').read(),
 ):
     main_set.add(m.group(1))
 
@@ -53,7 +59,7 @@ for root, _, files in os.walk('app/templates'):
         if not f.endswith('.html'):
             continue
         p = os.path.join(root, f)
-        content = open(p).read()
+        content = open(p, encoding='utf-8').read()
         for m in re.finditer(r'hx-(?:get|post|patch|put|delete)\s*=\s*["\']([^"\']+)["\']', content):
             refs.append((p, normalize(m.group(1))))
         for m in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', content):

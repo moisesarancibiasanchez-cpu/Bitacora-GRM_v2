@@ -128,6 +128,10 @@ class TicketReferencia(Base):
         default=now_utc,
         index=True,
     )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # === Relaciones ===
     ticket_origen = relationship(

@@ -986,3 +986,32 @@
 # en docs/onboarding-demo/).
 /docs/onboarding-demo-recuperada/
 
+# ==============================================================================
+# RESTOS DE LOTES, DEMOS Y DATOS DEL CLIENTE (NO son código fuente)
+# ==============================================================================
+# Builds antiguos del artefacto estático: ``dist/`` ya está cubierto, pero estas
+# carpetas (generadas en lotes anteriores) seguían versionadas y duplicaban su
+# contenido.
+/dist-demo/
+/dist-fix/
+# Demos y material de presentación: no forman parte de la aplicación.
+/demo-static/
+/mvp-demo/
+# Capturas de pantalla de las pruebas manuales: regenerables.
+/screenshots/
+# Scripts de exploración con navegador: usan playwright/aiohttp/neo4j/metrics,
+# dependencias que NO están declaradas en ``requirements.txt``.
+/browser/
+# Ficheros de trabajo entregados por el cliente (.mpp/.xml/.pdf/.xlsx/.csv,
+# ~5,9 MB): son datos del cliente, no código fuente.
+/user_input_files/
+# Bundle de git generado para las entregas: es un artefacto del repositorio,
+# no parte del código.
+/bitacora-grm-v2.bundle
+# Copia obsoleta del MVP con su propio paquete ``app``: si alguien añade la
+# carpeta al ``sys.path`` ensombrece el paquete real, y su
+# ``itsm_kanban_mvp/tests/test_kanban_service.py`` importa
+# ``app.services.kanban_service``, que no existe en la aplicación real
+# (ImportError).
+/itsm_kanban_mvp/
+

@@ -1,7 +1,13 @@
 """Audit - Cross-check template references against declared routes."""
 import os
 import re
+import sys
 from collections import Counter
+
+# La consola de Windows usa cp1252 por defecto: sin esto, la salida con
+# acentos provoca UnicodeEncodeError.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # 1) Recolectar rutas declaradas (api/main)
 api_patterns = []
@@ -12,14 +18,14 @@ for root, _, files in os.walk('app/api'):
             p = os.path.join(root, f)
             for m in re.finditer(
                 r'@router\.(?:get|post|patch|put|delete)\(\s*["\']([^"\']+)["\']',
-                open(p).read(),
+                open(p, encoding='utf-8').read(),
             ):
                 api_set.add('/api/v1' + m.group(1))
 
 main_set = set()
 for m in re.finditer(
     r'@app\.(?:get|post|patch|put|delete)\(\s*["\']([^"\']+)["\']',
-    open('app/main.py').read(),
+    open('app/main.py', encoding='utf-8').read(),
 ):
     main_set.add(m.group(1))
 
@@ -31,7 +37,7 @@ for root, _, files in os.walk('app/templates'):
     for f in files:
         if f.endswith('.html'):
             p = os.path.join(root, f)
-            content = open(p).read()
+            content = open(p, encoding='utf-8').read()
             # hx-get / hx-post / hx-patch / hx-delete / hx-put
             for m in re.finditer(r'hx-(?:get|post|patch|put|delete)\s*=\s*["\']([^"\']+)["\']', content):
                 refs.append((p, 'HX', m.group(1)))

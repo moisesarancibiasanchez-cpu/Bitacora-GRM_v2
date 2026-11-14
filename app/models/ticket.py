@@ -207,6 +207,10 @@ class Ticket(Base, TimestampMixin):
     # tabla ``usuarios``. La columna se indexa para acelerar los filtros
     # del dashboard de QA.
     qa_tester = Column(String(160), nullable=True, index=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     estado = relationship("Estado", back_populates="tickets", lazy="joined")
@@ -342,6 +346,10 @@ class HistorialEstado(Base):
     # IP/host desde donde se hizo el cambio
     origen = Column(String(200), nullable=True)
     fecha = Column(DateTime, nullable=False, index=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     ticket = relationship("Ticket", back_populates="historial_estados")
     estado_origen = relationship("Estado", foreign_keys=[estado_origen_id])

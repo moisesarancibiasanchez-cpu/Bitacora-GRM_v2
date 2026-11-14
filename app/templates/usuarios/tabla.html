@@ -66,12 +66,16 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
             </svg>
           </button>
+          {# `desactivar-form` / `reactivar-form` responden 200 con cuerpo vacío:
+             con hx-swap="innerHTML" sobre `#usuarios-tabla` el partial se
+             vaciaría. Por eso no hay swap y la tabla se recarga con el mismo
+             patrón que usuarios/form.html. #}
           {% if u.is_active %}
           <button class="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
                   hx-post="/api/v1/usuarios/{{ u.id }}/desactivar-form"
                   hx-confirm="¿Desactivar al usuario {{ u.nombre_completo }}?"
-                  hx-target="#usuarios-tabla" hx-swap="innerHTML"
-                  hx-on::after-request="if(event.detail.successful) window.showToast && window.showToast('Usuario desactivado','info')"
+                  hx-swap="none"
+                  hx-on::after-request="if(event.detail.successful) { window.showToast && window.showToast('Usuario desactivado','info'); htmx.ajax('GET','/usuarios/tabla',{target:'#usuarios-tabla',swap:'innerHTML'}); }"
                   title="Desactivar">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
@@ -80,8 +84,8 @@
           {% else %}
           <button class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
                   hx-post="/api/v1/usuarios/{{ u.id }}/reactivar-form"
-                  hx-target="#usuarios-tabla" hx-swap="innerHTML"
-                  hx-on::after-request="if(event.detail.successful) window.showToast && window.showToast('Usuario reactivado','success')"
+                  hx-swap="none"
+                  hx-on::after-request="if(event.detail.successful) { window.showToast && window.showToast('Usuario reactivado','success'); htmx.ajax('GET','/usuarios/tabla',{target:'#usuarios-tabla',swap:'innerHTML'}); }"
                   title="Reactivar">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>

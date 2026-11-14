@@ -37,6 +37,10 @@ class Auditoria(Base, TimestampMixin):
     valor_nuevo = Column(JSON, nullable=True)
     comentario = Column(Text, nullable=True)
     ip_origen = Column(String(64), nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     ticket = relationship("Ticket", back_populates="auditorias")

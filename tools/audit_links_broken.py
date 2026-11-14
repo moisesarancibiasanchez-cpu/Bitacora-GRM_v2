@@ -1,14 +1,20 @@
 """Audit broken links - normaliza {{ }} y verifica contra rutas declaradas."""
 import os
 import re
+import sys
 from collections import Counter
+
+# La consola de Windows usa cp1252 por defecto: sin esto, la salida con
+# acentos provoca UnicodeEncodeError.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 api_set = set()
 for root, _, files in os.walk('app/api'):
     for f in files:
         if f.endswith('.py'):
             p = os.path.join(root, f)
-            content = open(p).read()
+            content = open(p, encoding='utf-8').read()
             for m in re.finditer(
                 r'@router\.(?:get|post|patch|put|delete)\(\s*["\']([^"\']+)["\']',
                 content,
@@ -18,7 +24,7 @@ for root, _, files in os.walk('app/api'):
 main_set = set()
 for m in re.finditer(
     r'@app\.(?:get|post|patch|put|delete)\(\s*["\']([^"\']+)["\']',
-    open('app/main.py').read(),
+    open('app/main.py', encoding='utf-8').read(),
 ):
     main_set.add(m.group(1))
 
@@ -36,7 +42,7 @@ for root, _, files in os.walk('app/templates'):
     for f in files:
         if f.endswith('.html'):
             p = os.path.join(root, f)
-            content = open(p).read()
+            content = open(p, encoding='utf-8').read()
             for m in re.finditer(r'hx-(?:get|post|patch|put|delete)\s*=\s*["\']([^"\']+)["\']', content):
                 refs.append((p, normalize(m.group(1))))
             for m in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', content):

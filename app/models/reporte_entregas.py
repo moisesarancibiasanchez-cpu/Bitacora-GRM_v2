@@ -107,6 +107,10 @@ class ReportePlantilla(Base, TimestampMixin):
         Text, nullable=True, default="",
         doc="Bloque de firma que se añade al final del correo.",
     )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     def __repr__(self) -> str:
         return f"<ReportePlantilla id={self.id} habilitado={self.habilitado}>"
@@ -158,6 +162,10 @@ class ReporteDestinatario(Base, TimestampMixin):
     notas = Column(
         Text, nullable=True,
         doc="Notas internas (no se envían en el correo).",
+    )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     # Relación al usuario (para mostrar su nombre en la UI admin)
@@ -265,6 +273,10 @@ class ReporteEntregaDiaria(Base, TimestampMixin):
             "UTC timestamp en que se envió el reporte que contenía esta "
             "entrega. NULL = aún no se ha enviado en un reporte diario."
         ),
+    )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     def __repr__(self) -> str:

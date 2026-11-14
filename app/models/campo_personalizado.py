@@ -45,6 +45,10 @@ class CampoPersonalizado(Base, TimestampMixin):
     activo = Column(Boolean, default=True, nullable=False)
     # Color del campo en la UI
     color = Column(String(20), default="#6366f1", nullable=False)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relaciones
     tablero = relationship("Tablero", back_populates="campos_personalizados")
@@ -89,6 +93,10 @@ class ValorCampo(Base, TimestampMixin):
     valor_numero = Column(Float, nullable=True)
     valor_booleano = Column(Boolean, nullable=True)
     valor_fecha = Column(DateTime, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     campo = relationship("CampoPersonalizado", back_populates="valores")
     ticket = relationship("Ticket", backref="valores_campos")

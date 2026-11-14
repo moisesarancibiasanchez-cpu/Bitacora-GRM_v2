@@ -51,6 +51,10 @@ class ReglaAutomatizacion(Base, TimestampMixin):
         Integer, ForeignKey("usuarios.id", ondelete="SET NULL"),
         nullable=True
     )
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     ejecuciones = relationship(
         "EjecucionAutomatizacion",
@@ -87,6 +91,10 @@ class EjecucionAutomatizacion(Base, TimestampMixin):
     contexto = Column(JSON, nullable=True)
     exito = Column(Integer, default=1, nullable=False)  # 1=True, 0=False
     detalle = Column(Text, nullable=True)
+    # Proyecto (tenant) al que pertenece la fila (NULL en V2.009; lo rellena el backfill)
+    proyecto_id = Column(
+        Integer, ForeignKey("proyectos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     regla = relationship("ReglaAutomatizacion", back_populates="ejecuciones")
 
