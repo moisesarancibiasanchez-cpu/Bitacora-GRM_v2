@@ -4,7 +4,7 @@ CLON) Y CORRECCION DE DEFECTOS EXISTENTES
 Proyecto: Bitacora GRM v2
 Fecha: 2026-11-14
 Rama base: main y release/v2.001 (commit d986d48)
-Estado: CODIGO LISTO Y VERIFICADO EN LOCAL. PENDIENTE DE DESPLEGUE.
+Estado: DESPLEGADO Y VERIFICADO EN PRODUCCION.
 ================================================================================
 
 0. PARCHE EXACTO
@@ -5118,3 +5118,124 @@ index 8ef8def..9ef75d6 100644
          env.parse(src)
      except TemplateSyntaxError as e:
          problems.append(("SYNTAX", path, f"linea {e.lineno}: {e.message}"))
+
+================================================================================
+9. ESTADO FINAL DEL DESPLIEGUE (anadido tras el despliegue y la
+   verificacion en produccion)
+================================================================================
+
+  Fecha del despliegue:  2026-11-18
+  Commit desplegado:     855601fc
+  Rama:                 release/v2.001 y main (alineadas por fast-forward)
+
+  9.1 ESTADO DE LOS TRES SERVICIOS
+
+      SERVICIO ESTADO     COMMIT     DEPLOYMENT
+      web      SUCCESS    855601fc   ca0b6737-0fd9-4ab8-b179-4f5d8e663e87
+      worker   SUCCESS    855601fc   c5e74825-f1fd-4bf2-a023-55b38f48eb5f
+      beat     SUCCESS    855601fc   c90b99b5-bc4a-4ff1-b1c7-2caee755f03e
+
+  9.2 QUE SE VERIFICO EN PRODUCCION (solo GET y POST de login)
+
+      POST /auth/login           HTTP 200
+      GET /health                HTTP 200
+      GET /ready                 HTTP 200
+      GET /kanban                HTTP 200
+      GET /dashboard             HTTP 200
+      GET /usuarios              HTTP 200
+      GET /tickets               HTTP 200
+      GET /api/v1/tickets        HTTP 200
+      GET /api/v1/metricas/resumen HTTP 200
+
+  9.3 ESQUEMA REAL DE LA BASE DE DATOS DE PRODUCCION
+
+      Tablas en el modelo:        40
+      Tablas en la base de datos: 40
+      Deriva de columnas:         0
+      Indices declarados que NO estan en su sitio: 0
+      Colisiones de indice:                    0
+
+      Guardian estricto ESQUEMA_ESTRICTO: ENCENDIDO en los tres
+      servicios (variable de entorno). Se encendio DESPUES de medir:
+      la medicion dio 0 lineas de deriva sobre las 40 tablas.
+
+  9.4 VENTANA V2 EN PRODUCCION (clon de la base de datos)
+
+      Se creo un clon de la base de datos de produccion en el mismo
+      servidor PostgreSQL, se verifico y se BORRO:
+
+        - Tablas del clon:        40 (las del modelo)
+        - Tablas con datos:       30
+        - Filas copiadas:         9.314
+        - Secuencias alineadas:   36
+        - Verificacion origen=clon: OK (mismas tablas, mismas
+          columnas, mismos recuentos de filas)
+        - Filas con proyecto_id a NULL: 0
+        - Proyecto 'Legacy': presente, con 2 administradores
+        - Clon borrado: SI (confirmado con GET /clones)
+
+      Clones que quedan en el servidor: ninguno
+
+  9.5 BACKUP DE PRODUCCION: RESTAURACION VERIFICADA AL 100%
+
+      Se genero un backup de produccion con el codigo ya corregido
+      y se restauro en un PostgreSQL 16.2 local:
+
+        - Backup: 9.314 INSERT, 41 CREATE TABLE, 167 CREATE INDEX
+        - Restauracion: 0 errores (antes: 925 filas rechazadas con
+          'invalid input syntax for type json')
+        - Filas de auditorias recuperadas: 3.157 (el dump antiguo solo
+          conservaba 2.245)
+        - De las cuales 912 tienen un valor JSON de tipo string: son
+          exactamente las que el dump antiguo perdia
+        - Tickets: 934, usuarios: 18, proyectos: 1, miembros de
+          Legacy: 2, tablas: 40, indices: 226
+
+  9.6 LO QUE NO SE TOCO (y sigue pendiente)
+
+      - El aislamiento por proyecto NO queda activo: los flags
+        AISLAMIENTO_PROYECTO_ACTIVO y RLS_HABILITADO siguen a False.
+        Los 934 tickets siguen visibles para todos, igual que en
+        V2.008. Eso es la ventana V3 (el corte).
+      - RLS sigue sin ser una capa de defensa real: el rol con el que
+        conecta la aplicacion (`postgres`) es superusuario y los
+        superusuarios ignoran RLS. Crear el rol de aplicacion sin
+        privilegios de owner es parte de V3.
+      - El filtro por espacio de las vistas (que es la otra fuga de
+        aislamiento detectada) NO se toca en este lote.
+      - Los pendientes de seguridad heredados siguen abiertos:
+        rotar la clave del administrador, rotar el token de
+        Railway, auditar el cambio de contrasena del 2026-10-26,
+        revisar el autoDeploy del worker y del beat, anclar
+        SECRET_KEY y el volumen en /data, rotar la contrasena de
+        PostgreSQL y cerrar el registro publico de usuarios.
+      - La migracion de la configuracion del panel antes del
+        2026-12-01.
+      - Los backups siguen en un sistema de ficheros efimero: hay
+        que decidir donde se copian.
+      - Queda un servicio de Railway sobrante, `clon-v2009`, que se
+        creo como andamiaje en este lote: el clon final es una BASE
+        DE DATOS dentro del PostgreSQL que ya existe, no un servicio
+        propio. Se ha puesto en modo suspendido (sleepApplication) y
+        con autoDeploy apagado, pero el token de proyecto no tiene
+        permiso de borrado de servicios (`serviceDelete` responde
+        'Not Authorized'): hay que borrarlo desde el panel de
+        Railway.
+
+  9.7 REVERSION DE ESTE LOTE
+
+      Si hubiera que dar atras el lote:
+        - `git revert` del commit de V2.009 en main y en
+          release/v2.001, y redespliegue de los tres servicios.
+        - La migracion es ADITIVA: la columna `proyecto_id` es
+          NULLABLE y las tablas `proyectos` y `proyecto_usuarios`
+          estan vacias o casi vacias. Un revert del codigo NO borra
+          la columna: la base de datos se queda como esta (que es
+          inocuo) hasta que se decida el corte de V3.
+        - El guardian estricto se apaga cambiando la variable de
+          entorno ESQUEMA_ESTRICTO a false y redesplegando.
+        - Los servicios de Plan V2.009 no dependen de cambios en
+          el Worker: el worker y el beat usan el MISMO codigo y el
+          MISMO commit que la web.
+
+================================================================================
