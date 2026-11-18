@@ -114,6 +114,14 @@ def diagnostico_esquema(
       columnas que faltan en la base de datos.
     * ``deriva``: solo las tablas con deriva real (las que NO están OK).
 
+    Y dos bloques más sobre ÍNDICES (V2.009), porque el guardian comparaba
+    solo columnas y en producción fallaron 52 de los 55 índices declarados
+    sin que nada lo dijera:
+
+    * ``indices``: los índices declarados que NO están donde deben
+      (``FALTA`` o ``COLISION``). Los que están bien no se reportan.
+    * ``indices_faltantes`` / ``indices_colision``: los mismos, separados.
+
     Sirve para medir la deriva antes de encender el guardián estricto
     (``ESQUEMA_ESTRICTO``): un guardián fail-closed sobre el esquema completo
     puede tumbar los tres servicios si la base de datos arrastra una deriva
@@ -130,12 +138,14 @@ def diagnostico_esquema(
 
     from app.db.migrations import (
         comparar_esquema_completo,
+        comparar_indices_completo,
         report_schema_drift,
     )
 
     eng = db.get_bind()
     comparacion = comparar_esquema_completo(eng)
     deriva = [l for l in comparacion if "faltan" in l or "no existe" in l]
+    indices = comparar_indices_completo(eng)
     try:
         tablas_bd = len(inspect(eng).get_table_names())
     except Exception:  # pragma: no cover
@@ -145,6 +155,9 @@ def diagnostico_esquema(
         "ok": not deriva,
         "deriva": deriva,
         "comparacion_completa": comparacion,
+        "indices": indices,
+        "indices_faltantes": [l for l in indices if "FALTA" in l],
+        "indices_colision": [l for l in indices if "COLISION" in l],
         "columnas_sincronizadas": report_schema_drift(eng),
         "tablas_modelo": len(comparacion),
         "tablas_base_datos": tablas_bd,

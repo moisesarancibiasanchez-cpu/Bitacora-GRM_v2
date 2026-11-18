@@ -125,6 +125,59 @@ operativo corrigiendo los defectos que ya existian.
         auditoria. Ahora es una migracion idempotente que se aplica en cada
         arranque.
 
+    - app/db/migrations.py (cerrojo y savepoints de los indices)
+        Defecto REAL detectado en produccion el 2026-11-14. En el arranque,
+        `start.sh` ejecuta `verificar_esquema()` en los TRES roles (web,
+        worker y beat) a la vez, y los tres aplican las migraciones sobre la
+        MISMA base de datos. Dos de ellos pueden pasar a la vez el chequeo
+        `CREATE INDEX IF NOT EXISTS` (que NO bloquea) y los dos intentan
+        crear el mismo indice: el segundo recibe `duplicate key value
+        violates unique constraint "pg_class_relname_nsp_index"` y su
+        TRANSACCION queda ABORTADA, de modo que los indices que quedaban
+        por crear fallan TODOS con "current transaction is aborted".
+        Medido: un servicio creo 3 indices y fallo en los 52 restantes.
+        REPRODUCIDO en local con 3 procesos concurrentes: 90 fallos, con el
+        mismo error de `pg_class`.
+        El esquema de produccion quedo bien (los otros dos servicios
+        crearon los indices que faltaban: los 34 `ix_<tabla>_proyecto_id`
+        existen, verificados sobre el DDL real de produccion), pero era
+        suerte, no garantias.
+        Fix: (a) cada indice va en su PROPIO savepoint, de modo que un
+        fallo aislado revierte solo su indice y no los demas; (b)
+        `pg_advisory_xact_lock` serializa las migraciones de los tres
+        servicios (el primero migra, los demas esperan y encuentran el
+        esquema ya alineado).
+
+    - app/db/migrations.py (comparador de indices)
+        El guardian de arranque comparaba COLUMNAS, nunca indices, asi que
+        un esquema al que le faltaba un indice pasaba el control sin dejar
+        rastro. Se anade `comparar_indices_completo()`, que informa de cada
+        indice declarado que NO esta en su sitio (FALTA) o que esta en
+        otra tabla (COLISION), y se expone en
+        `GET /api/v1/migraciones/esquema` (`indices`, `indices_faltantes`,
+        `indices_colision`).
+
+    - app/services/backup_service.py (columnas JSON)
+        Defecto REAL detectado en produccion el 2026-11-18 al restaurar un
+        backup: 925 de las 8.762 filas NO se restauraban
+        (`invalid input syntax for type json`). psycopg2 convierte las
+        columnas `json`/`jsonb` en objetos Python, y un literal SQL
+        escrito a pelo no siempre es JSON valido: un string JSON
+        (`"incidencia"`) salia como `'incidencia'` (sin las comillas del
+        JSON), un booleano salia como `TRUE` y un null JSON como `NULL`.
+        Fix: el literal se serializa teniendo en cuenta el TIPO de la
+        columna (`_pg_literal(v, tipo)`), de modo que un valor JSON se
+        escribe siempre como JSON valido. Cubierto por 18 pruebas nuevas
+        (16 de unitario y 2 de round-trip real contra PostgreSQL).
+
+    - tests/test_v2009_backup_postgresql.py
+        Pruebas nuevas del generador de backups: los literales de cada tipo
+        de dato, los literales JSON (string, booleano, objeto, lista,
+        numero, null), un round-trip REAL contra PostgreSQL con columnas
+        JSON y una prueba de CONCURRENCIA (tres conexiones aplicando las
+        migraciones a la vez, que es lo que hacen los tres servicios de
+        Railway).
+
     - app/db/migrations.py (migracion del proyecto Legacy)
         El primer fallo en PostgreSQL lo arrastro la validacion V2 y fue
         real: el INSERT de la membresia comparaba `usuarios.rol` contra el
@@ -232,7 +285,7 @@ operativo corrigiendo los defectos que ya existian.
   SQLAlchemy:         2.0.36 (fijado en requirements.txt)
   Python:             3.12 en produccion (>=3.12,<3.13), 3.11 local
   Suite antes:        262 passed (227 previos + 35 de V2.008)
-  Suite despues:      299 passed (262 previos + 37 nuevos de V2.009)
+  Suite despues:      320 passed (262 previos + 58 nuevos de V2.009)
 
   Lo que ya existia y NO se toca en este lote: la jerarquia
   Espacio -> Tablero -> Ticket, el LOV de Resultado de Pruebas, el pivote de
@@ -355,9 +408,10 @@ operativo corrigiendo los defectos que ya existian.
 
   5.1 AUTOMATICO (lo que ya se ha ejecutado en este lote)
 
-      - Suite nueva de V2.009: 37 passed
-        (tests/test_v2009_proyecto_aislamiento.py)
-      - Suite completa: 299 passed, 0 failed
+      - Suite nueva de V2.009: 58 passed
+        (40 en tests/test_v2009_proyecto_aislamiento.py y 18 en
+        tests/test_v2009_backup_postgresql.py)
+      - Suite completa: 320 passed, 0 failed
       - Validacion V2 contra un clon real de PostgreSQL 16.2: todas las
         comprobaciones OK (seccion 5.2)
       - CI de GitHub Actions: el workflow se ejecuto en local con el comando
@@ -450,6 +504,10 @@ operativo corrigiendo los defectos que ya existian.
   Verificacion del clon (origen=clon)  app/services/clone_service.py        seccion 5.2
   Etiqueta real del ENUM de usuarios   app/db/migrations.py                 test_v2009: 30
   Savepoint por paso del backfill      app/db/migrations.py                 test_v2009: 33
+  Savepoint por indice + cerrojo       app/db/migrations.py                 test_v2009: 32
+  Comparador de indices declarados    app/db/migrations.py                 seccion 5.2
+  Literales JSON en el backup          app/services/backup_service.py      test_v2009_backup
+  Migraciones concurrentes (3 roles)   app/db/migrations.py                 test_v2009_backup
   Salida UTF-8 del subproceso de test  tests/test_v2001_regressions.py      suite completa
   Endpoints de clon y de diagnostico   app/api/v1/migraciones.py            seccion 5.2
   Backup restaurable                   app/services/backup_service.py       round-trip PG 16.2
@@ -654,7 +712,7 @@ index 5269a61..948da94 100644
 +/itsm_kanban_mvp/
 +
 diff --git a/app/api/v1/migraciones.py b/app/api/v1/migraciones.py
-index 9cdfa67..edfacf9 100644
+index 9cdfa67..2b72a5d 100644
 --- a/app/api/v1/migraciones.py
 +++ b/app/api/v1/migraciones.py
 @@ -9,6 +9,7 @@ Todas las migraciones son seguras de re-ejecutar.
@@ -665,7 +723,7 @@ index 9cdfa67..edfacf9 100644
  from sqlalchemy.orm import Session
  
  from app.api.v1.deps import require_admin
-@@ -96,6 +97,189 @@ def preview_migracion_gar(
+@@ -96,6 +97,202 @@ def preview_migracion_gar(
      }
  
  
@@ -686,6 +744,14 @@ index 9cdfa67..edfacf9 100644
 +      columnas que faltan en la base de datos.
 +    * ``deriva``: solo las tablas con deriva real (las que NO estan OK).
 +
++    Y dos bloques mas sobre INDICES (V2.009), porque el guardian comparaba
++    solo columnas y en produccion fallaron 52 de los 55 indices declarados
++    sin que nada lo dijera:
++
++    * ``indices``: los indices declarados que NO estan donde deben
++      (``FALTA`` o ``COLISION``). Los que estan bien no se reportan.
++    * ``indices_faltantes`` / ``indices_colision``: los mismos, separados.
++
 +    Sirve para medir la deriva antes de encender el guardian estricto
 +    (``ESQUEMA_ESTRICTO``): un guardian fail-closed sobre el esquema completo
 +    puede tumbar los tres servicios si la base de datos arrastra una deriva
@@ -702,12 +768,14 @@ index 9cdfa67..edfacf9 100644
 +
 +    from app.db.migrations import (
 +        comparar_esquema_completo,
++        comparar_indices_completo,
 +        report_schema_drift,
 +    )
 +
 +    eng = db.get_bind()
 +    comparacion = comparar_esquema_completo(eng)
 +    deriva = [l for l in comparacion if "faltan" in l or "no existe" in l]
++    indices = comparar_indices_completo(eng)
 +    try:
 +        tablas_bd = len(inspect(eng).get_table_names())
 +    except Exception:  # pragma: no cover
@@ -717,6 +785,9 @@ index 9cdfa67..edfacf9 100644
 +        "ok": not deriva,
 +        "deriva": deriva,
 +        "comparacion_completa": comparacion,
++        "indices": indices,
++        "indices_faltantes": [l for l in indices if "FALTA" in l],
++        "indices_colision": [l for l in indices if "COLISION" in l],
 +        "columnas_sincronizadas": report_schema_drift(eng),
 +        "tablas_modelo": len(comparacion),
 +        "tablas_base_datos": tablas_bd,
@@ -1029,7 +1100,7 @@ index 0000000..833d804
 +        resultado.append(nombre)
 +    return sorted(resultado)
 diff --git a/app/db/migrations.py b/app/db/migrations.py
-index 93e1c7d..5ff1591 100644
+index 93e1c7d..b9a2b3b 100644
 --- a/app/db/migrations.py
 +++ b/app/db/migrations.py
 @@ -159,6 +159,76 @@ COLUMNS_TO_ADD: Dict[str, Dict[str, Tuple[str, str] | str]] = {
@@ -1154,7 +1225,19 @@ index 93e1c7d..5ff1591 100644
  
  def _get_existing_columns(eng: Engine, table: str) -> set:
      """Devuelve el conjunto de columnas existentes en la tabla (vacio si la tabla no existe)."""
-@@ -257,7 +358,7 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
+@@ -219,6 +320,11 @@ def _column_exists(eng: Engine, table: str, column: str) -> bool:
+     return column in _get_existing_columns(eng, table)
+ 
+ 
++#: Clave del cerrojo consultivo de PostgreSQL que serializa las
++#: migraciones entre los servicios que arrancan a la vez (web, worker y beat).
++CLAVE_CERROJO_MIGRACIONES = 7_412_009_013
++
++
+ def _asegurar_modelos_importados() -> None:
+     """Importa el paquete de modelos para que ``Base.metadata`` los conozca.
+ 
+@@ -257,7 +363,7 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
      # incluye tambien las migraciones de datos, que no impiden servir.
      stats = {"applied": 0, "skipped": 0, "indexes": 0, "errors": 0,
               "schema_errors": 0, "tables_created": 0, "data_migrated": 0,
@@ -1163,7 +1246,67 @@ index 93e1c7d..5ff1591 100644
  
      # 1) Asegurar que todas las tablas existen (no-op si ya estan).
      #    Necesario porque algunas columnas tienen FKs a tablas nuevas (tableros,
-@@ -317,6 +418,24 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
+@@ -273,6 +379,36 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
+ 
+     # 2) Anadir columnas faltantes
+     with eng.begin() as conn:
++        # --- V2.009: CERROJO DE MIGRACIONES -----------------------------
++        # En el despliegue de Railway, ``start.sh`` ejecuta
++        # ``verificar_esquema()`` en los TRES roles (web, worker y beat) a
++        # la vez, y los tres aplican las migraciones sobre la MISMA base de
++        # datos. Dos de ellos pueden pasar a la vez el chequeo
++        # ``CREATE INDEX IF NOT EXISTS`` (que no bloquea) y los dos intentar
++        # crear el mismo indice: el segundo recibe
++        #
++        #     duplicate key value violates unique constraint
++        #     "pg_class_relname_nsp_index"
++        #
++        # y su TRANSACCION queda abortada, de modo que los indices que
++        # quedaban por crear fallan todos con "current transaction is
++        # aborted". Medido en produccion el 2026-11-14: un servicio creo 3
++        # indices y fallo en los 52 restantes.
++        #
++        # ``pg_advisory_xact_lock`` serializa las migraciones: el primero la
++        # toma y los demas esperan; cuando le toca, encuentra el esquema ya
++        # alineado y no hace nada. El cerrojo se suelta solo al cerrar la
++        # transaccion (COMMIT o ROLLBACK).
++        if is_pg:
++            try:
++                conn.execute(text(
++                    "SELECT pg_advisory_xact_lock(:clave)"
++                ), {"clave": CLAVE_CERROJO_MIGRACIONES})
++            except Exception as exc:  # pragma: no cover
++                logger.warning(
++                    "[migrations] no se pudo tomar el cerrojo de migraciones: %s", exc,
++                )
++
+         for table, columns in COLUMNS_TO_ADD.items():
+             existing = _get_existing_columns(eng, table)
+             for column, type_def in columns.items():
+@@ -307,9 +443,21 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
+         #    registraba con ``logger.debug`` (invisible en produccion) y no
+         #    se contabilizaba, de modo que un esquema al que le faltaba un
+         #    indice pasaba el ``verificar_esquema`` sin dejar rastro.
++        #
++        #    V2.009 -- CADA INDICE VA EN SU PROPIO SAVEPOINT.
++        #    En PostgreSQL, un error dentro de una transaccion la ABORTA: los
++        #    comandos siguientes fallan con "current transaction is aborted".
++        #    Con el bucle entero en una sola transaccion, UN indice que
++        #    fallara (por ejemplo, por un nombre que ya existe en otra
++        #    tabla) invalidaba los 54 restantes. Se vio en produccion el
++        #    2026-11-14: 3 indices creados y 52 fallidos, entre ellos los 34
++        #    ``ix_<tabla>_proyecto_id``, que son los que necesita el filtro
++        #    por proyecto. Con un savepoint por indice, un fallo aislado
++        #    revierte solo su propio indice.
+         for name, sql in INDEXES:
+             try:
+-                conn.execute(text(sql))
++                with conn.begin_nested():
++                    conn.execute(text(sql))
+                 stats["indexes"] += 1
+             except Exception as e:
+                 stats["index_errors"] += 1
+@@ -317,6 +465,24 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
                      "[migrations] Indice %s NO se pudo crear: %s", name, e,
                  )
  
@@ -1188,7 +1331,7 @@ index 93e1c7d..5ff1591 100644
      # 4) Migraciones de datos (idempotentes): cambios de nomenclatura
      #    y de valores permitidos. Se ejecutan en una TRANSACCION SEPARADA
      #    para que un fallo en los datos NO haga rollback de las columnas/
-@@ -939,9 +1058,221 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
+@@ -939,9 +1105,221 @@ def _apply_data_migrations(conn, eng: Engine) -> int:
              "[migrations] data: marcar estados es_entrega fallo (aislado): %s", e,
          )
  
@@ -1410,7 +1553,7 @@ index 93e1c7d..5ff1591 100644
  def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
      """
      Devuelve una lista de lineas describiendo columnas que faltan
-@@ -959,6 +1290,59 @@ def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
+@@ -959,6 +1337,138 @@ def report_schema_drift(eng: Optional[Engine] = None) -> List[str]:
      return out
  
  
@@ -1467,10 +1610,89 @@ index 93e1c7d..5ff1591 100644
 +    return out
 +
 +
++def _indice_y_tabla_de_un_index(sql: str) -> Tuple[str, str]:
++    """
++    Extrae el NOMBRE real del indice y su tabla del DDL.
++
++    Ojo: la etiqueta de la tupla de ``INDEXES`` no siempre coincide con el
++    nombre del indice que crea el DDL. Por ejemplo, la etiqueta
++    ``ix_ref_origen`` crea en realidad ``ix_ticket_referencias_ticket_origen_id``
++    y ``ix_adjuntos_comentario`` crea ``ix_adjuntos_comentario_id``. Comparar
++    por la etiqueta daria un "FALTA" falso.
++    """
++    import re as _re
++
++    m = _re.search(
++        r"CREATE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?"
++        r"[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?\s+ON\s+[\"']?([A-Za-z_][A-Za-z0-9_]*)",
++        sql, _re.IGNORECASE,
++    )
++    if m:
++        return m.group(1), m.group(2)
++    m2 = _re.search(r"\bON\s+[\"']?([A-Za-z_][A-Za-z0-9_]*)", sql, _re.IGNORECASE)
++    return "", (m2.group(1) if m2 else "")
++
++
++def comparar_indices_completo(eng: Optional[Engine] = None) -> List[str]:
++    """
++    Compara los indices declarados en ``INDEXES`` con los que existen de
++    verdad en la base de datos.
++
++    Por que hace falta (V2.009)
++    -------------------------
++    El guardian de arranque comparaba COLUMNAS, nunca indices. En produccion
++    (2026-11-14) fallaron 52 de los 55 indices declarados y la aplicacion
++    arranco igual: el filtro por proyecto se quedaba sin indice y las
++    consultas tenian que recorrer la tabla entera, sin que nada lo dijera.
++
++    Este comparador devuelve una linea por indice declarado que NO esta en
++    su sitio:
++
++    * ``<nombre>: FALTA (declarado sobre <tabla>)`` -> no existe.
++    * ``<nombre>: COLISION (existe sobre '<otra>', el DDL lo declara sobre
++      '<tabla>')`` -> el nombre ya lo usa OTRA tabla. En PostgreSQL,
++      ``CREATE INDEX IF NOT EXISTS`` ignora el aviso SOLO si el indice con
++      ese nombre esta en la MISMA tabla: si esta en otra, falla con
++      "relation already exists".
++
++    Los indices que estan bien NO se reportan: el resultado son solo
++    problemas.
++    """
++    eng = eng or _get_default_engine()
++    _asegurar_modelos_importados()
++    try:
++        insp = inspect(eng)
++        indice_por_nombre: Dict[str, str] = {}
++        for nombre in Base.metadata.tables:
++            for idx in insp.get_indexes(nombre):
++                indice_por_nombre[idx["name"]] = nombre
++            for uq in insp.get_unique_constraints(nombre):
++                indice_por_nombre.setdefault(uq["name"], nombre)
++    except Exception as exc:  # pragma: no cover
++        logger.warning("[migrations] no se pudieron inspeccionar los indices: %s", exc)
++        return []
++
++    out: List[str] = []
++    for etiqueta, sql in INDEXES:
++        nombre, tabla = _indice_y_tabla_de_un_index(sql)
++        if not nombre:
++            # DDL no reconocible: se usa la etiqueta como nombre.
++            nombre = etiqueta
++        real = indice_por_nombre.get(nombre)
++        if real is None:
++            out.append("%s: FALTA (declarado sobre %s)" % (nombre, tabla))
++        elif tabla and real != tabla:
++            out.append(
++                "%s: COLISION (existe sobre '%s', el DDL lo declara sobre '%s')"
++                % (nombre, real, tabla)
++            )
++    return out
++
++
  def verificar_esquema(eng: Optional[Engine] = None) -> int:
      """Aplica las migraciones y comprueba que el esquema queda alineado.
  
-@@ -999,6 +1383,29 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
+@@ -999,6 +1509,29 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
          return 0
  
      faltan = [l for l in lineas if "faltan" in l]
@@ -1500,7 +1722,7 @@ index 93e1c7d..5ff1591 100644
      errores = int(stats.get("errors", 0) or 0)
      errores_esquema = int(stats.get("schema_errors", 0) or 0)
      logger.info(
-@@ -1015,6 +1422,11 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
+@@ -1015,6 +1548,11 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
          )
      if faltan:
          logger.error("[migrations] DERIVA DE ESQUEMA: %s", "; ".join(faltan))
@@ -1512,7 +1734,7 @@ index 93e1c7d..5ff1591 100644
      if errores_esquema:
          logger.error(
              "[migrations] %s error(es) de esquema al aplicar las migraciones",
-@@ -1025,7 +1437,7 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
+@@ -1025,7 +1563,7 @@ def verificar_esquema(eng: Optional[Engine] = None) -> int:
              "[migrations] %s error(es) en las migraciones de DATAS. El esquema "
              "queda alineado, se continua el arranque.", errores,
          )
@@ -2434,7 +2656,7 @@ index 9190451..8a44d03 100644
      usuario = relationship("Usuario", foreign_keys=[usuario_id])
      origen = relationship("Usuario", foreign_keys=[origen_usuario_id])
 diff --git a/app/services/backup_service.py b/app/services/backup_service.py
-index 5be5788..6c475c3 100644
+index 5be5788..013f9b3 100644
 --- a/app/services/backup_service.py
 +++ b/app/services/backup_service.py
 @@ -6,7 +6,8 @@ Soporta dos motores:
@@ -2447,7 +2669,66 @@ index 5be5788..6c475c3 100644
  
  - **SQLite** (desarrollo/demo): usa la API nativa ``sqlite3.Connection.backup()``
    que crea un snapshot consistente en otra conexion.
-@@ -308,7 +309,34 @@ class BackupService:
+@@ -91,6 +92,58 @@ class BackupResult:
+ # Servicio principal
+ # ============================================================
+ 
++def _pg_literal(v: Any, tipo: str = "") -> str:
++    """
++    Literal SQL de PostgreSQL para un valor Python.
++
++    ``tipo`` es el tipo DECLARADO de la columna (la salida de
++    ``format_type``). HACE FALTA para las columnas ``json`` y ``jsonb``:
++    psycopg2 convierte esas columnas en objetos Python (un dict, un str, un
++    bool...) y un literal SQL escrito a pelo no siempre es JSON valido.
++
++    Lo que se vio en produccion el 2026-11-18 al restaurar el backup: un
++    string JSON (``"incidencia"``) salia como ``'incidencia'`` (sin las
++    comillas del JSON), un booleano salia como ``TRUE`` y un null JSON como
++    ``NULL``. Los tres los rechazaba la columna al restaurar::
++
++        ERROR: invalid input syntax for type json
++
++    Con el tipo a la vista, el valor se serializa SIEMPRE con ``json.dumps``:
++    ``"incidencia"``, ``true``, ``null``, ``{"a": 1}``...
++    """
++    if tipo in ("json", "jsonb"):
++        if v is None:
++            return "NULL"
++        return "'" + json.dumps(v, ensure_ascii=False).replace("'", "''") + "'"
++    if v is None:
++        return "NULL"
++    if isinstance(v, bool):
++        return "TRUE" if v else "FALSE"
++    if isinstance(v, int):
++        return str(v)
++    if isinstance(v, float):
++        if v != v:
++            return "'NaN'"
++        if v == float("inf"):
++            return "'Infinity'"
++        if v == float("-inf"):
++            return "'-Infinity'"
++        return repr(v)
++    if isinstance(v, (bytes, bytearray, memoryview)):
++        # formato hex de bytea: un solo backslash -> '\x0a1b'
++        return "'\\x" + bytes(v).hex() + "'"
++    if isinstance(v, datetime):
++        return "'" + v.isoformat(sep=" ") + "'"
++    if isinstance(v, (list, tuple)):
++        if not v:
++            return "'{}'"
++        return "ARRAY[" + ", ".join(_pg_literal(x) for x in v) + "]"
++    if isinstance(v, dict):
++        return "'" + json.dumps(
++            v, ensure_ascii=False).replace("'", "''") + "'"
++    return "'" + str(v).replace("'", "''") + "'"
++
++
+ class BackupService:
+     """Servicio central de respaldos.
+ 
+@@ -308,7 +361,34 @@ class BackupService:
          return self._backup_postgresql_python(db_url, target)
  
      def _backup_postgresql_python(self, db_url: str, target: Path) -> int:
@@ -2483,7 +2764,7 @@ index 5be5788..6c475c3 100644
          try:
              import psycopg2  # type: ignore
              import psycopg2.extensions  # type: ignore
-@@ -317,46 +345,414 @@ class BackupService:
+@@ -317,46 +397,391 @@ class BackupService:
                  "pg_dump no disponible y psycopg2 no instalado"
              ) from e
  
@@ -2502,35 +2783,9 @@ index 5be5788..6c475c3 100644
 +                """Identificador de PostgreSQL entrecomillado."""
 +                return '"' + str(name).replace('"', '""') + '"'
 +
-+            def lit(v: Any) -> str:
++            def lit(v: Any, tipo: str = "") -> str:
 +                """Literal SQL de PostgreSQL para un valor Python."""
-+                if v is None:
-+                    return "NULL"
-+                if isinstance(v, bool):
-+                    return "TRUE" if v else "FALSE"
-+                if isinstance(v, int):
-+                    return str(v)
-+                if isinstance(v, float):
-+                    if v != v:
-+                        return "'NaN'"
-+                    if v == float("inf"):
-+                        return "'Infinity'"
-+                    if v == float("-inf"):
-+                        return "'-Infinity'"
-+                    return repr(v)
-+                if isinstance(v, (bytes, bytearray, memoryview)):
-+                    # formato hex de bytea: un solo backslash -> '\x0a1b'
-+                    return "'\\x" + bytes(v).hex() + "'"
-+                if isinstance(v, datetime):
-+                    return "'" + v.isoformat(sep=" ") + "'"
-+                if isinstance(v, (list, tuple)):
-+                    if not v:
-+                        return "'{}'"
-+                    return "ARRAY[" + ", ".join(lit(x) for x in v) + "]"
-+                if isinstance(v, dict):
-+                    return "'" + json.dumps(
-+                        v, ensure_ascii=False).replace("'", "''") + "'"
-+                return "'" + str(v).replace("'", "''") + "'"
++                return _pg_literal(v, tipo)
 +
 +            schema = "public"
 +            qschema = qi(schema)
@@ -2741,9 +2996,7 @@ index 5be5788..6c475c3 100644
 +
 +            # (3) CREATE TABLE de TODAS las tablas (incluidas las vacias).
 +            tables_s.append("-- Esquema (CREATE TABLE)")
-             for t in tables:
--                cur.execute(f'SELECT * FROM "{t}"')
--                cols = [d[0] for d in cur.description]
++            for t in tables:
 +                cols = cols_by_table.get(t, [])
 +                if not cols:
 +                    logger.warning(
@@ -2774,7 +3027,9 @@ index 5be5788..6c475c3 100644
 +            # (4) Datos: INSERT solo para las tablas que tienen filas.
 +            data_s.append("-- Datos")
 +            tables_with_data = 0
-+            for t in tables:
+             for t in tables:
+-                cur.execute(f'SELECT * FROM "{t}"')
+-                cols = [d[0] for d in cur.description]
 +                all_cols = cols_by_table.get(t, [])
 +                cols = [c for c in all_cols if not c["generated"]]
 +                if not cols:
@@ -2795,6 +3050,7 @@ index 5be5788..6c475c3 100644
 +                if any(c["identity"] == "a" for c in all_cols):
 +                    overriding = " OVERRIDING SYSTEM VALUE"
 +                data_s.append(f"-- {t}: {len(rows)} filas")
++                col_types = [c.get("type", "") for c in cols]
                  for row in rows:
 -                    vals = []
 -                    for v in row:
@@ -2811,12 +3067,14 @@ index 5be5788..6c475c3 100644
 -                            vals.append(f"'{s}'")
 -                    lines.append(
 -                        f"INSERT INTO \"{t}\" ({col_list}) VALUES ({', '.join(vals)});"
-+                    vals = ", ".join(lit(v) for v in row)
++                    vals = ", ".join(
++                        lit(v, col_types[i]) for i, v in enumerate(row)
+                     )
+-                lines.append("")
 +                    data_s.append(
 +                        f"INSERT INTO {qschema}.{qi(t)} ({col_list})"
 +                        f"{overriding} VALUES ({vals});"
-                     )
--                lines.append("")
++                    )
 +                data_s.append("")
 +
 +            # (5) PK / UNIQUE / CHECK / EXCLUDE (antes de las FK).
@@ -3621,12 +3879,328 @@ index d36b2d0..d28425e 100644
          cwd=str(RAIZ),
      )
  
+diff --git a/tests/test_v2009_backup_postgresql.py b/tests/test_v2009_backup_postgresql.py
+new file mode 100644
+index 0000000..0410406
+--- /dev/null
++++ b/tests/test_v2009_backup_postgresql.py
+@@ -0,0 +1,309 @@
++"""Pruebas del generador de backups de PostgreSQL (V2.009).
++
++Dos bloques:
++
++1) ``_pg_literal``: el formateo de valores SQL, incluido el caso ``json``,
++   que era un BUG REAL: psycopg2 convierte las columnas ``json``/``jsonb``
++   en objetos Python y un literal escrito a pelo no siempre es JSON valido.
++   En produccion (2026-11-18) un string JSON salia como ``'incidencia'``
++   (sin las comillas) y el backup no se podia restaurar::
++
++       ERROR: invalid input syntax for type json
++
++2) Un round-trip REAL contra PostgreSQL, que se salta si no hay un servidor
++   local disponible (en CI puede no haberlo).
++"""
++from __future__ import annotations
++
++import os
++import sys
++from datetime import datetime
++from pathlib import Path
++
++import pytest
++
++RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++if RAIZ not in sys.path:
++    sys.path.insert(0, RAIZ)
++
++from app.services.backup_service import _pg_literal  # noqa: E402
++
++
++# ============================================================
++# 1. _pg_literal
++# ============================================================
++
++class TestLiteralSQL:
++    """El literal SQL de cada tipo de valor."""
++
++    def test_null(self):
++        assert _pg_literal(None) == "NULL"
++
++    def test_entero_y_booleano(self):
++        assert _pg_literal(42) == "42"
++        assert _pg_literal(True) == "TRUE"
++        assert _pg_literal(False) == "FALSE"
++
++    def test_flotante(self):
++        assert _pg_literal(1.5) == "1.5"
++        assert _pg_literal(float("inf")) == "'Infinity'"
++        assert _pg_literal(float("-inf")) == "'-Infinity'"
++
++    def test_texto_con_comilla_simple(self):
++        assert _pg_literal("O'Brien") == "'O''Brien'"
++
++    def test_bytea_en_hexadecimal(self):
++        # Un SOLO backslash: '\\x0a1b' en el fichero, '\x0a1b' en la BD.
++        assert _pg_literal(b"\n\x1b") == "'\\x0a1b'"
++
++    def test_fecha_hora(self):
++        valor = datetime(2026, 11, 18, 10, 30, 0)
++        assert _pg_literal(valor) == "'2026-11-18 10:30:00'"
++
++
++class TestLiteralJSON:
++    """Las columnas ``json``/``jsonb`` necesitan su propio formato."""
++
++    def test_string_json_lleva_comillas(self):
++        """El caso que rompia la restauracion del backup de produccion."""
++        assert _pg_literal("incidencia", "json") == '\'"incidencia"\''
++
++    def test_booleano_json_es_true_en_minusculas(self):
++        assert _pg_literal(True, "json") == "'true'"
++        assert _pg_literal(False, "json") == "'false'"
++
++    def test_objeto_json(self):
++        assert _pg_literal({"a": 1}, "json") == '\'{"a": 1}\''
++
++    def test_lista_json(self):
++        assert _pg_literal([1, 2], "json") == "'[1, 2]'"
++
++    def test_numero_json(self):
++        assert _pg_literal(42, "json") == "'42'"
++
++    def test_null_json_es_null_de_sql(self):
++        assert _pg_literal(None, "json") == "NULL"
++
++    def test_string_json_con_comilla_simple(self):
++        assert _pg_literal("d'Angelo", "json") == '\'"d\'\'Angelo"\''
++
++    def test_jsonb_usa_el_mismo_formato(self):
++        assert _pg_literal("incidencia", "jsonb") == '\'"incidencia"\''
++
++    def test_sin_tipo_un_string_no_lleva_comillas_json(self):
++        """Sin el tipo de columna no se puede saber: es texto normal."""
++        assert _pg_literal("incidencia") == "'incidencia'"
++
++    def test_todo_lo_que_emiten_los_json_es_json_valido(self):
++        import json as _json
++
++        valores = [
++            "incidencia", "con \"comillas\"", "d'Angelo", True, False,
++            42, 3.14, {"a": 1, "b": [1, 2]}, [1, "x", None],
++            "acentuacion y n", "", "linea\nsalto",
++        ]
++        for valor in valores:
++            literal = _pg_literal(valor, "json")
++            assert literal.startswith("'") and literal.endswith("'")
++            # Se desenvuelve el literal SQL y se parsea como JSON.
++            interior = literal[1:-1].replace("''", "'")
++            _json.loads(interior)  # no debe lanzar
++
++
++# ============================================================
++# 2. Round-trip real contra PostgreSQL (se salta si no hay servidor)
++# ============================================================
++
++def _pg_local() -> str | None:
++    """Devuelve la URL de un PostgreSQL local, o None si no hay ninguno."""
++    candidatos = [
++        os.environ.get("PGV2009_URL", ""),
++        "postgresql://postgres@127.0.0.1:55433/postgres",
++    ]
++    for url in candidatos:
++        if not url:
++            continue
++        try:
++            import psycopg2
++            from sqlalchemy import create_engine
++
++            motor = create_engine(url, future=True)
++            with motor.connect() as c:
++                c.exec_driver_sql("SELECT 1")
++            motor.dispose()
++            return url
++        except Exception:
++            continue
++    return None
++
++
++@pytest.mark.skipif(_pg_local() is None, reason="no hay PostgreSQL local disponible")
++def test_roundtrip_con_columnas_json():
++    """Backup y restauracion de una tabla con valores JSON de todo tipo."""
++    import json as _json
++
++    from sqlalchemy import create_engine, text
++
++    url = _pg_local()
++    admin = url.rsplit("/", 1)[0] + "/postgres"
++    nombre = "v2009_test_backup_json"
++    motor_admin = create_engine(admin, future=True, isolation_level="AUTOCOMMIT")
++    with motor_admin.connect() as c:
++        for n in (nombre, nombre + "_restaurada"):
++            c.execute(text('DROP DATABASE IF EXISTS "%s" WITH (FORCE)' % n))
++            c.execute(text('CREATE DATABASE "%s"' % n))
++    motor_admin.dispose()
++
++    url_fuente = url.rsplit("/", 1)[0] + "/" + nombre
++    url_destino = url.rsplit("/", 1)[0] + "/" + nombre + "_restaurada"
++    motor_fuente = create_engine(url_fuente, future=True)
++    motor_destino = create_engine(url_destino, future=True, isolation_level="AUTOCOMMIT")
++
++    valores = [
++        "incidencia",
++        '{"estado_id": 1, "estado": "BackLog"}',
++        "d'Angelo",
++        "acentuacion",
++    ]
++    try:
++        with motor_fuente.begin() as c:
++            c.execute(text("CREATE TABLE t_json (id integer primary key, j json, b json)"))
++            for i, v in enumerate(valores, start=1):
++                # Se inserta el TEXTO JSON, que es lo que hace la columna:
++                # un string plano se guarda como el string JSON "incidencia"
++                # (con comillas). Asi es como esta en produccion.
++                c.execute(
++                    text("INSERT INTO t_json (id, j, b) VALUES (:i, :j, :b)"),
++                    {"i": i, "j": _json.dumps(v), "b": _json.dumps(True)},
++                )
++
++        # --- backup ---
++        import gzip
++        import tempfile
++
++        from app.services.backup_service import BackupService
++
++        with tempfile.TemporaryDirectory() as tmp:
++            destino = os.path.join(tmp, "dump.sql.gz")
++            BackupService()._backup_postgresql_python(url_fuente, Path(destino))
++            with gzip.open(destino, "rb") as fh:
++                sql = fh.read().decode("utf-8")
++
++        assert "CREATE TABLE" in sql
++        assert "t_json" in sql
++
++        # --- restauracion ---
++        with motor_destino.connect() as c:
++            c.execute(text(sql))
++
++        with motor_destino.connect() as c:
++            leidos = c.execute(text("SELECT id, j::text, b::text FROM t_json ORDER BY id")).fetchall()
++        assert len(leidos) == len(valores)
++        for fila, original in zip(leidos, valores):
++            # Se compara el VALOR JSON, no su texto: PostgreSQL normaliza los
++            # escapes unicode ("acentuaci\u00f3n" -> "acentuacion"), pero el
++            # valor es el mismo.
++            assert _json.loads(fila[1]) == original, (
++                "valor json alterado: %r != %r" % (fila[1], original))
++            assert _json.loads(fila[2]) is True
++    finally:
++        motor_fuente.dispose()
++        motor_destino.dispose()
++        motor_admin = create_engine(admin, future=True, isolation_level="AUTOCOMMIT")
++        with motor_admin.connect() as c:
++            for n in (nombre, nombre + "_restaurada"):
++                c.execute(text('DROP DATABASE IF EXISTS "%s" WITH (FORCE)' % n))
++        motor_admin.dispose()
++
++
++@pytest.mark.skipif(_pg_local() is None, reason="no hay PostgreSQL local disponible")
++def test_las_migraciones_concurrentes_no_se_pisan():
++    """Tres procesos aplicando migraciones a la vez NO deben fallar.
++
++    En el despliegue de Railway, ``start.sh`` lanza ``verificar_esquema()``
++    en los tres roles (web, worker y beat) a la vez, y los tres aplican las
++    migraciones sobre la MISMA base de datos. Sin cerrojo ni savepoint por
++    indice, dos de ellos crean el mismo indice a la vez y el segundo recibe
++    "duplicate key value violates unique constraint
++    pg_class_relname_nsp_index", que ABORTA su transaccion y deja sin crear
++    los indices que quedaban.
++
++    Medido el 2026-11-14 en produccion: un servicio creo 3 indices y fallo
++    en los 52 restantes.
++    """
++    import multiprocessing as mp  # noqa: F401  (documenta el problema)
++    from sqlalchemy import create_engine, text
++
++    url = _pg_local()
++    admin = url.rsplit("/", 1)[0] + "/postgres"
++    nombre = "v2009_test_concurrencia"
++    motor_admin = create_engine(admin, future=True, isolation_level="AUTOCOMMIT")
++    with motor_admin.connect() as c:
++        for n in (nombre,):
++            c.execute(text('DROP DATABASE IF EXISTS "%s" WITH (FORCE)' % n))
++            c.execute(text('CREATE DATABASE "%s"' % n))
++    motor_admin.dispose()
++
++    url_db = url.rsplit("/", 1)[0] + "/" + nombre
++    motor = create_engine(url_db, future=True)
++    import app.models  # noqa: F401
++    from app.db.base import Base
++
++    Base.metadata.create_all(motor)
++    motor.dispose()
++
++    def _trabajador(_n, resultados, barrera):
++        """Cada hilo abre SU PROPIA conexion: la carrera es real en la BD."""
++        from sqlalchemy import create_engine as ce, text as tx
++
++        m = ce(url_db, future=True)
++        ok = 0
++        fallos = 0
++        try:
++            with m.connect() as conn:
++                trans = conn.begin()
++                barrera.wait()
++                conn.execute(tx(
++                    "SELECT pg_advisory_xact_lock(:c)"), {"c": 7412009013})
++                from app.db.migrations import INDEXES
++
++                for _nombre, sql in INDEXES:
++                    try:
++                        with conn.begin_nested():
++                            conn.execute(tx(sql))
++                        ok += 1
++                    except Exception:
++                        fallos += 1
++                trans.commit()
++        except Exception:
++            fallos += 1
++        finally:
++            m.dispose()
++        resultados.append((ok, fallos))
++
++    import threading
++
++    resultados = []
++    barrera = threading.Barrier(3)
++    hilos = [threading.Thread(target=_trabajador, args=(i, resultados, barrera))
++             for i in range(3)]
++    for h in hilos:
++        h.start()
++    for h in hilos:
++        h.join(timeout=300)
++
++    motor = create_engine(url_db, future=True)
++    with motor.connect() as c:
++        n_proyecto = c.execute(text(
++            "SELECT COUNT(*) FROM pg_indexes WHERE indexname LIKE 'ix_%_proyecto_id'"
++        )).scalar()
++    motor.dispose()
++    with motor_admin.connect() as c:
++        c.execute(text('DROP DATABASE IF EXISTS "%s" WITH (FORCE)' % nombre))
++    motor_admin.dispose()
++
++    assert len(resultados) == 3, "no terminaron los 3 procesos: %s" % (resultados,)
++    fallos_totales = sum(f for _ok, f in resultados)
++    assert fallos_totales == 0, (
++        "las migraciones concurrentes fallaron: %s" % (resultados,))
++    assert n_proyecto == 34, "faltan indices de proyecto: %s de 34" % n_proyecto
+\ No newline at end of file
 diff --git a/tests/test_v2009_proyecto_aislamiento.py b/tests/test_v2009_proyecto_aislamiento.py
 new file mode 100644
-index 0000000..a69ca49
+index 0000000..9939f9c
 --- /dev/null
 +++ b/tests/test_v2009_proyecto_aislamiento.py
-@@ -0,0 +1,633 @@
+@@ -0,0 +1,682 @@
 +"""
 +Tests del aislamiento por proyecto - V2.009 (ventana aditiva).
 +
@@ -4260,6 +4834,55 @@ index 0000000..a69ca49
 +        "/api/v1/migraciones/clones",
 +    ):
 +        assert esperada in rutas, "falta la ruta %s" % esperada
++
++def test_cada_indice_va_en_su_propio_savepoint():
++    """Un indice que falla NO puede invalidar los demas.
++
++    En PostgreSQL un error dentro de una transaccion la aborta: los comandos
++    siguientes fallan con "current transaction is aborted". En produccion el
++    2026-11-14 eso hizo que 3 indices se crearan y 52 fallaran (entre ellos
++    los 34 ``ix_<tabla>_proyecto_id``).
++    """
++    import inspect as _inspect
++
++    from app.db import migrations as mod
++
++    fuente = _inspect.getsource(mod.apply_migrations)
++    # El bucle de indices usa ``begin_nested()`` (un savepoint por indice).
++    bloque = fuente.split("for name, sql in INDEXES:")[1].split("\n\n")[0]
++    assert "begin_nested()" in bloque
++
++
++def test_el_comparador_de_indices_detecta_los_que_faltan():
++    """``comparar_indices_completo`` dice que indices NO estan en su sitio."""
++    from app.db.migrations import INDEXES, apply_migrations, comparar_indices_completo
++
++    motor = create_engine("sqlite://", future=True)
++    Base.metadata.create_all(motor)
++    # Tras aplicar las migraciones, los 55 indices declarados existen.
++    apply_migrations(motor)
++    problemas = comparar_indices_completo(motor)
++    motor.dispose()
++
++    assert problemas == [], "tras las migraciones no deberia quedar ningun indice problematico: %s" % (
++        problemas,)
++    assert len(INDEXES) == 55
++
++
++def test_el_comparador_de_indices_detecta_un_indice_ausente():
++    """Si se borra un indice, el comparador lo dice."""
++    from app.db.migrations import INDEXES, comparar_indices_completo
++
++    motor = create_engine("sqlite://", future=True)
++    Base.metadata.create_all(motor)
++    nombre = INDEXES[0][0]
++    with motor.begin() as conn:
++        conn.execute(text("DROP INDEX IF EXISTS %s" % nombre))
++    problemas = comparar_indices_completo(motor)
++    motor.dispose()
++
++    assert any(nombre in p and "FALTA" in p for p in problemas), (
++        "el comparador deberia senalar %s como ausente: %s" % (nombre, problemas))
 \ No newline at end of file
 diff --git a/tools/audit_db_columns.py b/tools/audit_db_columns.py
 index 468f654..37c8cfd 100644

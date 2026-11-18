@@ -631,3 +631,52 @@ def test_los_endpoints_de_migraciones_estan_registrados():
         "/api/v1/migraciones/clones",
     ):
         assert esperada in rutas, "falta la ruta %s" % esperada
+
+def test_cada_indice_va_en_su_propio_savepoint():
+    """Un indice que falla NO puede invalidar los demas.
+
+    En PostgreSQL un error dentro de una transaccion la aborta: los comandos
+    siguientes fallan con "current transaction is aborted". En produccion el
+    2026-11-14 eso hizo que 3 indices se crearan y 52 fallaran (entre ellos
+    los 34 ``ix_<tabla>_proyecto_id``).
+    """
+    import inspect as _inspect
+
+    from app.db import migrations as mod
+
+    fuente = _inspect.getsource(mod.apply_migrations)
+    # El bucle de indices usa ``begin_nested()`` (un savepoint por indice).
+    bloque = fuente.split("for name, sql in INDEXES:")[1].split("\n\n")[0]
+    assert "begin_nested()" in bloque
+
+
+def test_el_comparador_de_indices_detecta_los_que_faltan():
+    """``comparar_indices_completo`` dice que indices NO estan en su sitio."""
+    from app.db.migrations import INDEXES, apply_migrations, comparar_indices_completo
+
+    motor = create_engine("sqlite://", future=True)
+    Base.metadata.create_all(motor)
+    # Tras aplicar las migraciones, los 55 indices declarados existen.
+    apply_migrations(motor)
+    problemas = comparar_indices_completo(motor)
+    motor.dispose()
+
+    assert problemas == [], "tras las migraciones no deberia quedar ningun indice problematico: %s" % (
+        problemas,)
+    assert len(INDEXES) == 55
+
+
+def test_el_comparador_de_indices_detecta_un_indice_ausente():
+    """Si se borra un indice, el comparador lo dice."""
+    from app.db.migrations import INDEXES, comparar_indices_completo
+
+    motor = create_engine("sqlite://", future=True)
+    Base.metadata.create_all(motor)
+    nombre = INDEXES[0][0]
+    with motor.begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS %s" % nombre))
+    problemas = comparar_indices_completo(motor)
+    motor.dispose()
+
+    assert any(nombre in p and "FALTA" in p for p in problemas), (
+        "el comparador deberia senalar %s como ausente: %s" % (nombre, problemas))

@@ -92,6 +92,58 @@ class BackupResult:
 # Servicio principal
 # ============================================================
 
+def _pg_literal(v: Any, tipo: str = "") -> str:
+    """
+    Literal SQL de PostgreSQL para un valor Python.
+
+    ``tipo`` es el tipo DECLARADO de la columna (la salida de
+    ``format_type``). HACE FALTA para las columnas ``json`` y ``jsonb``:
+    psycopg2 convierte esas columnas en objetos Python (un dict, un str, un
+    bool...) y un literal SQL escrito a pelo no siempre es JSON valido.
+
+    Lo que se vio en produccion el 2026-11-18 al restaurar el backup: un
+    string JSON (``"incidencia"``) salia como ``'incidencia'`` (sin las
+    comillas del JSON), un booleano salia como ``TRUE`` y un null JSON como
+    ``NULL``. Los tres los rechazaba la columna al restaurar::
+
+        ERROR: invalid input syntax for type json
+
+    Con el tipo a la vista, el valor se serializa SIEMPRE con ``json.dumps``:
+    ``"incidencia"``, ``true``, ``null``, ``{"a": 1}``...
+    """
+    if tipo in ("json", "jsonb"):
+        if v is None:
+            return "NULL"
+        return "'" + json.dumps(v, ensure_ascii=False).replace("'", "''") + "'"
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        if v != v:
+            return "'NaN'"
+        if v == float("inf"):
+            return "'Infinity'"
+        if v == float("-inf"):
+            return "'-Infinity'"
+        return repr(v)
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        # formato hex de bytea: un solo backslash -> '\x0a1b'
+        return "'\\x" + bytes(v).hex() + "'"
+    if isinstance(v, datetime):
+        return "'" + v.isoformat(sep=" ") + "'"
+    if isinstance(v, (list, tuple)):
+        if not v:
+            return "'{}'"
+        return "ARRAY[" + ", ".join(_pg_literal(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "'" + json.dumps(
+            v, ensure_ascii=False).replace("'", "''") + "'"
+    return "'" + str(v).replace("'", "''") + "'"
+
+
 class BackupService:
     """Servicio central de respaldos.
 
@@ -359,35 +411,9 @@ class BackupService:
                 """Identificador de PostgreSQL entrecomillado."""
                 return '"' + str(name).replace('"', '""') + '"'
 
-            def lit(v: Any) -> str:
+            def lit(v: Any, tipo: str = "") -> str:
                 """Literal SQL de PostgreSQL para un valor Python."""
-                if v is None:
-                    return "NULL"
-                if isinstance(v, bool):
-                    return "TRUE" if v else "FALSE"
-                if isinstance(v, int):
-                    return str(v)
-                if isinstance(v, float):
-                    if v != v:
-                        return "'NaN'"
-                    if v == float("inf"):
-                        return "'Infinity'"
-                    if v == float("-inf"):
-                        return "'-Infinity'"
-                    return repr(v)
-                if isinstance(v, (bytes, bytearray, memoryview)):
-                    # formato hex de bytea: un solo backslash -> '\x0a1b'
-                    return "'\\x" + bytes(v).hex() + "'"
-                if isinstance(v, datetime):
-                    return "'" + v.isoformat(sep=" ") + "'"
-                if isinstance(v, (list, tuple)):
-                    if not v:
-                        return "'{}'"
-                    return "ARRAY[" + ", ".join(lit(x) for x in v) + "]"
-                if isinstance(v, dict):
-                    return "'" + json.dumps(
-                        v, ensure_ascii=False).replace("'", "''") + "'"
-                return "'" + str(v).replace("'", "''") + "'"
+                return _pg_literal(v, tipo)
 
             schema = "public"
             qschema = qi(schema)
@@ -640,8 +666,11 @@ class BackupService:
                 if any(c["identity"] == "a" for c in all_cols):
                     overriding = " OVERRIDING SYSTEM VALUE"
                 data_s.append(f"-- {t}: {len(rows)} filas")
+                col_types = [c.get("type", "") for c in cols]
                 for row in rows:
-                    vals = ", ".join(lit(v) for v in row)
+                    vals = ", ".join(
+                        lit(v, col_types[i]) for i, v in enumerate(row)
+                    )
                     data_s.append(
                         f"INSERT INTO {qschema}.{qi(t)} ({col_list})"
                         f"{overriding} VALUES ({vals});"

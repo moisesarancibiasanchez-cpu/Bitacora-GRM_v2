@@ -320,6 +320,11 @@ def _column_exists(eng: Engine, table: str, column: str) -> bool:
     return column in _get_existing_columns(eng, table)
 
 
+#: Clave del cerrojo consultivo de PostgreSQL que serializa las
+#: migraciones entre los servicios que arrancan a la vez (web, worker y beat).
+CLAVE_CERROJO_MIGRACIONES = 7_412_009_013
+
+
 def _asegurar_modelos_importados() -> None:
     """Importa el paquete de modelos para que ``Base.metadata`` los conozca.
 
@@ -374,6 +379,36 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
 
     # 2) Añadir columnas faltantes
     with eng.begin() as conn:
+        # --- V2.009: CERROJO DE MIGRACIONES -----------------------------
+        # En el despliegue de Railway, ``start.sh`` ejecuta
+        # ``verificar_esquema()`` en los TRES roles (web, worker y beat) a
+        # la vez, y los tres aplican las migraciones sobre la MISMA base de
+        # datos. Dos de ellos pueden pasar a la vez el chequeo
+        # ``CREATE INDEX IF NOT EXISTS`` (que no bloquea) y los dos intentar
+        # crear el mismo indice: el segundo recibe
+        #
+        #     duplicate key value violates unique constraint
+        #     "pg_class_relname_nsp_index"
+        #
+        # y su TRANSACCION queda abortada, de modo que los indices que
+        # quedaban por crear fallan todos con "current transaction is
+        # aborted". Medido en produccion el 2026-11-14: un servicio creo 3
+        # indices y fallo en los 52 restantes.
+        #
+        # ``pg_advisory_xact_lock`` serializa las migraciones: el primero la
+        # toma y los demas esperan; cuando le toca, encuentra el esquema ya
+        # alineado y no hace nada. El cerrojo se suelta solo al cerrar la
+        # transaccion (COMMIT o ROLLBACK).
+        if is_pg:
+            try:
+                conn.execute(text(
+                    "SELECT pg_advisory_xact_lock(:clave)"
+                ), {"clave": CLAVE_CERROJO_MIGRACIONES})
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    "[migrations] no se pudo tomar el cerrojo de migraciones: %s", exc,
+                )
+
         for table, columns in COLUMNS_TO_ADD.items():
             existing = _get_existing_columns(eng, table)
             for column, type_def in columns.items():
@@ -408,9 +443,21 @@ def apply_migrations(eng: Optional[Engine] = None) -> Dict[str, int]:
         #    registraba con ``logger.debug`` (invisible en producción) y no
         #    se contabilizaba, de modo que un esquema al que le faltaba un
         #    índice pasaba el ``verificar_esquema`` sin dejar rastro.
+        #
+        #    V2.009 — CADA ÍNDICE VA EN SU PROPIO SAVEPOINT.
+        #    En PostgreSQL, un error dentro de una transacción la ABORTA: los
+        #    comandos siguientes fallan con "current transaction is aborted".
+        #    Con el bucle entero en una sola transacción, UN índice que
+        #    fallara (por ejemplo, por un nombre que ya existe en otra
+        #    tabla) invalidaba los 54 restantes. Se vio en produccion el
+        #    2026-11-14: 3 índices creados y 52 fallidos, entre ellos los 34
+        #    ``ix_<tabla>_proyecto_id``, que son los que necesita el filtro
+        #    por proyecto. Con un savepoint por índice, un fallo aislado
+        #    revierte solo su propio índice.
         for name, sql in INDEXES:
             try:
-                conn.execute(text(sql))
+                with conn.begin_nested():
+                    conn.execute(text(sql))
                 stats["indexes"] += 1
             except Exception as e:
                 stats["index_errors"] += 1
@@ -1340,6 +1387,85 @@ def comparar_esquema_completo(eng: Optional[Engine] = None) -> List[str]:
             out.append(f"{nombre}: faltan {', '.join(faltan)}")
         else:
             out.append(f"{nombre}: OK")
+    return out
+
+
+def _indice_y_tabla_de_un_index(sql: str) -> Tuple[str, str]:
+    """
+    Extrae el NOMBRE real del indice y su tabla del DDL.
+
+    Ojo: la etiqueta de la tupla de ``INDEXES`` no siempre coincide con el
+    nombre del indice que crea el DDL. Por ejemplo, la etiqueta
+    ``ix_ref_origen`` crea en realidad ``ix_ticket_referencias_ticket_origen_id``
+    y ``ix_adjuntos_comentario`` crea ``ix_adjuntos_comentario_id``. Comparar
+    por la etiqueta daria un "FALTA" falso.
+    """
+    import re as _re
+
+    m = _re.search(
+        r"CREATE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+        r"[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?\s+ON\s+[\"']?([A-Za-z_][A-Za-z0-9_]*)",
+        sql, _re.IGNORECASE,
+    )
+    if m:
+        return m.group(1), m.group(2)
+    m2 = _re.search(r"\bON\s+[\"']?([A-Za-z_][A-Za-z0-9_]*)", sql, _re.IGNORECASE)
+    return "", (m2.group(1) if m2 else "")
+
+
+def comparar_indices_completo(eng: Optional[Engine] = None) -> List[str]:
+    """
+    Compara los indices declarados en ``INDEXES`` con los que existen de
+    verdad en la base de datos.
+
+    Por que hace falta (V2.009)
+    -------------------------
+    El guardian de arranque comparaba COLUMNAS, nunca indices. En produccion
+    (2026-11-14) fallaron 52 de los 55 indices declarados y la aplicacion
+    arranco igual: el filtro por proyecto se quedaba sin indice y las
+    consultas tenian que recorrer la tabla entera, sin que nada lo dijera.
+
+    Este comparador devuelve una linea por indice declarado que NO esta en
+    su sitio:
+
+    * ``<nombre>: FALTA (declarado sobre <tabla>)`` -> no existe.
+    * ``<nombre>: COLISION (existe sobre '<otra>', el DDL lo declara sobre
+      '<tabla>')`` -> el nombre ya lo usa OTRA tabla. En PostgreSQL,
+      ``CREATE INDEX IF NOT EXISTS`` ignora el aviso SOLO si el indice con
+      ese nombre esta en la MISMA tabla: si esta en otra, falla con
+      "relation already exists".
+
+    Los indices que estan bien NO se reportan: el resultado son solo
+    problemas.
+    """
+    eng = eng or _get_default_engine()
+    _asegurar_modelos_importados()
+    try:
+        insp = inspect(eng)
+        indice_por_nombre: Dict[str, str] = {}
+        for nombre in Base.metadata.tables:
+            for idx in insp.get_indexes(nombre):
+                indice_por_nombre[idx["name"]] = nombre
+            for uq in insp.get_unique_constraints(nombre):
+                indice_por_nombre.setdefault(uq["name"], nombre)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("[migrations] no se pudieron inspeccionar los indices: %s", exc)
+        return []
+
+    out: List[str] = []
+    for etiqueta, sql in INDEXES:
+        nombre, tabla = _indice_y_tabla_de_un_index(sql)
+        if not nombre:
+            # DDL no reconocible: se usa la etiqueta como nombre.
+            nombre = etiqueta
+        real = indice_por_nombre.get(nombre)
+        if real is None:
+            out.append("%s: FALTA (declarado sobre %s)" % (nombre, tabla))
+        elif tabla and real != tabla:
+            out.append(
+                "%s: COLISION (existe sobre '%s', el DDL lo declara sobre '%s')"
+                % (nombre, real, tabla)
+            )
     return out
 
 
